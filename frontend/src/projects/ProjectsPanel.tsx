@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import {
   createProject,
   listProjects,
+  updateProject,
   type CreateProjectInput,
   type Project,
   type ProjectStatus,
+  type UpdateProjectInput,
 } from "@/projects/projectApi";
 import { type Workspace } from "@/workspaces/workspaceApi";
 
@@ -27,6 +29,12 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [status, setStatus] = useState<ProjectStatus | "">("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editCurrentState, setEditCurrentState] = useState("");
+  const [editStatus, setEditStatus] = useState<ProjectStatus>("IDEA");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -102,6 +110,62 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     }
   }
 
+  function startEditing(project: Project) {
+    setEditingProjectId(project.id);
+    setEditName(project.name);
+    setEditDescription(project.description ?? "");
+    setEditCurrentState(project.currentState ?? "");
+    setEditStatus(project.status);
+    setError(null);
+  }
+
+  function cancelEditing() {
+    setEditingProjectId(null);
+    setSavingProjectId(null);
+    setEditName("");
+    setEditDescription("");
+    setEditCurrentState("");
+    setEditStatus("IDEA");
+    setError(null);
+  }
+
+  async function handleUpdate(project: Project) {
+    const normalizedName = editName.trim();
+    if (!normalizedName) {
+      setError("Informe um nome para o projeto.");
+      return;
+    }
+
+    const input: UpdateProjectInput = {
+      name: normalizedName,
+      status: editStatus,
+    };
+    const normalizedDescription = editDescription.trim();
+    const normalizedCurrentState = editCurrentState.trim();
+
+    if (normalizedDescription) {
+      input.description = normalizedDescription;
+    }
+    if (normalizedCurrentState) {
+      input.currentState = normalizedCurrentState;
+    }
+
+    setSavingProjectId(project.id);
+    setError(null);
+
+    try {
+      const updatedProject = await updateProject(workspace.id, project.id, input);
+      setProjects((current) =>
+        current.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
+      );
+      cancelEditing();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nao foi possivel salvar o projeto.");
+    } finally {
+      setSavingProjectId(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <form className="grid gap-3 rounded-lg border border-border bg-background p-4" onSubmit={handleCreate}>
@@ -166,27 +230,82 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         <div className="grid gap-4 md:grid-cols-2">
           {projects.map((project) => (
             <article key={project.id} className="rounded-lg border border-border bg-background p-4">
-              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="break-words text-base font-semibold text-foreground">{project.name}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Atualizado em {formatDate(project.updatedAt)}
-                  </p>
+              {editingProjectId === project.id ? (
+                <div className="flex flex-col gap-3">
+                  <input
+                    className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={editName}
+                    onChange={(event) => setEditName(event.target.value)}
+                    aria-label="Nome do projeto"
+                  />
+                  <select
+                    className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={editStatus}
+                    onChange={(event) => setEditStatus(event.target.value as ProjectStatus)}
+                    aria-label="Status do projeto"
+                  >
+                    {PROJECT_STATUS_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={editDescription}
+                    onChange={(event) => setEditDescription(event.target.value)}
+                    placeholder="Descricao"
+                    aria-label="Descricao do projeto"
+                  />
+                  <input
+                    className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    value={editCurrentState}
+                    onChange={(event) => setEditCurrentState(event.target.value)}
+                    placeholder="Estado atual"
+                    aria-label="Estado atual do projeto"
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      onClick={() => void handleUpdate(project)}
+                      disabled={savingProjectId === project.id}
+                    >
+                      {savingProjectId === project.id ? "Salvando..." : "Salvar"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={cancelEditing}>
+                      Cancelar
+                    </Button>
+                  </div>
                 </div>
-                <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
-                  {project.status}
-                </span>
-              </div>
+              ) : (
+                <>
+                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="break-words text-base font-semibold text-foreground">{project.name}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Atualizado em {formatDate(project.updatedAt)}
+                      </p>
+                    </div>
+                    <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
+                      {project.status}
+                    </span>
+                  </div>
 
-              {project.description ? (
-                <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{project.description}</p>
-              ) : null}
+                  {project.description ? (
+                    <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{project.description}</p>
+                  ) : null}
 
-              {project.currentState ? (
-                <div className="rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground">
-                  {project.currentState}
-                </div>
-              ) : null}
+                  {project.currentState ? (
+                    <div className="mb-4 rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground">
+                      {project.currentState}
+                    </div>
+                  ) : null}
+
+                  <Button type="button" variant="outline" size="sm" onClick={() => startEditing(project)}>
+                    Editar
+                  </Button>
+                </>
+              )}
             </article>
           ))}
         </div>
