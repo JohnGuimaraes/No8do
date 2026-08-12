@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Circle, Kanban, SignOut, Sparkle } from "@phosphor-icons/react";
+import { Circle, SignOut, Sparkle } from "@phosphor-icons/react";
 import { LoginPage } from "@/auth/LoginPage";
 import { RegisterPage } from "@/auth/RegisterPage";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
+import { WorkspacePanel } from "@/workspaces/WorkspacePanel";
 
 type AuthView = "login" | "register";
 type HealthStatus = "checking" | "online" | "offline";
@@ -124,19 +125,7 @@ function App() {
           <StatusBadge status={backendStatus} />
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          {["Ideias", "Planejamento", "Em andamento"].map((title) => (
-            <section key={title} className="rounded-lg border border-border bg-card p-4 shadow-sm">
-              <div className="mb-4 flex items-center gap-2">
-                <Kanban className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold text-card-foreground">{title}</h2>
-              </div>
-              <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                Sem itens
-              </div>
-            </section>
-          ))}
-        </div>
+        <WorkspacePanel />
       </section>
     </main>
   );
