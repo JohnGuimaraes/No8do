@@ -30,15 +30,24 @@ public class User {
     @Setter
     private String email;
 
+    @Column(name = "password_hash", nullable = false, length = 255)
+    @Setter
+    private String passwordHash;
+
+    @Column(nullable = false)
+    @Setter
+    private boolean enabled = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    public User(String name, String email) {
+    public User(String name, String email, String passwordHash) {
         this.name = name;
         this.email = email;
+        this.passwordHash = passwordHash;
     }
 
     @PrePersist
