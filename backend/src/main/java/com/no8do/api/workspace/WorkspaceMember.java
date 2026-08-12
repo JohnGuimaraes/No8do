@@ -3,6 +3,8 @@ package com.no8do.api.workspace;
 import com.no8do.api.user.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -43,9 +45,10 @@ public class WorkspaceMember {
     @Setter
     private User user;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     @Setter
-    private String role;
+    private WorkspaceRole role;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -53,7 +56,7 @@ public class WorkspaceMember {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    public WorkspaceMember(Workspace workspace, User user, String role) {
+    public WorkspaceMember(Workspace workspace, User user, WorkspaceRole role) {
         this.workspace = workspace;
         this.user = user;
         this.role = role;
