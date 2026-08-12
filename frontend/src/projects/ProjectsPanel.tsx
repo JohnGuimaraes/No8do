@@ -1,6 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Circle, Plus } from "@phosphor-icons/react";
-import { Button } from "@/components/ui/button";
+import { Circle } from "@phosphor-icons/react";
 import {
   createProject,
   listProjects,
@@ -10,25 +9,10 @@ import {
   type ProjectStatus,
   type UpdateProjectInput,
 } from "@/projects/projectApi";
+import { ProjectCreateForm } from "@/projects/ProjectCreateForm";
+import { ProjectStatusColumn } from "@/projects/ProjectStatusColumn";
+import { PROJECT_STATUS_COLUMNS } from "@/projects/projectStatus";
 import { type Workspace } from "@/workspaces/workspaceApi";
-
-const PROJECT_STATUS_OPTIONS: ProjectStatus[] = [
-  "IDEA",
-  "PLANNING",
-  "ACTIVE",
-  "BLOCKED",
-  "PAUSED",
-  "DONE",
-];
-
-const PROJECT_STATUS_COLUMNS: Array<{ status: ProjectStatus; label: string }> = [
-  { status: "IDEA", label: "Ideias" },
-  { status: "PLANNING", label: "Planejamento" },
-  { status: "ACTIVE", label: "Em andamento" },
-  { status: "BLOCKED", label: "Bloqueados" },
-  { status: "PAUSED", label: "Pausados" },
-  { status: "DONE", label: "Concluídos" },
-];
 
 export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -44,14 +28,16 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [editDescription, setEditDescription] = useState("");
   const [editCurrentState, setEditCurrentState] = useState("");
   const [editStatus, setEditStatus] = useState<ProjectStatus>("IDEA");
-  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [boardError, setBoardError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProjects() {
       setLoading(true);
-      setError(null);
+      setBoardError(null);
+      setEditingProjectId(null);
 
       try {
         const items = await listProjects(workspace.id);
@@ -61,7 +47,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Nao foi possivel carregar projetos.");
+          setBoardError(err instanceof Error ? err.message : "Nao foi possivel carregar projetos.");
         }
       } finally {
         if (!cancelled) {
@@ -82,7 +68,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
     const normalizedName = name.trim();
     if (!normalizedName) {
-      setError("Informe um nome para o projeto.");
+      setFormError("Informe um nome para o projeto.");
       return;
     }
 
@@ -103,7 +89,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     }
 
     setCreating(true);
-    setError(null);
+    setFormError(null);
 
     try {
       const project = await createProject(workspace.id, input);
@@ -113,7 +99,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       setCurrentState("");
       setStatus("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel criar o projeto.");
+      setFormError(err instanceof Error ? err.message : "Nao foi possivel criar o projeto.");
     } finally {
       setCreating(false);
     }
@@ -125,7 +111,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setEditDescription(project.description ?? "");
     setEditCurrentState(project.currentState ?? "");
     setEditStatus(project.status);
-    setError(null);
+    setBoardError(null);
   }
 
   function cancelEditing() {
@@ -135,13 +121,13 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setEditDescription("");
     setEditCurrentState("");
     setEditStatus("IDEA");
-    setError(null);
+    setBoardError(null);
   }
 
   async function handleUpdate(project: Project) {
     const normalizedName = editName.trim();
     if (!normalizedName) {
-      setError("Informe um nome para o projeto.");
+      setBoardError("Informe um nome para o projeto.");
       return;
     }
 
@@ -160,7 +146,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     }
 
     setSavingProjectId(project.id);
-    setError(null);
+    setBoardError(null);
 
     try {
       const updatedProject = await updateProject(workspace.id, project.id, input);
@@ -169,145 +155,29 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       );
       cancelEditing();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel salvar o projeto.");
+      setBoardError(err instanceof Error ? err.message : "Nao foi possivel salvar o projeto.");
     } finally {
       setSavingProjectId(null);
     }
   }
 
-  function renderProjectCard(project: Project) {
-    return (
-      <article key={project.id} className="rounded-lg border border-border bg-background p-4 shadow-sm">
-        {editingProjectId === project.id ? (
-          <div className="flex flex-col gap-3">
-            <input
-              className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={editName}
-              onChange={(event) => setEditName(event.target.value)}
-              aria-label="Nome do projeto"
-            />
-            <select
-              className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={editStatus}
-              onChange={(event) => setEditStatus(event.target.value as ProjectStatus)}
-              aria-label="Status do projeto"
-            >
-              {PROJECT_STATUS_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-            <textarea
-              className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={editDescription}
-              onChange={(event) => setEditDescription(event.target.value)}
-              placeholder="Descricao"
-              aria-label="Descricao do projeto"
-            />
-            <input
-              className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={editCurrentState}
-              onChange={(event) => setEditCurrentState(event.target.value)}
-              placeholder="Estado atual"
-              aria-label="Estado atual do projeto"
-            />
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Button
-                type="button"
-                onClick={() => void handleUpdate(project)}
-                disabled={savingProjectId === project.id}
-              >
-                {savingProjectId === project.id ? "Salvando..." : "Salvar"}
-              </Button>
-              <Button type="button" variant="outline" onClick={cancelEditing}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="break-words text-base font-semibold text-foreground">{project.name}</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Atualizado em {formatDate(project.updatedAt)}
-                </p>
-              </div>
-              <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
-                {project.status}
-              </span>
-            </div>
-
-            {project.description ? (
-              <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{project.description}</p>
-            ) : null}
-
-            {project.currentState ? (
-              <div className="mb-4 rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground">
-                {project.currentState}
-              </div>
-            ) : null}
-
-            <Button type="button" variant="outline" size="sm" onClick={() => startEditing(project)}>
-              Editar
-            </Button>
-          </>
-        )}
-      </article>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-6">
-      <form className="grid gap-3 rounded-lg border border-border bg-background p-4" onSubmit={handleCreate}>
-        <div className="grid gap-3 md:grid-cols-[1fr_180px]">
-          <input
-            className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Nome do projeto"
-            aria-label="Nome do projeto"
-          />
-          <select
-            className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            value={status}
-            onChange={(event) => setStatus(event.target.value as ProjectStatus | "")}
-            aria-label="Status do projeto"
-          >
-            <option value="">Status padrao</option>
-            {PROJECT_STATUS_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
+      <ProjectCreateForm
+        name={name}
+        description={description}
+        currentState={currentState}
+        status={status}
+        creating={creating}
+        error={formError}
+        onNameChange={setName}
+        onDescriptionChange={setDescription}
+        onCurrentStateChange={setCurrentState}
+        onStatusChange={setStatus}
+        onSubmit={handleCreate}
+      />
 
-        <textarea
-          className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Descricao"
-          aria-label="Descricao do projeto"
-        />
-
-        <div className="flex flex-col gap-3 md:flex-row">
-          <input
-            className="h-10 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            value={currentState}
-            onChange={(event) => setCurrentState(event.target.value)}
-            placeholder="Estado atual"
-            aria-label="Estado atual do projeto"
-          />
-          <Button type="submit" disabled={creating}>
-            <Plus className="h-4 w-4" />
-            {creating ? "Criando..." : "Criar projeto"}
-          </Button>
-        </div>
-      </form>
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {boardError ? <p className="text-sm text-destructive">{boardError}</p> : null}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -320,39 +190,28 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-3">
-          {PROJECT_STATUS_COLUMNS.map((column) => {
-            const columnProjects = projects.filter((project) => project.status === column.status);
-
-            return (
-              <section key={column.status} className="rounded-lg border border-border bg-background p-3">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
-                  <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
-                    {columnProjects.length}
-                  </span>
-                </div>
-
-                {columnProjects.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                    Sem projetos
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {columnProjects.map((project) => renderProjectCard(project))}
-                  </div>
-                )}
-              </section>
-            );
-          })}
+          {PROJECT_STATUS_COLUMNS.map((column) => (
+            <ProjectStatusColumn
+              key={column.status}
+              label={column.label}
+              projects={projects.filter((project) => project.status === column.status)}
+              editingProjectId={editingProjectId}
+              savingProjectId={savingProjectId}
+              editName={editName}
+              editDescription={editDescription}
+              editCurrentState={editCurrentState}
+              editStatus={editStatus}
+              onStartEditing={startEditing}
+              onCancelEditing={cancelEditing}
+              onSave={(project) => void handleUpdate(project)}
+              onEditNameChange={setEditName}
+              onEditDescriptionChange={setEditDescription}
+              onEditCurrentStateChange={setEditCurrentState}
+              onEditStatusChange={setEditStatus}
+            />
+          ))}
         </div>
       )}
     </div>
   );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
 }
