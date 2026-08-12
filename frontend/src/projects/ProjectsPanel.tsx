@@ -21,6 +21,15 @@ const PROJECT_STATUS_OPTIONS: ProjectStatus[] = [
   "DONE",
 ];
 
+const PROJECT_STATUS_COLUMNS: Array<{ status: ProjectStatus; label: string }> = [
+  { status: "IDEA", label: "Ideias" },
+  { status: "PLANNING", label: "Planejamento" },
+  { status: "ACTIVE", label: "Em andamento" },
+  { status: "BLOCKED", label: "Bloqueados" },
+  { status: "PAUSED", label: "Pausados" },
+  { status: "DONE", label: "Concluídos" },
+];
+
 export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
@@ -166,6 +175,89 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     }
   }
 
+  function renderProjectCard(project: Project) {
+    return (
+      <article key={project.id} className="rounded-lg border border-border bg-background p-4 shadow-sm">
+        {editingProjectId === project.id ? (
+          <div className="flex flex-col gap-3">
+            <input
+              className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={editName}
+              onChange={(event) => setEditName(event.target.value)}
+              aria-label="Nome do projeto"
+            />
+            <select
+              className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={editStatus}
+              onChange={(event) => setEditStatus(event.target.value as ProjectStatus)}
+              aria-label="Status do projeto"
+            >
+              {PROJECT_STATUS_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <textarea
+              className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={editDescription}
+              onChange={(event) => setEditDescription(event.target.value)}
+              placeholder="Descricao"
+              aria-label="Descricao do projeto"
+            />
+            <input
+              className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={editCurrentState}
+              onChange={(event) => setEditCurrentState(event.target.value)}
+              placeholder="Estado atual"
+              aria-label="Estado atual do projeto"
+            />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                onClick={() => void handleUpdate(project)}
+                disabled={savingProjectId === project.id}
+              >
+                {savingProjectId === project.id ? "Salvando..." : "Salvar"}
+              </Button>
+              <Button type="button" variant="outline" onClick={cancelEditing}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="break-words text-base font-semibold text-foreground">{project.name}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Atualizado em {formatDate(project.updatedAt)}
+                </p>
+              </div>
+              <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
+                {project.status}
+              </span>
+            </div>
+
+            {project.description ? (
+              <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{project.description}</p>
+            ) : null}
+
+            {project.currentState ? (
+              <div className="mb-4 rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground">
+                {project.currentState}
+              </div>
+            ) : null}
+
+            <Button type="button" variant="outline" size="sm" onClick={() => startEditing(project)}>
+              Editar
+            </Button>
+          </>
+        )}
+      </article>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <form className="grid gap-3 rounded-lg border border-border bg-background p-4" onSubmit={handleCreate}>
@@ -227,87 +319,31 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           Nenhum projeto neste workspace
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {projects.map((project) => (
-            <article key={project.id} className="rounded-lg border border-border bg-background p-4">
-              {editingProjectId === project.id ? (
-                <div className="flex flex-col gap-3">
-                  <input
-                    className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={editName}
-                    onChange={(event) => setEditName(event.target.value)}
-                    aria-label="Nome do projeto"
-                  />
-                  <select
-                    className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={editStatus}
-                    onChange={(event) => setEditStatus(event.target.value as ProjectStatus)}
-                    aria-label="Status do projeto"
-                  >
-                    {PROJECT_STATUS_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                  <textarea
-                    className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={editDescription}
-                    onChange={(event) => setEditDescription(event.target.value)}
-                    placeholder="Descricao"
-                    aria-label="Descricao do projeto"
-                  />
-                  <input
-                    className="h-10 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={editCurrentState}
-                    onChange={(event) => setEditCurrentState(event.target.value)}
-                    placeholder="Estado atual"
-                    aria-label="Estado atual do projeto"
-                  />
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button
-                      type="button"
-                      onClick={() => void handleUpdate(project)}
-                      disabled={savingProjectId === project.id}
-                    >
-                      {savingProjectId === project.id ? "Salvando..." : "Salvar"}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={cancelEditing}>
-                      Cancelar
-                    </Button>
-                  </div>
+        <div className="grid gap-4 xl:grid-cols-3">
+          {PROJECT_STATUS_COLUMNS.map((column) => {
+            const columnProjects = projects.filter((project) => project.status === column.status);
+
+            return (
+              <section key={column.status} className="rounded-lg border border-border bg-background p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
+                  <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
+                    {columnProjects.length}
+                  </span>
                 </div>
-              ) : (
-                <>
-                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="break-words text-base font-semibold text-foreground">{project.name}</h3>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Atualizado em {formatDate(project.updatedAt)}
-                      </p>
-                    </div>
-                    <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
-                      {project.status}
-                    </span>
+
+                {columnProjects.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
+                    Sem projetos
                   </div>
-
-                  {project.description ? (
-                    <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{project.description}</p>
-                  ) : null}
-
-                  {project.currentState ? (
-                    <div className="mb-4 rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground">
-                      {project.currentState}
-                    </div>
-                  ) : null}
-
-                  <Button type="button" variant="outline" size="sm" onClick={() => startEditing(project)}>
-                    Editar
-                  </Button>
-                </>
-              )}
-            </article>
-          ))}
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {columnProjects.map((project) => renderProjectCard(project))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </div>
