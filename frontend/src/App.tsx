@@ -1,32 +1,37 @@
 import { useEffect, useState } from "react";
-import { Sparkle, Circle } from "@phosphor-icons/react";
+import { Circle, Kanban, SignOut, Sparkle } from "@phosphor-icons/react";
+import { LoginPage } from "@/auth/LoginPage";
+import { RegisterPage } from "@/auth/RegisterPage";
+import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 
+type AuthView = "login" | "register";
 type HealthStatus = "checking" | "online" | "offline";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 const API_HEALTH_URL = `${API_BASE_URL}/api/health`;
 
-/**
- * Checagem simples e opcional de conectividade com o backend.
- * Não bloqueia a renderização da página e não implementa nenhuma
- * regra de negócio - serve apenas para confirmar que o ambiente
- * local (frontend + backend) está corretamente ligado quando ambos
- * estiverem rodando.
- */
 function useBackendHealth() {
-  const [status, setStatus] = useState<HealthStatus>("checking");
+  const [backendStatus, setBackendStatus] = useState<HealthStatus>("checking");
 
   useEffect(() => {
     let cancelled = false;
 
-    fetch(API_HEALTH_URL)
-      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-      .then(() => {
-        if (!cancelled) setStatus("online");
+    fetch(API_HEALTH_URL, {
+      credentials: "include",
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Backend offline");
+        }
+        if (!cancelled) {
+          setBackendStatus("online");
+        }
       })
       .catch(() => {
-        if (!cancelled) setStatus("offline");
+        if (!cancelled) {
+          setBackendStatus("offline");
+        }
       });
 
     return () => {
@@ -34,49 +39,106 @@ function useBackendHealth() {
     };
   }, []);
 
-  return status;
+  return backendStatus;
 }
 
 function StatusBadge({ status }: { status: HealthStatus }) {
-  const config = {
-    checking: { label: "Verificando backend...", color: "text-muted-foreground" },
-    online: { label: "Backend conectado", color: "text-emerald-600" },
-    offline: { label: "Backend offline", color: "text-muted-foreground" },
+  const label = {
+    checking: "Verificando backend...",
+    online: "Backend conectado",
+    offline: "Backend offline",
+  }[status];
+
+  const color = {
+    checking: "text-muted-foreground",
+    online: "text-emerald-600",
+    offline: "text-muted-foreground",
   }[status];
 
   return (
-    <div className={`flex items-center gap-2 text-xs ${config.color}`}>
+    <div className={`flex items-center gap-2 text-xs ${color}`}>
       <Circle weight="fill" className="h-2 w-2" />
-      <span>{config.label}</span>
+      <span>{label}</span>
     </div>
   );
 }
 
 function App() {
+  const { status, user, logout } = useAuth();
+  const [authView, setAuthView] = useState<AuthView>("login");
+  const [loggingOut, setLoggingOut] = useState(false);
   const backendStatus = useBackendHealth();
 
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6">
-      <div className="flex max-w-xl flex-col items-center gap-6 text-center">
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 shadow-sm">
-          <Sparkle weight="fill" className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium text-card-foreground">No8do</span>
+  async function handleLogout() {
+    setLoggingOut(true);
+
+    try {
+      await logout();
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  if (status === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Circle weight="fill" className="h-2 w-2 animate-pulse" />
+          Carregando sessao...
         </div>
+      </main>
+    );
+  }
 
-        <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-          No8do
-        </h1>
+  if (status === "unauthenticated") {
+    return authView === "login" ? (
+      <LoginPage onShowRegister={() => setAuthView("register")} />
+    ) : (
+      <RegisterPage onShowLogin={() => setAuthView("login")} />
+    );
+  }
 
-        <p className="text-lg text-muted-foreground">
-          Workspace visual para projetos, ideias e decisões.
-        </p>
+  return (
+    <main className="min-h-screen bg-background">
+      <header className="border-b border-border bg-card">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Sparkle weight="fill" className="h-5 w-5 text-primary" />
+            <span className="font-semibold text-card-foreground">No8do</span>
+          </div>
 
-        <div className="mt-2 flex flex-col items-center gap-3">
-          <Button variant="default">Começar</Button>
+          <Button variant="outline" size="sm" onClick={handleLogout} disabled={loggingOut}>
+            <SignOut className="h-4 w-4" />
+            {loggingOut ? "Saindo..." : "Sair"}
+          </Button>
+        </div>
+      </header>
+
+      <section className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted-foreground">Sessao ativa</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            Ola, {user?.name}
+          </h1>
+          <p className="text-muted-foreground">{user?.email}</p>
           <StatusBadge status={backendStatus} />
         </div>
-      </div>
-    </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          {["Ideias", "Planejamento", "Em andamento"].map((title) => (
+            <section key={title} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+              <div className="mb-4 flex items-center gap-2">
+                <Kanban className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-card-foreground">{title}</h2>
+              </div>
+              <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
+                Sem itens
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }
 
