@@ -6,6 +6,7 @@ import {
   listWorkspaces,
   type Workspace,
 } from "@/workspaces/workspaceApi";
+import { ProjectsPanel } from "@/projects/ProjectsPanel";
 
 export function WorkspacePanel() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -145,16 +146,7 @@ export function WorkspacePanel() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              {["Ideias", "Planejamento", "Em andamento"].map((title) => (
-                <section key={title} className="rounded-lg border border-border bg-background p-4">
-                  <h3 className="mb-4 text-sm font-semibold text-foreground">{title}</h3>
-                  <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                    Sem itens
-                  </div>
-                </section>
-              ))}
-            </div>
+            <ProjectsPanel workspace={activeWorkspace} />
           </div>
         ) : (
           <div className="flex min-h-64 items-center justify-center rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
