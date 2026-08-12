@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: no8do-api
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/no8do}
+    username: ${DB_USER:no8do}
+    password: ${DB_PASSWORD:no8do_dev}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 'validate' porque o schema é controlado pelo Flyway, não pelo Hibernate.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    root: INFO
+    com.no8do: DEBUG

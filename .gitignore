@@ -1,0 +1,37 @@
+## ===== Geral / SO =====
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
+.env.*.local
+
+## ===== IDEs =====
+.idea/
+*.iml
+*.iws
+.vscode/*
+!.vscode/extensions.json
+.vs/
+
+## ===== Frontend (Node / Vite / TypeScript) =====
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/*.local
+frontend/*.tsbuildinfo
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/coverage/
+
+## ===== Backend (Java / Maven / Spring Boot) =====
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+backend/HELP.md
+backend/*.log
+
+## ===== Docker =====
+docker-data/
