@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ProjectActivityPanel } from "@/activities/ProjectActivityPanel";
 import { type Project, type ProjectStatus } from "@/projects/projectApi";
 import { ProjectEditForm } from "@/projects/ProjectEditForm";
 import { getProjectStatusLabel } from "@/projects/projectStatus";
@@ -36,6 +38,8 @@ export function ProjectCard({
   onEditCurrentStateChange,
   onEditStatusChange,
 }: ProjectCardProps) {
+  const [showActivities, setShowActivities] = useState(false);
+
   return (
     <article className="rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
       {editing ? (
@@ -81,7 +85,19 @@ export function ProjectCard({
             </div>
           ) : null}
 
-          <div className="mt-auto flex justify-end">
+          {showActivities ? (
+            <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} />
+          ) : null}
+
+          <div className="mt-auto flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowActivities((current) => !current)}
+            >
+              {showActivities ? "Ocultar histórico" : "Histórico"}
+            </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => onStartEditing(project)}>
               Editar
             </Button>
