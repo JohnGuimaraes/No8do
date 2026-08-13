@@ -1,5 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Plus } from "@phosphor-icons/react";
+import {
+  ArrowRight,
+  CheckCircle,
+  Flag,
+  NotePencil,
+  Plus,
+  WarningCircle,
+  type Icon,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
   createProjectActivity,
@@ -13,11 +21,41 @@ type ProjectActivityPanelProps = {
   projectId: string;
 };
 
-const ACTIVITY_TYPES: Array<{ value: ProjectActivityType; label: string }> = [
-  { value: "UPDATE", label: "Atualização" },
-  { value: "DECISION", label: "Decisão" },
-  { value: "BLOCKER", label: "Bloqueio" },
-  { value: "NEXT_STEP", label: "Próximo passo" },
+const ACTIVITY_TYPES: Array<{
+  value: ProjectActivityType;
+  label: string;
+  Icon: Icon;
+  badgeClassName: string;
+  markerClassName: string;
+}> = [
+  {
+    value: "UPDATE",
+    label: "Atualização",
+    Icon: NotePencil,
+    badgeClassName: "border-sky-200 bg-sky-50 text-sky-700",
+    markerClassName: "border-sky-200 bg-sky-50 text-sky-700",
+  },
+  {
+    value: "DECISION",
+    label: "Decisão",
+    Icon: CheckCircle,
+    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    markerClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  {
+    value: "BLOCKER",
+    label: "Bloqueio",
+    Icon: WarningCircle,
+    badgeClassName: "border-red-200 bg-red-50 text-red-700",
+    markerClassName: "border-red-200 bg-red-50 text-red-700",
+  },
+  {
+    value: "NEXT_STEP",
+    label: "Próximo passo",
+    Icon: ArrowRight,
+    badgeClassName: "border-violet-200 bg-violet-50 text-violet-700",
+    markerClassName: "border-violet-200 bg-violet-50 text-violet-700",
+  },
 ];
 
 export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivityPanelProps) {
@@ -89,7 +127,9 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
     <div className="min-w-0 rounded-md border border-border bg-background p-3">
       <div className="mb-3 min-w-0">
         <p className="text-sm font-semibold text-foreground">Histórico do projeto</p>
-        <p className="mt-1 text-xs text-muted-foreground">Updates mais recentes aparecem primeiro.</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Registre updates, decisões, bloqueios e próximos passos.
+        </p>
       </div>
 
       <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
@@ -109,7 +149,7 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
           className="min-h-24 w-full min-w-0 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={content}
           onChange={(event) => setContent(event.target.value)}
-          placeholder="Registre uma decisão, bloqueio, próximo passo ou atualização."
+          placeholder="Escreva o que mudou, o que foi decidido ou qual é o próximo passo."
           aria-label="Conteúdo da atividade"
         />
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
@@ -127,24 +167,51 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
         {!loading && !error && activities.length === 0 ? (
           <div className="rounded-md border border-dashed border-border px-3 py-6 text-center">
             <p className="text-sm font-medium text-muted-foreground">Sem atividades ainda</p>
-            <p className="mt-1 text-xs text-muted-foreground">Registre o primeiro update deste projeto.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              O histórico guarda updates, decisões, bloqueios e próximos passos do projeto.
+            </p>
           </div>
         ) : null}
         {!loading && !error && activities.length > 0 ? (
           <ol className="min-w-0 space-y-3">
-            {activities.map((activity) => (
-              <li key={activity.id} className="min-w-0 rounded-md border border-border bg-card px-3 py-2">
-                <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <span className="max-w-full break-words rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {getActivityTypeLabel(activity.type)}
-                  </span>
-                  <time className="break-words text-[11px] text-muted-foreground">{formatDate(activity.createdAt)}</time>
-                </div>
-                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
-                  {activity.content}
-                </p>
-              </li>
-            ))}
+            {activities.map((activity) => {
+              const metadata = getActivityTypeMetadata(activity.type);
+              const SourceIcon = isSystemActivity(activity) ? Flag : metadata.Icon;
+
+              return (
+                <li key={activity.id} className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
+                  <div className="flex flex-col items-center">
+                    <span
+                      className={`flex h-7 w-7 items-center justify-center rounded-full border ${metadata.markerClassName}`}
+                    >
+                      <metadata.Icon className="h-4 w-4" />
+                    </span>
+                    <span className="mt-2 min-h-6 w-px flex-1 bg-border" />
+                  </div>
+
+                  <article className="min-w-0 rounded-md border border-border bg-card px-3 py-3">
+                    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex max-w-full items-center gap-1.5 break-words rounded-full border px-2 py-0.5 text-[11px] font-medium ${metadata.badgeClassName}`}
+                      >
+                        <metadata.Icon className="h-3.5 w-3.5 shrink-0" />
+                        {metadata.label}
+                      </span>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        <SourceIcon className="h-3.5 w-3.5" />
+                        {isSystemActivity(activity) ? "Sistema" : "Manual"}
+                      </span>
+                      <time className="break-words text-[11px] text-muted-foreground">
+                        {formatDate(activity.createdAt)}
+                      </time>
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
+                      {activity.content}
+                    </p>
+                  </article>
+                </li>
+              );
+            })}
           </ol>
         ) : null}
       </div>
@@ -152,8 +219,12 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
   );
 }
 
-function getActivityTypeLabel(type: ProjectActivityType) {
-  return ACTIVITY_TYPES.find((option) => option.value === type)?.label ?? type;
+function getActivityTypeMetadata(type: ProjectActivityType) {
+  return ACTIVITY_TYPES.find((option) => option.value === type) ?? ACTIVITY_TYPES[0];
+}
+
+function isSystemActivity(activity: ProjectActivity) {
+  return activity.content === "Projeto criado." || activity.content.startsWith("Projeto atualizado:");
 }
 
 function formatDate(value: string) {
