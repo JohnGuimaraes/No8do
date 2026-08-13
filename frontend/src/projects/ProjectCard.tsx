@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { DotsSixVertical } from "@phosphor-icons/react";
+import { useDraggable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
 import { ProjectActivityPanel } from "@/activities/ProjectActivityPanel";
 import { type Project, type ProjectStatus } from "@/projects/projectApi";
@@ -39,9 +41,28 @@ export function ProjectCard({
   onEditStatusChange,
 }: ProjectCardProps) {
   const [showActivities, setShowActivities] = useState(false);
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: project.id,
+    data: {
+      project,
+      type: "project",
+    },
+    disabled: editing,
+  });
+  const style = transform
+    ? {
+        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+      }
+    : undefined;
 
   return (
-    <article className="min-w-0 rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
+    <article
+      ref={setNodeRef}
+      style={style}
+      className={`min-w-0 rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md ${
+        isDragging ? "relative z-10 opacity-80 shadow-lg" : ""
+      }`}
+    >
       {editing ? (
         <ProjectEditForm
           name={editName}
@@ -71,6 +92,17 @@ export function ProjectCard({
               {getProjectStatusLabel(project.status)}
             </span>
           </div>
+
+          <button
+            type="button"
+            className="flex w-full cursor-grab items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent active:cursor-grabbing"
+            aria-label={`Arrastar projeto ${project.name}`}
+            {...attributes}
+            {...listeners}
+          >
+            <DotsSixVertical className="h-4 w-4" />
+            Arrastar para mudar status
+          </button>
 
           {project.description ? (
             <p className="whitespace-pre-wrap rounded-md bg-background/70 px-3 py-2 text-sm leading-6 text-muted-foreground">

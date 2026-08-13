@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { Circle } from "@phosphor-icons/react";
 import {
   createProject,
@@ -161,6 +162,36 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     }
   }
 
+  async function handleDragEnd(event: DragEndEvent) {
+    const project = event.active.data.current?.project as Project | undefined;
+    const nextStatus = event.over?.data.current?.status as ProjectStatus | undefined;
+
+    if (!project || !nextStatus || nextStatus === project.status || editingProjectId === project.id) {
+      return;
+    }
+
+    const previousProjects = projects;
+    setBoardError(null);
+    setProjects((current) =>
+      current.map((item) => (item.id === project.id ? { ...item, status: nextStatus } : item)),
+    );
+
+    try {
+      const updatedProject = await updateProject(workspace.id, project.id, {
+        name: project.name,
+        description: project.description ?? undefined,
+        currentState: project.currentState ?? undefined,
+        status: nextStatus,
+      });
+      setProjects((current) =>
+        current.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
+      );
+    } catch (err) {
+      setProjects(previousProjects);
+      setBoardError(err instanceof Error ? err.message : "Nao foi possivel mover o projeto.");
+    }
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <ProjectCreateForm
@@ -189,30 +220,33 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           Nenhum projeto neste workspace
         </div>
       ) : (
-        <div className="w-full min-w-0 overflow-x-auto pb-3">
-          <div className="flex min-w-max gap-4 px-1">
-            {PROJECT_STATUS_COLUMNS.map((column) => (
-              <ProjectStatusColumn
-                key={column.status}
-                label={column.label}
-                projects={projects.filter((project) => project.status === column.status)}
-                editingProjectId={editingProjectId}
-                savingProjectId={savingProjectId}
-                editName={editName}
-                editDescription={editDescription}
-                editCurrentState={editCurrentState}
-                editStatus={editStatus}
-                onStartEditing={startEditing}
-                onCancelEditing={cancelEditing}
-                onSave={(project) => void handleUpdate(project)}
-                onEditNameChange={setEditName}
-                onEditDescriptionChange={setEditDescription}
-                onEditCurrentStateChange={setEditCurrentState}
-                onEditStatusChange={setEditStatus}
-              />
-            ))}
+        <DndContext onDragEnd={(event) => void handleDragEnd(event)}>
+          <div className="w-full min-w-0 overflow-x-auto pb-3">
+            <div className="flex min-w-max gap-4 px-1">
+              {PROJECT_STATUS_COLUMNS.map((column) => (
+                <ProjectStatusColumn
+                  key={column.status}
+                  status={column.status}
+                  label={column.label}
+                  projects={projects.filter((project) => project.status === column.status)}
+                  editingProjectId={editingProjectId}
+                  savingProjectId={savingProjectId}
+                  editName={editName}
+                  editDescription={editDescription}
+                  editCurrentState={editCurrentState}
+                  editStatus={editStatus}
+                  onStartEditing={startEditing}
+                  onCancelEditing={cancelEditing}
+                  onSave={(project) => void handleUpdate(project)}
+                  onEditNameChange={setEditName}
+                  onEditDescriptionChange={setEditDescription}
+                  onEditCurrentStateChange={setEditCurrentState}
+                  onEditStatusChange={setEditStatus}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        </DndContext>
       )}
     </div>
   );

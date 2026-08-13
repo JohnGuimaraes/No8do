@@ -1,7 +1,9 @@
+import { useDroppable } from "@dnd-kit/core";
 import { type Project, type ProjectStatus } from "@/projects/projectApi";
 import { ProjectCard } from "@/projects/ProjectCard";
 
 type ProjectStatusColumnProps = {
+  status: ProjectStatus;
   label: string;
   projects: Project[];
   editingProjectId: string | null;
@@ -20,6 +22,7 @@ type ProjectStatusColumnProps = {
 };
 
 export function ProjectStatusColumn({
+  status,
   label,
   projects,
   editingProjectId,
@@ -36,8 +39,21 @@ export function ProjectStatusColumn({
   onEditCurrentStateChange,
   onEditStatusChange,
 }: ProjectStatusColumnProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: status,
+    data: {
+      status,
+      type: "status-column",
+    },
+  });
+
   return (
-    <section className="flex min-h-80 w-[min(82vw,320px)] min-w-[280px] max-w-[320px] flex-col rounded-lg border border-border bg-muted/30 p-3 sm:min-w-[300px]">
+    <section
+      ref={setNodeRef}
+      className={`flex min-h-80 w-[min(82vw,320px)] min-w-[280px] max-w-[320px] flex-col rounded-lg border p-3 transition-colors sm:min-w-[300px] ${
+        isOver ? "border-primary bg-primary/10" : "border-border bg-muted/30"
+      }`}
+    >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="min-w-0 break-words text-sm font-semibold text-foreground">{label}</h3>
         <span className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
