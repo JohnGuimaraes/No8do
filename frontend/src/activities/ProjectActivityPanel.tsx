@@ -86,15 +86,15 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
   }
 
   return (
-    <div className="rounded-md border border-border bg-background p-3">
-      <div className="mb-3">
+    <div className="min-w-0 rounded-md border border-border bg-background p-3">
+      <div className="mb-3 min-w-0">
         <p className="text-sm font-semibold text-foreground">Histórico do projeto</p>
         <p className="mt-1 text-xs text-muted-foreground">Updates mais recentes aparecem primeiro.</p>
       </div>
 
-      <form className="grid gap-2" onSubmit={handleSubmit}>
+      <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select
-          className="h-9 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={type}
           onChange={(event) => setType(event.target.value as ProjectActivityType | "")}
           aria-label="Tipo da atividade"
@@ -106,22 +106,22 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
           ))}
         </select>
         <textarea
-          className="min-h-20 rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="min-h-24 w-full min-w-0 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={content}
           onChange={(event) => setContent(event.target.value)}
           placeholder="Registre uma decisão, bloqueio, próximo passo ou atualização."
           aria-label="Conteúdo da atividade"
         />
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
-        <div className="flex justify-end">
-          <Button type="submit" size="sm" disabled={creating}>
+        <div className="flex justify-stretch sm:justify-end">
+          <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={creating}>
             <Plus className="h-4 w-4" />
             {creating ? "Registrando..." : "Registrar atividade"}
           </Button>
         </div>
       </form>
 
-      <div className="mt-4">
+      <div className="mt-4 min-w-0">
         {loading ? <p className="text-sm text-muted-foreground">Carregando histórico...</p> : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {!loading && !error && activities.length === 0 ? (
@@ -131,16 +131,18 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
           </div>
         ) : null}
         {!loading && !error && activities.length > 0 ? (
-          <ol className="space-y-3">
+          <ol className="min-w-0 space-y-3">
             {activities.map((activity) => (
-              <li key={activity.id} className="rounded-md border border-border bg-card px-3 py-2">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <li key={activity.id} className="min-w-0 rounded-md border border-border bg-card px-3 py-2">
+                <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <span className="max-w-full break-words rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {getActivityTypeLabel(activity.type)}
                   </span>
-                  <time className="text-[11px] text-muted-foreground">{formatDate(activity.createdAt)}</time>
+                  <time className="break-words text-[11px] text-muted-foreground">{formatDate(activity.createdAt)}</time>
                 </div>
-                <p className="whitespace-pre-wrap text-sm leading-6 text-card-foreground">{activity.content}</p>
+                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
+                  {activity.content}
+                </p>
               </li>
             ))}
           </ol>

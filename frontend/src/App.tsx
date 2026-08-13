@@ -102,7 +102,7 @@ function App() {
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4">
+        <div className="flex w-full max-w-none items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
             <Sparkle weight="fill" className="h-5 w-5 text-primary" />
             <span className="font-semibold text-card-foreground">No8do</span>
@@ -115,7 +115,7 @@ function App() {
         </div>
       </header>
 
-      <section className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-10">
+      <section className="flex w-full max-w-none flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8 lg:py-10">
         <div className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">Sessao ativa</p>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">

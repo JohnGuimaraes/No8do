@@ -162,7 +162,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <ProjectCreateForm
         name={name}
         description={description}
@@ -189,27 +189,29 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           Nenhum projeto neste workspace
         </div>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-3">
-          {PROJECT_STATUS_COLUMNS.map((column) => (
-            <ProjectStatusColumn
-              key={column.status}
-              label={column.label}
-              projects={projects.filter((project) => project.status === column.status)}
-              editingProjectId={editingProjectId}
-              savingProjectId={savingProjectId}
-              editName={editName}
-              editDescription={editDescription}
-              editCurrentState={editCurrentState}
-              editStatus={editStatus}
-              onStartEditing={startEditing}
-              onCancelEditing={cancelEditing}
-              onSave={(project) => void handleUpdate(project)}
-              onEditNameChange={setEditName}
-              onEditDescriptionChange={setEditDescription}
-              onEditCurrentStateChange={setEditCurrentState}
-              onEditStatusChange={setEditStatus}
-            />
-          ))}
+        <div className="w-full min-w-0 overflow-x-auto pb-3">
+          <div className="flex min-w-max gap-4 px-1">
+            {PROJECT_STATUS_COLUMNS.map((column) => (
+              <ProjectStatusColumn
+                key={column.status}
+                label={column.label}
+                projects={projects.filter((project) => project.status === column.status)}
+                editingProjectId={editingProjectId}
+                savingProjectId={savingProjectId}
+                editName={editName}
+                editDescription={editDescription}
+                editCurrentState={editCurrentState}
+                editStatus={editStatus}
+                onStartEditing={startEditing}
+                onCancelEditing={cancelEditing}
+                onSave={(project) => void handleUpdate(project)}
+                onEditNameChange={setEditName}
+                onEditDescriptionChange={setEditDescription}
+                onEditCurrentStateChange={setEditCurrentState}
+                onEditStatusChange={setEditStatus}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

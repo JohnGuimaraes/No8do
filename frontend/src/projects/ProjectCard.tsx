@@ -41,7 +41,7 @@ export function ProjectCard({
   const [showActivities, setShowActivities] = useState(false);
 
   return (
-    <article className="rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
+    <article className="min-w-0 rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
       {editing ? (
         <ProjectEditForm
           name={editName}
@@ -57,9 +57,9 @@ export function ProjectCard({
           onCancel={onCancelEditing}
         />
       ) : (
-        <div className="flex h-full flex-col gap-4">
+        <div className="flex h-full min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h3 className="break-words text-base font-semibold leading-snug text-card-foreground">
                 {project.name}
               </h3>
@@ -89,16 +89,23 @@ export function ProjectCard({
             <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} />
           ) : null}
 
-          <div className="mt-auto flex flex-wrap justify-end gap-2">
+          <div className="mt-auto grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
             <Button
               type="button"
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto"
               onClick={() => setShowActivities((current) => !current)}
             >
               {showActivities ? "Ocultar histórico" : "Histórico"}
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => onStartEditing(project)}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => onStartEditing(project)}
+            >
               Editar
             </Button>
           </div>

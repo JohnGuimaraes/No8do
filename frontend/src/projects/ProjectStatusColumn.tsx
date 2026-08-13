@@ -37,10 +37,10 @@ export function ProjectStatusColumn({
   onEditStatusChange,
 }: ProjectStatusColumnProps) {
   return (
-    <section className="flex min-h-80 flex-col rounded-lg border border-border bg-muted/30 p-3">
+    <section className="flex min-h-80 w-[min(82vw,320px)] min-w-[280px] max-w-[320px] flex-col rounded-lg border border-border bg-muted/30 p-3 sm:min-w-[300px]">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">{label}</h3>
-        <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
+        <h3 className="min-w-0 break-words text-sm font-semibold text-foreground">{label}</h3>
+        <span className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {projects.length} {projects.length === 1 ? "card" : "cards"}
         </span>
       </div>
@@ -53,7 +53,7 @@ export function ProjectStatusColumn({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
           {projects.map((project) => (
             <ProjectCard
               key={project.id}
