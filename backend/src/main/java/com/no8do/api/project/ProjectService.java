@@ -1,9 +1,14 @@
 package com.no8do.api.project;
 
+import com.no8do.api.activity.ProjectActivity;
+import com.no8do.api.activity.ProjectActivityRepository;
+import com.no8do.api.activity.ProjectActivityType;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workspace.WorkspaceAuthorizationService;
 import com.no8do.api.workspace.WorkspaceRepository;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -14,17 +19,20 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProjectService {
 
     private final ProjectRepository projectRepository;
+    private final ProjectActivityRepository projectActivityRepository;
     private final UserRepository userRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final WorkspaceRepository workspaceRepository;
 
     public ProjectService(
             ProjectRepository projectRepository,
+            ProjectActivityRepository projectActivityRepository,
             UserRepository userRepository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
             WorkspaceRepository workspaceRepository
     ) {
         this.projectRepository = projectRepository;
+        this.projectActivityRepository = projectActivityRepository;
         this.userRepository = userRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.workspaceRepository = workspaceRepository;
@@ -60,7 +68,9 @@ public class ProjectService {
         if (request.status() != null) {
             project.setStatus(request.status());
         }
-        return ProjectResponse.from(projectRepository.save(project));
+        Project savedProject = projectRepository.save(project);
+        registerAutomaticActivity(savedProject, currentUserId, "Projeto criado.");
+        return ProjectResponse.from(savedProject);
     }
 
     @Transactional
@@ -69,12 +79,20 @@ public class ProjectService {
         Project project = projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
 
-        project.setName(normalizeRequiredName(request.name()));
-        project.setDescription(request.description());
-        if (request.status() != null) {
-            project.setStatus(request.status());
+        String newName = normalizeRequiredName(request.name());
+        String newDescription = request.description();
+        String newCurrentState = request.currentState();
+        ProjectStatus newStatus = request.status() == null ? project.getStatus() : request.status();
+        List<String> changes = describeChanges(project, newName, newDescription, newCurrentState, newStatus);
+
+        project.setName(newName);
+        project.setDescription(newDescription);
+        project.setStatus(newStatus);
+        project.setCurrentState(newCurrentState);
+
+        if (!changes.isEmpty()) {
+            registerAutomaticActivity(project, currentUserId, "Projeto atualizado: " + String.join("; ", changes) + ".");
         }
-        project.setCurrentState(request.currentState());
 
         return ProjectResponse.from(project);
     }
@@ -84,5 +102,37 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Project name is required");
         }
         return name.trim();
+    }
+
+    private List<String> describeChanges(
+            Project project,
+            String newName,
+            String newDescription,
+            String newCurrentState,
+            ProjectStatus newStatus
+    ) {
+        List<String> changes = new ArrayList<>();
+        if (!Objects.equals(project.getName(), newName)) {
+            changes.add("nome alterado");
+        }
+        if (!Objects.equals(project.getDescription(), newDescription)) {
+            changes.add("descrição alterada");
+        }
+        if (!Objects.equals(project.getCurrentState(), newCurrentState)) {
+            changes.add("estado atual alterado");
+        }
+        if (!Objects.equals(project.getStatus(), newStatus)) {
+            changes.add("status alterado de " + project.getStatus() + " para " + newStatus);
+        }
+        return changes;
+    }
+
+    private void registerAutomaticActivity(Project project, UUID currentUserId, String content) {
+        projectActivityRepository.save(new ProjectActivity(
+            project,
+            userRepository.getReferenceById(currentUserId),
+            ProjectActivityType.UPDATE,
+            content
+        ));
     }
 }

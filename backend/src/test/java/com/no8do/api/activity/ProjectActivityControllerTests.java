@@ -10,8 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.project.CreateProjectRequest;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
+import com.no8do.api.project.ProjectResponse;
+import com.no8do.api.project.ProjectService;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workspace.Workspace;
@@ -44,6 +47,9 @@ class ProjectActivityControllerTests {
 
     @Autowired
     private ProjectRepository projectRepository;
+
+    @Autowired
+    private ProjectService projectService;
 
     @Autowired
     private UserRepository userRepository;
@@ -232,6 +238,38 @@ class ProjectActivityControllerTests {
             .andExpect(jsonPath("$", hasSize(2)))
             .andExpect(jsonPath("$[0].id").value(newerActivity.getId().toString()))
             .andExpect(jsonPath("$[1].id").value(olderActivity.getId().toString()));
+    }
+
+    @Test
+    void listingIncludesAutomaticProjectActivities() throws Exception {
+        TestData data = createMember();
+        ProjectResponse project = projectService.create(
+            data.workspace().getId(),
+            data.user().getId(),
+            new CreateProjectRequest("Projeto com historico", null, null, null)
+        );
+
+        mockMvc.perform(get(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}/activities",
+                    data.workspace().getId(),
+                    project.id()
+                )
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].projectId").value(project.id().toString()))
+            .andExpect(jsonPath("$[0].createdBy").value(data.user().getId().toString()))
+            .andExpect(jsonPath("$[0].type").value(ProjectActivityType.UPDATE.name()))
+            .andExpect(jsonPath("$[0].content").value("Projeto criado."));
+    }
+
+    private TestData createMember() {
+        User user = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Workspace " + UUID.randomUUID()));
+        WorkspaceMember member = workspaceMemberRepository.save(
+            new WorkspaceMember(workspace, user, WorkspaceRole.MEMBER)
+        );
+        return new TestData(user, workspace, member, null);
     }
 
     private TestData createProjectForMember() {

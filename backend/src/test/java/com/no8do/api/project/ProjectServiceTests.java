@@ -3,6 +3,9 @@ package com.no8do.api.project;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.no8do.api.activity.ProjectActivity;
+import com.no8do.api.activity.ProjectActivityRepository;
+import com.no8do.api.activity.ProjectActivityType;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workspace.Workspace;
@@ -24,6 +27,9 @@ class ProjectServiceTests {
 
     @Autowired
     private ProjectRepository projectRepository;
+
+    @Autowired
+    private ProjectActivityRepository projectActivityRepository;
 
     @Autowired
     private ProjectService projectService;
@@ -58,6 +64,24 @@ class ProjectServiceTests {
             .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
                 assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN)
             );
+    }
+
+    @Test
+    void userOutsideWorkspaceDoesNotCreateProjectOrAutomaticActivity() {
+        TestData data = createMember();
+        User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        long activitiesBefore = projectActivityRepository.count();
+
+        assertThatThrownBy(() -> projectService.create(
+            data.workspace().getId(),
+            outsider.getId(),
+            new CreateProjectRequest("Projeto", null, null, null)
+        ))
+            .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
+                assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN)
+            );
+
+        assertThat(projectActivityRepository.count()).isEqualTo(activitiesBefore);
     }
 
     @Test
@@ -104,6 +128,27 @@ class ProjectServiceTests {
     }
 
     @Test
+    void createProjectCreatesAutomaticActivity() {
+        TestData data = createMember();
+
+        ProjectResponse response = projectService.create(
+            data.workspace().getId(),
+            data.user().getId(),
+            new CreateProjectRequest("Projeto", null, null, null)
+        );
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(response.id()))
+            .hasSize(1)
+            .first()
+            .satisfies(activity -> {
+                assertThat(activity.getProject().getId()).isEqualTo(response.id());
+                assertThat(activity.getCreatedBy().getId()).isEqualTo(data.user().getId());
+                assertThat(activity.getType()).isEqualTo(ProjectActivityType.UPDATE);
+                assertThat(activity.getContent()).isEqualTo("Projeto criado.");
+            });
+    }
+
+    @Test
     void projectOutsideWorkspaceReturnsNotFound() {
         TestData data = createMember();
         TestData otherData = createMember();
@@ -138,6 +183,90 @@ class ProjectServiceTests {
     }
 
     @Test
+    void updateNameCreatesAutomaticActivity() {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+
+        projectService.update(
+            data.workspace().getId(),
+            project.getId(),
+            data.user().getId(),
+            new UpdateProjectRequest("Projeto atualizado", null, null, null)
+        );
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(project.getId()))
+            .extracting(ProjectActivity::getContent)
+            .containsExactly("Projeto atualizado: nome alterado.");
+    }
+
+    @Test
+    void updateStatusCreatesAutomaticActivityWithOldAndNewStatus() {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+
+        projectService.update(
+            data.workspace().getId(),
+            project.getId(),
+            data.user().getId(),
+            new UpdateProjectRequest("Projeto", null, ProjectStatus.ACTIVE, null)
+        );
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(project.getId()))
+            .extracting(ProjectActivity::getContent)
+            .containsExactly("Projeto atualizado: status alterado de IDEA para ACTIVE.");
+    }
+
+    @Test
+    void updateDescriptionAndCurrentStateCreatesAutomaticActivity() {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+
+        projectService.update(
+            data.workspace().getId(),
+            project.getId(),
+            data.user().getId(),
+            new UpdateProjectRequest("Projeto", "Nova descricao", null, "Novo estado")
+        );
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(project.getId()))
+            .extracting(ProjectActivity::getContent)
+            .containsExactly("Projeto atualizado: descrição alterada; estado atual alterado.");
+    }
+
+    @Test
+    void updateWithoutRealChangesDoesNotCreateAutomaticActivity() {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+
+        projectService.update(
+            data.workspace().getId(),
+            project.getId(),
+            data.user().getId(),
+            new UpdateProjectRequest("Projeto", null, ProjectStatus.IDEA, null)
+        );
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(project.getId())).isEmpty();
+    }
+
+    @Test
+    void blankNameUpdateDoesNotCreateAutomaticActivity() {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+
+        assertThatThrownBy(() -> projectService.update(
+            data.workspace().getId(),
+            project.getId(),
+            data.user().getId(),
+            new UpdateProjectRequest("  ", "Nova descricao", ProjectStatus.ACTIVE, "Novo estado")
+        ))
+            .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
+                assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST)
+            );
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(project.getId())).isEmpty();
+    }
+
+    @Test
     void userOutsideWorkspaceDoesNotUpdateProject() {
         TestData data = createMember();
         User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
@@ -152,6 +281,7 @@ class ProjectServiceTests {
             .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
                 assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN)
             );
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(project.getId())).isEmpty();
     }
 
     @Test
