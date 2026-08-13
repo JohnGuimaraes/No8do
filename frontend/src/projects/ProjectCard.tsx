@@ -37,7 +37,7 @@ export function ProjectCard({
   onEditStatusChange,
 }: ProjectCardProps) {
   return (
-    <article className="rounded-lg border border-border bg-background p-4 shadow-sm">
+    <article className="rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
       {editing ? (
         <ProjectEditForm
           name={editName}
@@ -53,33 +53,40 @@ export function ProjectCard({
           onCancel={onCancelEditing}
         />
       ) : (
-        <>
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex h-full flex-col gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="break-words text-base font-semibold text-foreground">{project.name}</h3>
+              <h3 className="break-words text-base font-semibold leading-snug text-card-foreground">
+                {project.name}
+              </h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Atualizado em {formatDate(project.updatedAt)}
+                atualizado em {formatDate(project.updatedAt)}
               </p>
             </div>
-            <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
+            <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
               {getProjectStatusLabel(project.status)}
             </span>
           </div>
 
           {project.description ? (
-            <p className="mb-3 whitespace-pre-wrap text-sm text-muted-foreground">{project.description}</p>
+            <p className="whitespace-pre-wrap rounded-md bg-background/70 px-3 py-2 text-sm leading-6 text-muted-foreground">
+              {project.description}
+            </p>
           ) : null}
 
           {project.currentState ? (
-            <div className="mb-4 rounded-md border border-border bg-card px-3 py-2 text-sm text-card-foreground">
-              {project.currentState}
+            <div className="rounded-md border border-border bg-background px-3 py-2">
+              <p className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">Estado atual</p>
+              <p className="whitespace-pre-wrap text-sm leading-6 text-card-foreground">{project.currentState}</p>
             </div>
           ) : null}
 
-          <Button type="button" variant="outline" size="sm" onClick={() => onStartEditing(project)}>
-            Editar
-          </Button>
-        </>
+          <div className="mt-auto flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={() => onStartEditing(project)}>
+              Editar
+            </Button>
+          </div>
+        </div>
       )}
     </article>
   );

@@ -37,17 +37,20 @@ export function ProjectStatusColumn({
   onEditStatusChange,
 }: ProjectStatusColumnProps) {
   return (
-    <section className="rounded-lg border border-border bg-background p-3">
+    <section className="flex min-h-80 flex-col rounded-lg border border-border bg-muted/30 p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-foreground">{label}</h3>
-        <span className="rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground">
-          {projects.length}
+        <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          {projects.length} {projects.length === 1 ? "card" : "cards"}
         </span>
       </div>
 
       {projects.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-          Sem projetos
+        <div className="flex min-h-32 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-background/60 px-3 py-8 text-center">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Sem projetos</p>
+            <p className="mt-1 text-xs text-muted-foreground">Esta etapa ainda está livre.</p>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
