@@ -113,6 +113,7 @@ O `backend/src/main/resources/application.yml` usa variáveis de ambiente com va
 | `DB_USER`      | `no8do`                                         |
 | `DB_PASSWORD`  | `no8do_dev`                                     |
 | `SERVER_PORT`  | `8080`                                          |
+| `NO8DO_CREDENTIALS_MASTER_KEY` | sem padrao; Base64 de exatamente 32 bytes para o cofre |
 
 ### Spring Security
 

@@ -18,6 +18,10 @@ export const PROJECT_STATUS_COLUMNS: Array<{ status: ProjectStatus; label: strin
   { status: "DONE", label: "Concluído" },
 ];
 
+export const DEVELOPMENT_PROJECT_STATUS_COLUMNS = PROJECT_STATUS_COLUMNS.filter(
+  (column) => column.status !== "DONE",
+);
+
 export function getProjectStatusLabel(status: ProjectStatus) {
   return PROJECT_STATUS_COLUMNS.find((column) => column.status === status)?.label ?? status;
 }

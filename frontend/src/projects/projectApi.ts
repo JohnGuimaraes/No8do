@@ -9,6 +9,8 @@ export type Project = {
   description: string | null;
   status: ProjectStatus;
   currentState: string | null;
+  clientId: string | null;
+  clientName: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -26,6 +28,7 @@ export type UpdateProjectInput = {
   description?: string;
   currentState?: string;
   status?: ProjectStatus;
+  clientId?: string | null;
 };
 
 export function listProjects(workspaceId: string) {

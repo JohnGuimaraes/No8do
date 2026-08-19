@@ -22,6 +22,7 @@ type ProjectCardProps = {
   onEditDescriptionChange: (value: string) => void;
   onEditCurrentStateChange: (value: string) => void;
   onEditStatusChange: (value: ProjectStatus) => void;
+  onOpenDetails: (project: Project) => void;
 };
 
 export function ProjectCard({
@@ -39,6 +40,7 @@ export function ProjectCard({
   onEditDescriptionChange,
   onEditCurrentStateChange,
   onEditStatusChange,
+  onOpenDetails,
 }: ProjectCardProps) {
   const [showActivities, setShowActivities] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -62,6 +64,11 @@ export function ProjectCard({
       className={`min-w-0 rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md ${
         isDragging ? "relative z-10 opacity-80 shadow-lg" : ""
       }`}
+      onClick={() => {
+        if (!editing) {
+          onOpenDetails(project);
+        }
+      }}
     >
       {editing ? (
         <ProjectEditForm
@@ -97,6 +104,7 @@ export function ProjectCard({
             type="button"
             className="flex w-full cursor-grab items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent active:cursor-grabbing"
             aria-label={`Arrastar projeto ${project.name}`}
+            onClick={(event) => event.stopPropagation()}
             {...attributes}
             {...listeners}
           >
@@ -118,7 +126,9 @@ export function ProjectCard({
           ) : null}
 
           {showActivities ? (
-            <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} />
+            <div onClick={(event) => event.stopPropagation()}>
+              <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} />
+            </div>
           ) : null}
 
           <div className="mt-auto grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -127,7 +137,10 @@ export function ProjectCard({
               variant="outline"
               size="sm"
               className="w-full sm:w-auto"
-              onClick={() => setShowActivities((current) => !current)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setShowActivities((current) => !current);
+              }}
             >
               {showActivities ? "Ocultar histórico" : "Histórico"}
             </Button>
@@ -136,7 +149,10 @@ export function ProjectCard({
               variant="outline"
               size="sm"
               className="w-full sm:w-auto"
-              onClick={() => onStartEditing(project)}
+              onClick={(event) => {
+                event.stopPropagation();
+                onStartEditing(project);
+              }}
             >
               Editar
             </Button>

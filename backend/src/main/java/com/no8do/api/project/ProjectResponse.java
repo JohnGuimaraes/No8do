@@ -10,6 +10,8 @@ public record ProjectResponse(
         String description,
         ProjectStatus status,
         String currentState,
+        UUID clientId,
+        String clientName,
         UUID createdBy,
         Instant createdAt,
         Instant updatedAt
@@ -23,6 +25,8 @@ public record ProjectResponse(
             project.getDescription(),
             project.getStatus(),
             project.getCurrentState(),
+            project.getClient() == null ? null : project.getClient().getId(),
+            project.getClient() == null ? null : project.getClient().getName(),
             project.getCreatedBy().getId(),
             project.getCreatedAt(),
             project.getUpdatedAt()

@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.client.Client;
+import com.no8do.api.client.ClientRepository;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workspace.Workspace;
@@ -40,6 +42,9 @@ class ProjectControllerTests {
 
     @Autowired
     private ProjectRepository projectRepository;
+
+    @Autowired
+    private ClientRepository clientRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -152,6 +157,102 @@ class ProjectControllerTests {
             .andExpect(jsonPath("$.description").value("Nova descricao"))
             .andExpect(jsonPath("$.status").value(ProjectStatus.ACTIVE.name()))
             .andExpect(jsonPath("$.currentState").value("Novo estado"));
+    }
+
+    @Test
+    void projectCanBeLinkedToClientFromSameWorkspace() throws Exception {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+        Client client = clientRepository.save(new Client(data.workspace(), "Cliente", data.user()));
+        UpdateProjectRequest request = new UpdateProjectRequest(
+            "Projeto",
+            null,
+            ProjectStatus.ACTIVE,
+            null,
+            client.getId()
+        );
+
+        mockMvc.perform(patch(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}",
+                    data.workspace().getId(),
+                    project.getId()
+                )
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.clientId").value(client.getId().toString()))
+            .andExpect(jsonPath("$.clientName").value("Cliente"));
+    }
+
+    @Test
+    void projectCanRemoveClient() throws Exception {
+        TestData data = createMember();
+        Client client = clientRepository.save(new Client(data.workspace(), "Cliente", data.user()));
+        Project project = new Project(data.workspace(), "Projeto", data.user());
+        project.setClient(client);
+        project = projectRepository.save(project);
+        UpdateProjectRequest request = new UpdateProjectRequest("Projeto", null, ProjectStatus.IDEA, null, null);
+
+        mockMvc.perform(patch(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}",
+                    data.workspace().getId(),
+                    project.getId()
+                )
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.clientId").doesNotExist())
+            .andExpect(jsonPath("$.clientName").doesNotExist());
+    }
+
+    @Test
+    void clientFromAnotherWorkspaceCannotBeAssociated() throws Exception {
+        TestData data = createMember();
+        TestData otherData = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+        Client otherClient = clientRepository.save(new Client(otherData.workspace(), "Outro cliente", otherData.user()));
+        UpdateProjectRequest request = new UpdateProjectRequest(
+            "Projeto",
+            null,
+            ProjectStatus.IDEA,
+            null,
+            otherClient.getId()
+        );
+
+        mockMvc.perform(patch(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}",
+                    data.workspace().getId(),
+                    project.getId()
+                )
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void userWithoutProjectAccessCannotChangeClientAssociation() throws Exception {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+        Client client = clientRepository.save(new Client(data.workspace(), "Cliente", data.user()));
+        User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        UpdateProjectRequest request = new UpdateProjectRequest("Projeto", null, ProjectStatus.IDEA, null, client.getId());
+
+        mockMvc.perform(patch(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}",
+                    data.workspace().getId(),
+                    project.getId()
+                )
+                .with(user(new No8doUserDetails(outsider)))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isForbidden());
     }
 
     @Test

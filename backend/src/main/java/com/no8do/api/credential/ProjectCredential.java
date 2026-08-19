@@ -1,8 +1,7 @@
-package com.no8do.api.project;
+package com.no8do.api.credential;
 
-import com.no8do.api.client.Client;
+import com.no8do.api.project.Project;
 import com.no8do.api.user.User;
-import com.no8do.api.workspace.Workspace;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -22,45 +21,52 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "projects")
+@Table(name = "project_credentials")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Project {
+public class ProjectCredential {
 
     @Id
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "workspace_id", nullable = false)
+    @JoinColumn(name = "project_id", nullable = false)
     @Setter
-    private Workspace workspace;
+    private Project project;
 
     @Column(nullable = false, length = 180)
     @Setter
-    private String name;
-
-    @Column(columnDefinition = "text")
-    @Setter
-    private String description;
+    private String label;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     @Setter
-    private ProjectStatus status;
+    private ProjectCredentialType type;
 
-    @Column(name = "current_state", columnDefinition = "text")
+    @Column(length = 255)
     @Setter
-    private String currentState;
+    private String username;
+
+    @Column(name = "secret_ciphertext", nullable = false, columnDefinition = "text")
+    @Setter
+    private String secretCiphertext;
+
+    @Column(name = "secret_iv", nullable = false, length = 64)
+    @Setter
+    private String secretIv;
+
+    @Column(name = "key_version", nullable = false)
+    @Setter
+    private Integer keyVersion;
+
+    @Column(length = 500)
+    @Setter
+    private String notes;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)
     @Setter
     private User createdBy;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "client_id")
-    @Setter
-    private Client client;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -68,11 +74,26 @@ public class Project {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    public Project(Workspace workspace, String name, User createdBy) {
-        this.workspace = workspace;
-        this.name = name;
+    public ProjectCredential(
+            Project project,
+            String label,
+            ProjectCredentialType type,
+            String username,
+            String secretCiphertext,
+            String secretIv,
+            Integer keyVersion,
+            String notes,
+            User createdBy
+    ) {
+        this.project = project;
+        this.label = label;
+        this.type = type;
+        this.username = username;
+        this.secretCiphertext = secretCiphertext;
+        this.secretIv = secretIv;
+        this.keyVersion = keyVersion;
+        this.notes = notes;
         this.createdBy = createdBy;
-        this.status = ProjectStatus.IDEA;
     }
 
     @PrePersist
@@ -80,9 +101,6 @@ public class Project {
         Instant now = Instant.now();
         if (id == null) {
             id = UUID.randomUUID();
-        }
-        if (status == null) {
-            status = ProjectStatus.IDEA;
         }
         createdAt = now;
         updatedAt = now;

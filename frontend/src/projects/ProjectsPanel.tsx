@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { Circle } from "@phosphor-icons/react";
+import { ClientsPanel } from "@/clients/ClientsPanel";
+import { listClients, type Client } from "@/clients/clientApi";
 import {
   createProject,
   listProjects,
@@ -11,12 +13,24 @@ import {
   type UpdateProjectInput,
 } from "@/projects/projectApi";
 import { ProjectCreateForm } from "@/projects/ProjectCreateForm";
+import { ProjectDetailsPanel } from "@/projects/ProjectDetailsPanel";
 import { ProjectStatusColumn } from "@/projects/ProjectStatusColumn";
-import { PROJECT_STATUS_COLUMNS } from "@/projects/projectStatus";
+import { DEVELOPMENT_PROJECT_STATUS_COLUMNS, getProjectStatusLabel } from "@/projects/projectStatus";
 import { type Workspace } from "@/workspaces/workspaceApi";
+
+type WorkspaceSection = "development" | "projects" | "clients" | "library" | "ideas";
+
+const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string }> = [
+  { id: "development", label: "Desenvolvimento" },
+  { id: "projects", label: "Projetos" },
+  { id: "clients", label: "Clientes" },
+  { id: "library", label: "Biblioteca" },
+  { id: "ideas", label: "Ideias" },
+];
 
 export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [currentState, setCurrentState] = useState("");
@@ -29,8 +43,13 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [editDescription, setEditDescription] = useState("");
   const [editCurrentState, setEditCurrentState] = useState("");
   const [editStatus, setEditStatus] = useState<ProjectStatus>("IDEA");
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("development");
   const [formError, setFormError] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
+
+  const developmentProjects = projects.filter((project) => project.status !== "DONE");
+  const completedProjects = projects.filter((project) => project.status === "DONE");
 
   useEffect(() => {
     let cancelled = false;
@@ -42,9 +61,12 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
       try {
         const items = await listProjects(workspace.id);
+        const clientItems = await listClients(workspace.id);
 
         if (!cancelled) {
           setProjects(items);
+          setClients(clientItems);
+          setSelectedProject(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -125,6 +147,30 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setBoardError(null);
   }
 
+  function applyProjectUpdate(updatedProject: Project) {
+    setProjects((current) =>
+      current.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
+    );
+    setSelectedProject((current) => (current?.id === updatedProject.id ? updatedProject : current));
+  }
+
+  async function handleProjectClientChange(project: Project, clientId: string | null) {
+    setBoardError(null);
+
+    try {
+      const updatedProject = await updateProject(workspace.id, project.id, {
+        name: project.name,
+        description: project.description ?? undefined,
+        currentState: project.currentState ?? undefined,
+        status: project.status,
+        clientId,
+      });
+      applyProjectUpdate(updatedProject);
+    } catch (err) {
+      setBoardError(err instanceof Error ? err.message : "Nao foi possivel vincular o cliente.");
+    }
+  }
+
   async function handleUpdate(project: Project) {
     const normalizedName = editName.trim();
     if (!normalizedName) {
@@ -135,6 +181,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     const input: UpdateProjectInput = {
       name: normalizedName,
       status: editStatus,
+      clientId: project.clientId,
     };
     const normalizedDescription = editDescription.trim();
     const normalizedCurrentState = editCurrentState.trim();
@@ -151,9 +198,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
     try {
       const updatedProject = await updateProject(workspace.id, project.id, input);
-      setProjects((current) =>
-        current.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
-      );
+      applyProjectUpdate(updatedProject);
       cancelEditing();
     } catch (err) {
       setBoardError(err instanceof Error ? err.message : "Nao foi possivel salvar o projeto.");
@@ -182,16 +227,191 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         description: project.description ?? undefined,
         currentState: project.currentState ?? undefined,
         status: nextStatus,
+        clientId: project.clientId,
       });
-      setProjects((current) =>
-        current.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
-      );
+      applyProjectUpdate(updatedProject);
     } catch (err) {
       setProjects(previousProjects);
       setBoardError(err instanceof Error ? err.message : "Nao foi possivel mover o projeto.");
     }
   }
 
+  function handleClientCreated(client: Client) {
+    setClients((current) => [client, ...current]);
+  }
+
+  function handleClientUpdated(client: Client) {
+    setClients((current) => current.map((item) => (item.id === client.id ? client : item)));
+    setProjects((current) =>
+      current.map((project) =>
+        project.clientId === client.id ? { ...project, clientName: client.name } : project,
+      ),
+    );
+    setSelectedProject((current) =>
+      current?.clientId === client.id ? { ...current, clientName: client.name } : current,
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col gap-6">
+      <nav className="flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="Áreas do workspace">
+        {WORKSPACE_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            className={`shrink-0 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+              activeSection === section.id
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            }`}
+            onClick={() => {
+              setActiveSection(section.id);
+              setEditingProjectId(null);
+              setBoardError(null);
+            }}
+          >
+            {section.label}
+          </button>
+        ))}
+      </nav>
+
+      {boardError ? <p className="text-sm text-destructive">{boardError}</p> : null}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Circle weight="fill" className="h-2 w-2 animate-pulse" />
+          Carregando projetos...
+        </div>
+      ) : (
+        <>
+          {activeSection === "development" ? (
+            <DevelopmentSection
+              name={name}
+              description={description}
+              currentState={currentState}
+              status={status}
+              creating={creating}
+              formError={formError}
+              projects={developmentProjects}
+              editingProjectId={editingProjectId}
+              savingProjectId={savingProjectId}
+              editName={editName}
+              editDescription={editDescription}
+              editCurrentState={editCurrentState}
+              editStatus={editStatus}
+              onNameChange={setName}
+              onDescriptionChange={setDescription}
+              onCurrentStateChange={setCurrentState}
+              onStatusChange={setStatus}
+              onSubmit={handleCreate}
+              onDragEnd={handleDragEnd}
+              onStartEditing={startEditing}
+              onCancelEditing={cancelEditing}
+              onSave={handleUpdate}
+              onEditNameChange={setEditName}
+              onEditDescriptionChange={setEditDescription}
+              onEditCurrentStateChange={setEditCurrentState}
+              onEditStatusChange={setEditStatus}
+              onOpenDetails={setSelectedProject}
+            />
+          ) : null}
+
+          {activeSection === "projects" ? (
+            <CompletedProjectsSection projects={completedProjects} onOpenDetails={setSelectedProject} />
+          ) : null}
+
+          {activeSection === "clients" ? (
+            <ClientsPanel
+              workspaceId={workspace.id}
+              clients={clients}
+              projects={projects}
+              onClientCreated={handleClientCreated}
+              onClientUpdated={handleClientUpdated}
+              onOpenProject={setSelectedProject}
+            />
+          ) : null}
+
+          {activeSection === "library" ? (
+            <PlaceholderSection text="Centralize links, ferramentas, referencias e conhecimento reutilizavel." />
+          ) : null}
+
+          {activeSection === "ideas" ? (
+            <PlaceholderSection text="Guarde ideias para futuros produtos, projetos e funcionalidades." />
+          ) : null}
+        </>
+      )}
+
+      {selectedProject ? (
+        <ProjectDetailsPanel
+          project={selectedProject}
+          clients={clients}
+          onClientChange={(clientId) => void handleProjectClientChange(selectedProject, clientId)}
+          onClose={() => setSelectedProject(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type DevelopmentSectionProps = {
+  name: string;
+  description: string;
+  currentState: string;
+  status: ProjectStatus | "";
+  creating: boolean;
+  formError: string | null;
+  projects: Project[];
+  editingProjectId: string | null;
+  savingProjectId: string | null;
+  editName: string;
+  editDescription: string;
+  editCurrentState: string;
+  editStatus: ProjectStatus;
+  onNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onCurrentStateChange: (value: string) => void;
+  onStatusChange: (value: ProjectStatus | "") => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDragEnd: (event: DragEndEvent) => void;
+  onStartEditing: (project: Project) => void;
+  onCancelEditing: () => void;
+  onSave: (project: Project) => void;
+  onEditNameChange: (value: string) => void;
+  onEditDescriptionChange: (value: string) => void;
+  onEditCurrentStateChange: (value: string) => void;
+  onEditStatusChange: (value: ProjectStatus) => void;
+  onOpenDetails: (project: Project) => void;
+};
+
+function DevelopmentSection({
+  name,
+  description,
+  currentState,
+  status,
+  creating,
+  formError,
+  projects,
+  editingProjectId,
+  savingProjectId,
+  editName,
+  editDescription,
+  editCurrentState,
+  editStatus,
+  onNameChange,
+  onDescriptionChange,
+  onCurrentStateChange,
+  onStatusChange,
+  onSubmit,
+  onDragEnd,
+  onStartEditing,
+  onCancelEditing,
+  onSave,
+  onEditNameChange,
+  onEditDescriptionChange,
+  onEditCurrentStateChange,
+  onEditStatusChange,
+  onOpenDetails,
+}: DevelopmentSectionProps) {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <ProjectCreateForm
@@ -201,29 +421,22 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         status={status}
         creating={creating}
         error={formError}
-        onNameChange={setName}
-        onDescriptionChange={setDescription}
-        onCurrentStateChange={setCurrentState}
-        onStatusChange={setStatus}
-        onSubmit={handleCreate}
+        onNameChange={onNameChange}
+        onDescriptionChange={onDescriptionChange}
+        onCurrentStateChange={onCurrentStateChange}
+        onStatusChange={onStatusChange}
+        onSubmit={onSubmit}
       />
 
-      {boardError ? <p className="text-sm text-destructive">{boardError}</p> : null}
-
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Circle weight="fill" className="h-2 w-2 animate-pulse" />
-          Carregando projetos...
-        </div>
-      ) : projects.length === 0 ? (
+      {projects.length === 0 ? (
         <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-          Nenhum projeto neste workspace
+          Nenhum projeto em desenvolvimento
         </div>
       ) : (
-        <DndContext onDragEnd={(event) => void handleDragEnd(event)}>
+        <DndContext onDragEnd={(event) => onDragEnd(event)}>
           <div className="w-full min-w-0 overflow-x-auto pb-3">
             <div className="flex min-w-max gap-4 px-1">
-              {PROJECT_STATUS_COLUMNS.map((column) => (
+              {DEVELOPMENT_PROJECT_STATUS_COLUMNS.map((column) => (
                 <ProjectStatusColumn
                   key={column.status}
                   status={column.status}
@@ -235,13 +448,14 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
                   editDescription={editDescription}
                   editCurrentState={editCurrentState}
                   editStatus={editStatus}
-                  onStartEditing={startEditing}
-                  onCancelEditing={cancelEditing}
-                  onSave={(project) => void handleUpdate(project)}
-                  onEditNameChange={setEditName}
-                  onEditDescriptionChange={setEditDescription}
-                  onEditCurrentStateChange={setEditCurrentState}
-                  onEditStatusChange={setEditStatus}
+                  onStartEditing={onStartEditing}
+                  onCancelEditing={onCancelEditing}
+                  onSave={(project) => onSave(project)}
+                  onEditNameChange={onEditNameChange}
+                  onEditDescriptionChange={onEditDescriptionChange}
+                  onEditCurrentStateChange={onEditCurrentStateChange}
+                  onEditStatusChange={onEditStatusChange}
+                  onOpenDetails={onOpenDetails}
                 />
               ))}
             </div>
@@ -250,4 +464,62 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       )}
     </div>
   );
+}
+
+function CompletedProjectsSection({
+  projects,
+  onOpenDetails,
+}: {
+  projects: Project[];
+  onOpenDetails: (project: Project) => void;
+}) {
+  if (projects.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
+        Nenhum projeto concluido ainda
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid min-w-0 gap-3">
+      {projects.map((project) => (
+        <button
+          key={project.id}
+          type="button"
+          className="grid min-w-0 gap-3 rounded-md border border-border bg-card p-4 text-left shadow-sm transition-colors hover:bg-accent sm:grid-cols-[minmax(0,1fr)_auto]"
+          onClick={() => onOpenDetails(project)}
+        >
+          <span className="min-w-0">
+            <span className="block break-words text-base font-semibold text-card-foreground">{project.name}</span>
+            <span className="mt-1 block text-sm text-muted-foreground">
+              {project.description || project.currentState || "Sem descricao cadastrada."}
+            </span>
+          </span>
+          <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+            <span className="rounded-full border border-border bg-background px-2.5 py-1 font-medium">
+              {getProjectStatusLabel(project.status)}
+            </span>
+            {project.clientName ? <span>cliente: {project.clientName}</span> : null}
+            <span>atualizado em {formatDate(project.updatedAt)}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PlaceholderSection({ text }: { text: string }) {
+  return (
+    <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
+      {text}
+    </div>
+  );
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

@@ -19,6 +19,7 @@ type ProjectStatusColumnProps = {
   onEditDescriptionChange: (value: string) => void;
   onEditCurrentStateChange: (value: string) => void;
   onEditStatusChange: (value: ProjectStatus) => void;
+  onOpenDetails: (project: Project) => void;
 };
 
 export function ProjectStatusColumn({
@@ -38,6 +39,7 @@ export function ProjectStatusColumn({
   onEditDescriptionChange,
   onEditCurrentStateChange,
   onEditStatusChange,
+  onOpenDetails,
 }: ProjectStatusColumnProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: status,
@@ -87,6 +89,7 @@ export function ProjectStatusColumn({
               onEditDescriptionChange={onEditDescriptionChange}
               onEditCurrentStateChange={onEditCurrentStateChange}
               onEditStatusChange={onEditStatusChange}
+              onOpenDetails={onOpenDetails}
             />
           ))}
         </div>

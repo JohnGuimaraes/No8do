@@ -1,12 +1,9 @@
-package com.no8do.api.project;
+package com.no8do.api.client;
 
-import com.no8do.api.client.Client;
 import com.no8do.api.user.User;
 import com.no8do.api.workspace.Workspace;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -22,10 +19,10 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "projects")
+@Table(name = "clients")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class Project {
+public class Client {
 
     @Id
     private UUID id;
@@ -39,28 +36,26 @@ public class Project {
     @Setter
     private String name;
 
+    @Column(name = "company_name", length = 255)
+    @Setter
+    private String companyName;
+
+    @Column(length = 320)
+    @Setter
+    private String email;
+
+    @Column(length = 50)
+    @Setter
+    private String phone;
+
     @Column(columnDefinition = "text")
     @Setter
-    private String description;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    @Setter
-    private ProjectStatus status;
-
-    @Column(name = "current_state", columnDefinition = "text")
-    @Setter
-    private String currentState;
+    private String notes;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)
     @Setter
     private User createdBy;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "client_id")
-    @Setter
-    private Client client;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -68,11 +63,10 @@ public class Project {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    public Project(Workspace workspace, String name, User createdBy) {
+    public Client(Workspace workspace, String name, User createdBy) {
         this.workspace = workspace;
         this.name = name;
         this.createdBy = createdBy;
-        this.status = ProjectStatus.IDEA;
     }
 
     @PrePersist
@@ -80,9 +74,6 @@ public class Project {
         Instant now = Instant.now();
         if (id == null) {
             id = UUID.randomUUID();
-        }
-        if (status == null) {
-            status = ProjectStatus.IDEA;
         }
         createdAt = now;
         updatedAt = now;
