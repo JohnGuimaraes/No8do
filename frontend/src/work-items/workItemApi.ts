@@ -17,6 +17,10 @@ export type ProjectWorkItem = {
   completedAt: string | null;
 };
 
+export type WorkspaceWorkItem = ProjectWorkItem & {
+  projectName: string;
+};
+
 export type CreateProjectWorkItemInput = {
   type: ProjectWorkItemType;
   title: string;
@@ -30,6 +34,25 @@ export type UpdateProjectWorkItemStatusInput = {
 export function listProjectWorkItems(workspaceId: string, projectId: string) {
   return apiRequest<ProjectWorkItem[]>(
     `/api/workspaces/${workspaceId}/projects/${projectId}/work-items`,
+  );
+}
+
+export function listWorkspaceWorkItems(
+  workspaceId: string,
+  filters: { status?: ProjectWorkItemStatus; type?: ProjectWorkItemType } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+  if (filters.type) {
+    params.set("type", filters.type);
+  }
+
+  const query = params.toString();
+  return apiRequest<WorkspaceWorkItem[]>(
+    `/api/workspaces/${workspaceId}/work-items${query ? `?${query}` : ""}`,
   );
 }
 

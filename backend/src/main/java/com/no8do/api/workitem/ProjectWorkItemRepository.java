@@ -19,5 +19,27 @@ public interface ProjectWorkItemRepository extends JpaRepository<ProjectWorkItem
         """)
     List<ProjectWorkItem> findByProjectIdForProjectView(@Param("projectId") UUID projectId);
 
+    @Query("""
+        select item
+        from ProjectWorkItem item
+        join fetch item.project project
+        join fetch item.createdBy
+        where project.workspace.id = :workspaceId
+            and (:status is null or item.status = :status)
+            and (:type is null or item.type = :type)
+        order by
+            case item.type
+                when com.no8do.api.workitem.ProjectWorkItemType.BLOCKER then 0
+                when com.no8do.api.workitem.ProjectWorkItemType.PENDING then 1
+                else 2
+            end,
+            item.updatedAt desc
+        """)
+    List<ProjectWorkItem> findByWorkspaceIdForWorkspaceView(
+        @Param("workspaceId") UUID workspaceId,
+        @Param("status") ProjectWorkItemStatus status,
+        @Param("type") ProjectWorkItemType type
+    );
+
     Optional<ProjectWorkItem> findByIdAndProjectId(UUID id, UUID projectId);
 }

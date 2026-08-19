@@ -3,6 +3,7 @@ import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { Circle, MagnifyingGlass } from "@phosphor-icons/react";
 import { ClientsPanel } from "@/clients/ClientsPanel";
 import { listClients, type Client } from "@/clients/clientApi";
+import { WorkspaceDashboard } from "@/dashboard/WorkspaceDashboard";
 import { IdeasPanel } from "@/ideas/IdeasPanel";
 import { listIdeas, type Idea, type IdeaStatus, type IdeaType } from "@/ideas/ideaApi";
 import { LibraryPanel } from "@/library/LibraryPanel";
@@ -20,9 +21,10 @@ import { ProjectCreateForm } from "@/projects/ProjectCreateForm";
 import { ProjectDetailsPanel } from "@/projects/ProjectDetailsPanel";
 import { ProjectStatusColumn } from "@/projects/ProjectStatusColumn";
 import { DEVELOPMENT_PROJECT_STATUS_COLUMNS, getProjectStatusLabel } from "@/projects/projectStatus";
+import { WorkspaceWorkItemsPanel } from "@/work-items/WorkspaceWorkItemsPanel";
 import { type Workspace } from "@/workspaces/workspaceApi";
 
-type WorkspaceSection = "development" | "projects" | "clients" | "library" | "ideas";
+type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "clients" | "library" | "ideas";
 type SearchDomain = "project" | "client" | "library" | "idea";
 type SearchResult = {
   id: string;
@@ -35,9 +37,19 @@ type SearchResult = {
 
 const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string; description: string }> = [
   {
+    id: "overview",
+    label: "Visão Geral",
+    description: "Resumo operacional do workspace e atalhos para continuar.",
+  },
+  {
     id: "development",
     label: "Desenvolvimento",
     description: "Projetos que ainda estao sendo construidos.",
+  },
+  {
+    id: "work-items",
+    label: "Pendências",
+    description: "Bloqueios, pendencias e proximos passos dos projetos.",
   },
   {
     id: "projects",
@@ -82,7 +94,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedLibraryItemId, setSelectedLibraryItemId] = useState<string | null>(null);
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<WorkspaceSection>("development");
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("overview");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -210,6 +222,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           setSelectedClientId(null);
           setSelectedLibraryItemId(null);
           setSelectedIdeaId(null);
+          setActiveSection("overview");
           setSearchTerm("");
           setSearchOpen(false);
         }
@@ -454,6 +467,35 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setSelectedIdeaId(result.id);
   }
 
+  function openProjectFromDashboard(project: Project) {
+    setActiveSection(project.status === "DONE" ? "projects" : "development");
+    setSelectedProject(project);
+  }
+
+  function openProjectFromWorkItems(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) {
+      return;
+    }
+
+    setActiveSection(project.status === "DONE" ? "projects" : "development");
+    setSelectedProject(project);
+  }
+
+  function openSectionFromDashboard(sectionId: Exclude<WorkspaceSection, "overview" | "work-items">) {
+    handleSectionChange(sectionId);
+  }
+
+  function openLibraryItemFromDashboard(itemId: string) {
+    handleSectionChange("library");
+    setSelectedLibraryItemId(itemId);
+  }
+
+  function openIdeaFromDashboard(ideaId: string) {
+    handleSectionChange("ideas");
+    setSelectedIdeaId(ideaId);
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <header className="grid min-w-0 gap-3 border-b border-border pb-4">
@@ -545,6 +587,20 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         </div>
       ) : (
         <>
+          {activeSection === "overview" ? (
+            <WorkspaceDashboard
+              workspace={workspace}
+              projects={projects}
+              clients={clients}
+              libraryItems={libraryItems}
+              ideas={ideas}
+              onOpenSection={openSectionFromDashboard}
+              onOpenProject={openProjectFromDashboard}
+              onOpenLibraryItem={openLibraryItemFromDashboard}
+              onOpenIdea={openIdeaFromDashboard}
+            />
+          ) : null}
+
           {activeSection === "development" ? (
             <DevelopmentSection
               name={name}
@@ -579,6 +635,10 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
           {activeSection === "projects" ? (
             <CompletedProjectsSection projects={completedProjects} onOpenDetails={setSelectedProject} />
+          ) : null}
+
+          {activeSection === "work-items" ? (
+            <WorkspaceWorkItemsPanel workspaceId={workspace.id} onOpenProject={openProjectFromWorkItems} />
           ) : null}
 
           {activeSection === "clients" ? (

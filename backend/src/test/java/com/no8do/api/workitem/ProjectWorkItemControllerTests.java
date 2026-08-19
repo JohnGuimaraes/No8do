@@ -68,6 +68,12 @@ class ProjectWorkItemControllerTests {
     }
 
     @Test
+    void workspaceEndpointWithoutLoginIsBlocked() throws Exception {
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/work-items", UUID.randomUUID()))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void memberCreatesWorkItemOpen() throws Exception {
         TestData data = createProjectForMember();
         CreateProjectWorkItemRequest request = new CreateProjectWorkItemRequest(
@@ -261,6 +267,16 @@ class ProjectWorkItemControllerTests {
     }
 
     @Test
+    void userOutsideWorkspaceCannotListWorkspaceWorkItems() throws Exception {
+        TestData data = createProjectForMember();
+        User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/work-items", data.workspace().getId())
+                .with(user(new No8doUserDetails(outsider))))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
     void projectIdFromAnotherWorkspaceDoesNotWork() throws Exception {
         TestData data = createProjectForMember();
         TestData otherData = createProjectForMember();
@@ -329,6 +345,151 @@ class ProjectWorkItemControllerTests {
             .andExpect(jsonPath("$[0].id").value(item.getId().toString()))
             .andExpect(jsonPath("$[0].title").value("Item do projeto"))
             .andExpect(jsonPath("$[0].createdByName").value(data.user().getName()));
+    }
+
+    @Test
+    void workspaceListingReturnsOnlyItemsFromWorkspaceWithProjectInfo() throws Exception {
+        TestData data = createProjectForMember();
+        TestData otherData = createProjectForMember();
+        ProjectWorkItem item = projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.PENDING,
+            "Item do workspace",
+            "Detalhe",
+            data.user()
+        ));
+        projectWorkItemRepository.save(new ProjectWorkItem(
+            otherData.project(),
+            ProjectWorkItemType.PENDING,
+            "Item externo",
+            null,
+            otherData.user()
+        ));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/work-items", data.workspace().getId())
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].id").value(item.getId().toString()))
+            .andExpect(jsonPath("$[0].projectId").value(data.project().getId().toString()))
+            .andExpect(jsonPath("$[0].projectName").value(data.project().getName()))
+            .andExpect(jsonPath("$[0].title").value("Item do workspace"))
+            .andExpect(jsonPath("$[0].details").value("Detalhe"))
+            .andExpect(jsonPath("$[0].createdBy").value(data.user().getId().toString()))
+            .andExpect(jsonPath("$[0].createdByName").value(data.user().getName()));
+    }
+
+    @Test
+    void workspaceListingFiltersOpenStatusAndType() throws Exception {
+        TestData data = createProjectForMember();
+        ProjectWorkItem openBlocker = projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.BLOCKER,
+            "Bloqueio aberto",
+            null,
+            data.user()
+        ));
+        ProjectWorkItem doneBlocker = projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.BLOCKER,
+            "Bloqueio concluido",
+            null,
+            data.user()
+        ));
+        doneBlocker.setStatus(ProjectWorkItemStatus.DONE);
+        doneBlocker.setCompletedAt(java.time.Instant.now());
+        projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.PENDING,
+            "Pendencia aberta",
+            null,
+            data.user()
+        ));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/work-items", data.workspace().getId())
+                .queryParam("status", ProjectWorkItemStatus.OPEN.name())
+                .queryParam("type", ProjectWorkItemType.BLOCKER.name())
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].id").value(openBlocker.getId().toString()))
+            .andExpect(jsonPath("$[0].status").value(ProjectWorkItemStatus.OPEN.name()))
+            .andExpect(jsonPath("$[0].type").value(ProjectWorkItemType.BLOCKER.name()));
+    }
+
+    @Test
+    void workspaceListingOrdersOpenItemsByTypeAndUpdatedAt() throws Exception {
+        TestData data = createProjectForMember();
+        ProjectWorkItem oldPending = projectWorkItemRepository.saveAndFlush(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.PENDING,
+            "Pendencia antiga",
+            null,
+            data.user()
+        ));
+        Thread.sleep(5);
+        ProjectWorkItem nextStep = projectWorkItemRepository.saveAndFlush(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.NEXT_STEP,
+            "Proximo passo",
+            null,
+            data.user()
+        ));
+        Thread.sleep(5);
+        ProjectWorkItem newPending = projectWorkItemRepository.saveAndFlush(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.PENDING,
+            "Pendencia recente",
+            null,
+            data.user()
+        ));
+        Thread.sleep(5);
+        ProjectWorkItem blocker = projectWorkItemRepository.saveAndFlush(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.BLOCKER,
+            "Bloqueio",
+            null,
+            data.user()
+        ));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/work-items", data.workspace().getId())
+                .queryParam("status", ProjectWorkItemStatus.OPEN.name())
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(4)))
+            .andExpect(jsonPath("$[0].id").value(blocker.getId().toString()))
+            .andExpect(jsonPath("$[1].id").value(newPending.getId().toString()))
+            .andExpect(jsonPath("$[2].id").value(oldPending.getId().toString()))
+            .andExpect(jsonPath("$[3].id").value(nextStep.getId().toString()));
+    }
+
+    @Test
+    void workspaceOpenFilterDoesNotReturnDoneItems() throws Exception {
+        TestData data = createProjectForMember();
+        ProjectWorkItem openItem = projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.NEXT_STEP,
+            "Aberto",
+            null,
+            data.user()
+        ));
+        ProjectWorkItem doneItem = projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.NEXT_STEP,
+            "Concluido",
+            null,
+            data.user()
+        ));
+        doneItem.setStatus(ProjectWorkItemStatus.DONE);
+        doneItem.setCompletedAt(java.time.Instant.now());
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/work-items", data.workspace().getId())
+                .queryParam("status", ProjectWorkItemStatus.OPEN.name())
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].id").value(openItem.getId().toString()))
+            .andExpect(jsonPath("$[0].id").value(org.hamcrest.Matchers.not(doneItem.getId().toString())));
     }
 
     @Test

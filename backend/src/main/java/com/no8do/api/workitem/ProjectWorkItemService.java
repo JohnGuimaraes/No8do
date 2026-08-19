@@ -43,6 +43,20 @@ public class ProjectWorkItemService {
             .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<WorkspaceWorkItemResponse> listByWorkspace(
+            UUID workspaceId,
+            UUID currentUserId,
+            ProjectWorkItemStatus status,
+            ProjectWorkItemType type
+    ) {
+        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return projectWorkItemRepository.findByWorkspaceIdForWorkspaceView(workspaceId, status, type)
+            .stream()
+            .map(WorkspaceWorkItemResponse::from)
+            .toList();
+    }
+
     @Transactional
     public ProjectWorkItemResponse create(
             UUID workspaceId,
