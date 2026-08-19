@@ -3,6 +3,8 @@ import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { Circle } from "@phosphor-icons/react";
 import { ClientsPanel } from "@/clients/ClientsPanel";
 import { listClients, type Client } from "@/clients/clientApi";
+import { IdeasPanel } from "@/ideas/IdeasPanel";
+import { LibraryPanel } from "@/library/LibraryPanel";
 import {
   createProject,
   listProjects,
@@ -20,12 +22,32 @@ import { type Workspace } from "@/workspaces/workspaceApi";
 
 type WorkspaceSection = "development" | "projects" | "clients" | "library" | "ideas";
 
-const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string }> = [
-  { id: "development", label: "Desenvolvimento" },
-  { id: "projects", label: "Projetos" },
-  { id: "clients", label: "Clientes" },
-  { id: "library", label: "Biblioteca" },
-  { id: "ideas", label: "Ideias" },
+const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string; description: string }> = [
+  {
+    id: "development",
+    label: "Desenvolvimento",
+    description: "Projetos que ainda estao sendo construidos.",
+  },
+  {
+    id: "projects",
+    label: "Projetos",
+    description: "Projetos concluidos e memoria operacional.",
+  },
+  {
+    id: "clients",
+    label: "Clientes",
+    description: "Clientes e projetos relacionados.",
+  },
+  {
+    id: "library",
+    label: "Biblioteca",
+    description: "Conhecimento, ferramentas e referencias reutilizaveis.",
+  },
+  {
+    id: "ideas",
+    label: "Ideias",
+    description: "Ideias que podem evoluir para novos projetos.",
+  },
 ];
 
 export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
@@ -50,6 +72,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
   const developmentProjects = projects.filter((project) => project.status !== "DONE");
   const completedProjects = projects.filter((project) => project.status === "DONE");
+  const activeSectionInfo = WORKSPACE_SECTIONS.find((section) => section.id === activeSection) ?? WORKSPACE_SECTIONS[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -252,28 +275,51 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     );
   }
 
+  function handleIdeaConverted(project: Project) {
+    setProjects((current) => [project, ...current.filter((item) => item.id !== project.id)]);
+    setSelectedProject(project);
+    setActiveSection("development");
+  }
+
+  function handleSectionChange(sectionId: WorkspaceSection) {
+    setActiveSection(sectionId);
+    setEditingProjectId(null);
+    setBoardError(null);
+    setSelectedProject(null);
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <nav className="flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="Áreas do workspace">
-        {WORKSPACE_SECTIONS.map((section) => (
-          <button
-            key={section.id}
-            type="button"
-            className={`shrink-0 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-              activeSection === section.id
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            }`}
-            onClick={() => {
-              setActiveSection(section.id);
-              setEditingProjectId(null);
-              setBoardError(null);
-            }}
-          >
-            {section.label}
-          </button>
-        ))}
-      </nav>
+      <header className="grid min-w-0 gap-3 border-b border-border pb-4">
+        <nav
+          className="flex min-w-0 gap-1 overflow-x-auto rounded-md border border-border bg-muted/40 p-1"
+          aria-label="Navegacao principal do workspace"
+        >
+          {WORKSPACE_SECTIONS.map((section) => {
+            const isActive = activeSection === section.id;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                aria-current={isActive ? "page" : undefined}
+                className={`shrink-0 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                    : "text-muted-foreground hover:bg-background/70 hover:text-foreground"
+                }`}
+                onClick={() => handleSectionChange(section.id)}
+              >
+                {section.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold leading-tight text-foreground">{activeSectionInfo.label}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{activeSectionInfo.description}</p>
+        </div>
+      </header>
 
       {boardError ? <p className="text-sm text-destructive">{boardError}</p> : null}
 
@@ -332,11 +378,16 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           ) : null}
 
           {activeSection === "library" ? (
-            <PlaceholderSection text="Centralize links, ferramentas, referencias e conhecimento reutilizavel." />
+            <LibraryPanel workspaceId={workspace.id} />
           ) : null}
 
           {activeSection === "ideas" ? (
-            <PlaceholderSection text="Guarde ideias para futuros produtos, projetos e funcionalidades." />
+            <IdeasPanel
+              workspaceId={workspace.id}
+              projects={projects}
+              onProjectCreated={handleIdeaConverted}
+              onOpenProject={setSelectedProject}
+            />
           ) : null}
         </>
       )}
@@ -430,7 +481,8 @@ function DevelopmentSection({
 
       {projects.length === 0 ? (
         <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-          Nenhum projeto em desenvolvimento
+          <p className="font-medium text-foreground">Nenhum projeto em desenvolvimento.</p>
+          <p className="mt-1">Use o formulario acima para criar o primeiro card.</p>
         </div>
       ) : (
         <DndContext onDragEnd={(event) => onDragEnd(event)}>
@@ -476,7 +528,8 @@ function CompletedProjectsSection({
   if (projects.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-        Nenhum projeto concluido ainda
+        <p className="font-medium text-foreground">Nenhum projeto concluido ainda.</p>
+        <p className="mt-1">Projetos com status DONE aparecem aqui como memoria operacional.</p>
       </div>
     );
   }
@@ -505,14 +558,6 @@ function CompletedProjectsSection({
           </span>
         </button>
       ))}
-    </div>
-  );
-}
-
-function PlaceholderSection({ text }: { text: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-      {text}
     </div>
   );
 }

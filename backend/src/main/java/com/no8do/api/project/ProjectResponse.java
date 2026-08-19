@@ -17,7 +17,7 @@ public record ProjectResponse(
         Instant updatedAt
 ) {
 
-    static ProjectResponse from(Project project) {
+    public static ProjectResponse from(Project project) {
         return new ProjectResponse(
             project.getId(),
             project.getWorkspace().getId(),

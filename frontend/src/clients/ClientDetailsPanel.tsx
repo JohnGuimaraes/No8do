@@ -3,6 +3,7 @@ import { X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { type Client, updateClient } from "@/clients/clientApi";
 import { type Project } from "@/projects/projectApi";
+import { getProjectStatusLabel } from "@/projects/projectStatus";
 
 type ClientDetailsPanelProps = {
   client: Client;
@@ -139,7 +140,7 @@ export function ClientDetailsPanel({
                       onClick={() => onOpenProject(project)}
                     >
                       <span className="block font-medium text-card-foreground">{project.name}</span>
-                      <span className="text-xs text-muted-foreground">{project.status}</span>
+                      <span className="text-xs text-muted-foreground">{getProjectStatusLabel(project.status)}</span>
                     </button>
                   ))}
                 </div>
