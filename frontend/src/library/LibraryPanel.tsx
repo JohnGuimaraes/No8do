@@ -40,7 +40,15 @@ const EMPTY_FORM: LibraryItemInput = {
   url: "",
 };
 
-export function LibraryPanel({ workspaceId }: { workspaceId: string }) {
+export function LibraryPanel({
+  workspaceId,
+  selectedItemId,
+  onItemsChange,
+}: {
+  workspaceId: string;
+  selectedItemId?: string | null;
+  onItemsChange?: (items: LibraryItem[]) => void;
+}) {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [filter, setFilter] = useState<FilterType>("ALL");
   const [form, setForm] = useState<LibraryItemInput>(EMPTY_FORM);
@@ -64,6 +72,7 @@ export function LibraryPanel({ workspaceId }: { workspaceId: string }) {
         const nextItems = await listLibraryItems(workspaceId);
         if (!cancelled) {
           setItems(nextItems);
+          onItemsChange?.(nextItems);
         }
       } catch (err) {
         if (!cancelled) {
@@ -81,7 +90,18 @@ export function LibraryPanel({ workspaceId }: { workspaceId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [onItemsChange, workspaceId]);
+
+  useEffect(() => {
+    if (!selectedItemId) {
+      return;
+    }
+    const item = items.find((currentItem) => currentItem.id === selectedItemId);
+    if (item) {
+      setSelectedItem(item);
+      setEditingItemId(null);
+    }
+  }, [items, selectedItemId]);
 
   const filteredItems = useMemo(() => {
     if (filter === "ALL") {
@@ -104,7 +124,11 @@ export function LibraryPanel({ workspaceId }: { workspaceId: string }) {
 
     try {
       const createdItem = await createLibraryItem(workspaceId, input);
-      setItems((current) => [createdItem, ...current]);
+      setItems((current) => {
+        const nextItems = [createdItem, ...current];
+        onItemsChange?.(nextItems);
+        return nextItems;
+      });
       setSelectedItem(createdItem);
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -145,11 +169,13 @@ export function LibraryPanel({ workspaceId }: { workspaceId: string }) {
 
     try {
       const updatedItem = await updateLibraryItem(workspaceId, selectedItem.id, input);
-      setItems((current) =>
-        current
+      setItems((current) => {
+        const nextItems = current
           .map((item) => (item.id === updatedItem.id ? updatedItem : item))
-          .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
-      );
+          .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+        onItemsChange?.(nextItems);
+        return nextItems;
+      });
       setSelectedItem(updatedItem);
       setEditingItemId(null);
     } catch (err) {

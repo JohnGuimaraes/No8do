@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Plus } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { ClientDetailsPanel } from "@/clients/ClientDetailsPanel";
@@ -12,6 +12,7 @@ type ClientsPanelProps = {
   onClientCreated: (client: Client) => void;
   onClientUpdated: (client: Client) => void;
   onOpenProject: (project: Project) => void;
+  selectedClientId?: string | null;
 };
 
 export function ClientsPanel({
@@ -21,6 +22,7 @@ export function ClientsPanel({
   onClientCreated,
   onClientUpdated,
   onOpenProject,
+  selectedClientId,
 }: ClientsPanelProps) {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [creating, setCreating] = useState(false);
@@ -30,6 +32,16 @@ export function ClientsPanel({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (!selectedClientId) {
+      return;
+    }
+    const client = clients.find((item) => item.id === selectedClientId);
+    if (client) {
+      setSelectedClient(client);
+    }
+  }, [clients, selectedClientId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

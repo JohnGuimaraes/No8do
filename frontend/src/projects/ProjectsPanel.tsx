@@ -1,10 +1,12 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DndContext, type DragEndEvent } from "@dnd-kit/core";
-import { Circle } from "@phosphor-icons/react";
+import { Circle, MagnifyingGlass } from "@phosphor-icons/react";
 import { ClientsPanel } from "@/clients/ClientsPanel";
 import { listClients, type Client } from "@/clients/clientApi";
 import { IdeasPanel } from "@/ideas/IdeasPanel";
+import { listIdeas, type Idea, type IdeaStatus, type IdeaType } from "@/ideas/ideaApi";
 import { LibraryPanel } from "@/library/LibraryPanel";
+import { listLibraryItems, type LibraryItem, type LibraryItemType } from "@/library/libraryApi";
 import {
   createProject,
   listProjects,
@@ -21,6 +23,15 @@ import { DEVELOPMENT_PROJECT_STATUS_COLUMNS, getProjectStatusLabel } from "@/pro
 import { type Workspace } from "@/workspaces/workspaceApi";
 
 type WorkspaceSection = "development" | "projects" | "clients" | "library" | "ideas";
+type SearchDomain = "project" | "client" | "library" | "idea";
+type SearchResult = {
+  id: string;
+  domain: SearchDomain;
+  title: string;
+  description: string;
+  badge?: string;
+  item: Project | Client | LibraryItem | Idea;
+};
 
 const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string; description: string }> = [
   {
@@ -53,6 +64,8 @@ const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string; descripti
 export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
+  const [ideas, setIdeas] = useState<Idea[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [currentState, setCurrentState] = useState("");
@@ -66,13 +79,113 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [editCurrentState, setEditCurrentState] = useState("");
   const [editStatus, setEditStatus] = useState<ProjectStatus>("IDEA");
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedLibraryItemId, setSelectedLibraryItemId] = useState<string | null>(null);
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("development");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
 
   const developmentProjects = projects.filter((project) => project.status !== "DONE");
   const completedProjects = projects.filter((project) => project.status === "DONE");
   const activeSectionInfo = WORKSPACE_SECTIONS.find((section) => section.id === activeSection) ?? WORKSPACE_SECTIONS[0];
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const searchResults = useMemo(() => {
+    if (normalizedSearchTerm.length < 2) {
+      return [];
+    }
+
+    return [
+      {
+        domain: "project" as const,
+        title: "Projetos",
+        results: projects
+          .filter((project) =>
+            matchesSearch(normalizedSearchTerm, [
+              project.name,
+              project.description,
+              project.status,
+              getProjectStatusLabel(project.status),
+              project.clientName,
+            ]),
+          )
+          .map<SearchResult>((project) => ({
+            id: project.id,
+            domain: "project",
+            title: project.name,
+            description: project.description || project.currentState || project.clientName || "Projeto do workspace",
+            badge: getProjectStatusLabel(project.status),
+            item: project,
+          })),
+      },
+      {
+        domain: "client" as const,
+        title: "Clientes",
+        results: clients
+          .filter((client) =>
+            matchesSearch(normalizedSearchTerm, [client.name, client.companyName, client.email, client.phone]),
+          )
+          .map<SearchResult>((client) => ({
+            id: client.id,
+            domain: "client",
+            title: client.name,
+            description: client.companyName || client.email || client.phone || "Cliente",
+            badge: "Cliente",
+            item: client,
+          })),
+      },
+      {
+        domain: "library" as const,
+        title: "Biblioteca",
+        results: libraryItems
+          .filter((item) =>
+            matchesSearch(normalizedSearchTerm, [
+              item.title,
+              item.description,
+              item.content,
+              item.url,
+              item.type,
+              getLibraryTypeLabel(item.type),
+            ]),
+          )
+          .map<SearchResult>((item) => ({
+            id: item.id,
+            domain: "library",
+            title: item.title,
+            description: item.description || item.url || item.content || "Item da biblioteca",
+            badge: getLibraryTypeLabel(item.type),
+            item,
+          })),
+      },
+      {
+        domain: "idea" as const,
+        title: "Ideias",
+        results: ideas
+          .filter((idea) =>
+            matchesSearch(normalizedSearchTerm, [
+              idea.title,
+              idea.description,
+              idea.type,
+              getIdeaTypeLabel(idea.type),
+              idea.status,
+              getIdeaStatusLabel(idea.status),
+              idea.convertedProjectName,
+            ]),
+          )
+          .map<SearchResult>((idea) => ({
+            id: idea.id,
+            domain: "idea",
+            title: idea.title,
+            description: idea.description || idea.convertedProjectName || "Ideia do workspace",
+            badge: getIdeaStatusLabel(idea.status),
+            item: idea,
+          })),
+      },
+    ];
+  }, [clients, ideas, libraryItems, normalizedSearchTerm, projects]);
+  const totalSearchResults = searchResults.reduce((total, group) => total + group.results.length, 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,11 +198,20 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       try {
         const items = await listProjects(workspace.id);
         const clientItems = await listClients(workspace.id);
+        const libraryItems = await listLibraryItems(workspace.id);
+        const ideaItems = await listIdeas(workspace.id);
 
         if (!cancelled) {
           setProjects(items);
           setClients(clientItems);
+          setLibraryItems(libraryItems);
+          setIdeas(ideaItems);
           setSelectedProject(null);
+          setSelectedClientId(null);
+          setSelectedLibraryItemId(null);
+          setSelectedIdeaId(null);
+          setSearchTerm("");
+          setSearchOpen(false);
         }
       } catch (err) {
         if (!cancelled) {
@@ -108,6 +230,14 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       cancelled = true;
     };
   }, [workspace.id]);
+
+  const handleLibraryItemsChange = useCallback((items: LibraryItem[]) => {
+    setLibraryItems(items);
+  }, []);
+
+  const handleIdeasChange = useCallback((items: Idea[]) => {
+    setIdeas(items);
+  }, []);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -286,6 +416,42 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setEditingProjectId(null);
     setBoardError(null);
     setSelectedProject(null);
+    setSelectedClientId(null);
+    setSelectedLibraryItemId(null);
+    setSelectedIdeaId(null);
+  }
+
+  function handleSearchSelect(result: SearchResult) {
+    setSearchTerm("");
+    setSearchOpen(false);
+    setEditingProjectId(null);
+    setBoardError(null);
+    setSelectedProject(null);
+    setSelectedClientId(null);
+    setSelectedLibraryItemId(null);
+    setSelectedIdeaId(null);
+
+    if (result.domain === "project") {
+      const project = result.item as Project;
+      setActiveSection(project.status === "DONE" ? "projects" : "development");
+      setSelectedProject(project);
+      return;
+    }
+
+    if (result.domain === "client") {
+      setActiveSection("clients");
+      setSelectedClientId(result.id);
+      return;
+    }
+
+    if (result.domain === "library") {
+      setActiveSection("library");
+      setSelectedLibraryItemId(result.id);
+      return;
+    }
+
+    setActiveSection("ideas");
+    setSelectedIdeaId(result.id);
   }
 
   return (
@@ -315,9 +481,58 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           })}
         </nav>
 
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold leading-tight text-foreground">{activeSectionInfo.label}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{activeSectionInfo.description}</p>
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,420px)] lg:items-start">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold leading-tight text-foreground">{activeSectionInfo.label}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{activeSectionInfo.description}</p>
+          </div>
+
+          <div className="relative min-w-0">
+            <label className="sr-only" htmlFor="workspace-search">
+              Buscar no workspace
+            </label>
+            <div className="relative">
+              <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                id="workspace-search"
+                className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={searchTerm}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  setSearchOpen(true);
+                }}
+                onFocus={() => setSearchOpen(true)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setSearchOpen(false);
+                  }
+                }}
+                placeholder="Buscar no workspace..."
+                autoComplete="off"
+              />
+            </div>
+
+            {searchOpen && normalizedSearchTerm.length >= 2 ? (
+              <div className="absolute right-0 z-40 mt-2 max-h-[min(70vh,520px)] w-full overflow-y-auto rounded-md border border-border bg-card p-2 shadow-xl">
+                {totalSearchResults === 0 ? (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhum resultado encontrado.</p>
+                ) : (
+                  <div className="grid gap-3">
+                    {searchResults.map((group) =>
+                      group.results.length > 0 ? (
+                        <SearchResultGroup
+                          key={group.domain}
+                          title={group.title}
+                          results={group.results}
+                          onSelect={handleSearchSelect}
+                        />
+                      ) : null,
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -374,11 +589,16 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
               onClientCreated={handleClientCreated}
               onClientUpdated={handleClientUpdated}
               onOpenProject={setSelectedProject}
+              selectedClientId={selectedClientId}
             />
           ) : null}
 
           {activeSection === "library" ? (
-            <LibraryPanel workspaceId={workspace.id} />
+            <LibraryPanel
+              workspaceId={workspace.id}
+              selectedItemId={selectedLibraryItemId}
+              onItemsChange={handleLibraryItemsChange}
+            />
           ) : null}
 
           {activeSection === "ideas" ? (
@@ -387,6 +607,8 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
               projects={projects}
               onProjectCreated={handleIdeaConverted}
               onOpenProject={setSelectedProject}
+              selectedIdeaId={selectedIdeaId}
+              onIdeasChange={handleIdeasChange}
             />
           ) : null}
         </>
@@ -401,6 +623,44 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
         />
       ) : null}
     </div>
+  );
+}
+
+function SearchResultGroup({
+  title,
+  results,
+  onSelect,
+}: {
+  title: string;
+  results: SearchResult[];
+  onSelect: (result: SearchResult) => void;
+}) {
+  const visibleResults = results.slice(0, 5);
+  const hiddenCount = results.length - visibleResults.length;
+
+  return (
+    <section className="grid gap-1">
+      <h3 className="px-2 text-[11px] font-medium uppercase text-muted-foreground">{title}</h3>
+      {visibleResults.map((result) => (
+        <button
+          key={`${result.domain}-${result.id}`}
+          type="button"
+          className="grid min-w-0 gap-1 rounded-md px-2 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => onSelect(result)}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-sm font-medium text-card-foreground">{result.title}</span>
+            {result.badge ? (
+              <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
+                {result.badge}
+              </span>
+            ) : null}
+          </span>
+          <span className="truncate text-xs text-muted-foreground">{result.description}</span>
+        </button>
+      ))}
+      {hiddenCount > 0 ? <p className="px-2 py-1 text-xs text-muted-foreground">+ {hiddenCount} resultados</p> : null}
+    </section>
   );
 }
 
@@ -567,4 +827,43 @@ function formatDate(value: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function matchesSearch(term: string, values: Array<string | null | undefined>) {
+  return values.some((value) => value?.toLowerCase().includes(term));
+}
+
+function getLibraryTypeLabel(type: LibraryItemType) {
+  const labels: Record<LibraryItemType, string> = {
+    LINK: "Link",
+    TOOL: "Ferramenta",
+    COMMAND: "Comando",
+    SNIPPET: "Snippet",
+    REFERENCE: "Referencia",
+    TEMPLATE: "Template",
+    NOTE: "Nota",
+  };
+  return labels[type];
+}
+
+function getIdeaTypeLabel(type: IdeaType) {
+  const labels: Record<IdeaType, string> = {
+    PROJECT: "Sistema",
+    FEATURE: "Funcionalidade",
+    IMPROVEMENT: "Melhoria",
+    RESEARCH: "Pesquisa",
+    PRODUCT: "Produto",
+    OTHER: "Outro",
+  };
+  return labels[type];
+}
+
+function getIdeaStatusLabel(status: IdeaStatus) {
+  const labels: Record<IdeaStatus, string> = {
+    INBOX: "Caixa de entrada",
+    PLANNED: "Planejada",
+    CONVERTED: "Convertida",
+    ARCHIVED: "Arquivada",
+  };
+  return labels[status];
 }

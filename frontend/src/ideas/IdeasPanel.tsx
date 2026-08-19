@@ -56,11 +56,15 @@ export function IdeasPanel({
   projects,
   onProjectCreated,
   onOpenProject,
+  selectedIdeaId,
+  onIdeasChange,
 }: {
   workspaceId: string;
   projects: Project[];
   onProjectCreated: (project: Project) => void;
   onOpenProject: (project: Project) => void;
+  selectedIdeaId?: string | null;
+  onIdeasChange?: (ideas: Idea[]) => void;
 }) {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
@@ -87,6 +91,7 @@ export function IdeasPanel({
         const items = await listIdeas(workspaceId);
         if (!cancelled) {
           setIdeas(items);
+          onIdeasChange?.(items);
         }
       } catch (err) {
         if (!cancelled) {
@@ -104,7 +109,18 @@ export function IdeasPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [onIdeasChange, workspaceId]);
+
+  useEffect(() => {
+    if (!selectedIdeaId) {
+      return;
+    }
+    const idea = ideas.find((item) => item.id === selectedIdeaId);
+    if (idea) {
+      setSelectedIdea(idea);
+      setEditingIdeaId(null);
+    }
+  }, [ideas, selectedIdeaId]);
 
   const filteredIdeas = useMemo(() => {
     return ideas.filter((idea) => {
@@ -128,7 +144,11 @@ export function IdeasPanel({
 
     try {
       const createdIdea = await createIdea(workspaceId, input);
-      setIdeas((current) => [createdIdea, ...current]);
+      setIdeas((current) => {
+        const nextIdeas = [createdIdea, ...current];
+        onIdeasChange?.(nextIdeas);
+        return nextIdeas;
+      });
       setSelectedIdea(createdIdea);
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -199,11 +219,13 @@ export function IdeasPanel({
   }
 
   function applyIdeaUpdate(updatedIdea: Idea) {
-    setIdeas((current) =>
-      current
+    setIdeas((current) => {
+      const nextIdeas = current
         .map((idea) => (idea.id === updatedIdea.id ? updatedIdea : idea))
-        .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
-    );
+        .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+      onIdeasChange?.(nextIdeas);
+      return nextIdeas;
+    });
     setSelectedIdea((current) => (current?.id === updatedIdea.id ? updatedIdea : current));
   }
 
