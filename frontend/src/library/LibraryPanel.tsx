@@ -55,6 +55,7 @@ export function LibraryPanel({
   const [editForm, setEditForm] = useState<LibraryItemInput>(EMPTY_FORM);
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,11 +132,18 @@ export function LibraryPanel({
       });
       setSelectedItem(createdItem);
       setForm(EMPTY_FORM);
+      setCreateFormOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nao foi possivel criar o item.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleCancelCreate() {
+    setForm(EMPTY_FORM);
+    setError(null);
+    setCreateFormOpen(false);
   }
 
   function startEditing(item: LibraryItem) {
@@ -188,6 +196,24 @@ export function LibraryPanel({
   return (
     <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
       <div className="grid min-w-0 gap-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-foreground">Biblioteca</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Conhecimento reutilizavel do workspace.</p>
+          </div>
+          {!createFormOpen ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              onClick={() => setCreateFormOpen(true)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Novo item
+            </button>
+          ) : null}
+        </div>
+
+        {createFormOpen ? (
         <form className="grid gap-3 rounded-md border border-border bg-card p-4 shadow-sm" onSubmit={handleCreate}>
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-card-foreground">Novo item</h2>
@@ -236,14 +262,25 @@ export function LibraryPanel({
             maxLength={20000}
             placeholder="Conteudo, comando ou snippet"
           />
-          <button
-            type="submit"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={saving}
-          >
-            {saving ? "Salvando..." : "Adicionar"}
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-border px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+              onClick={handleCancelCreate}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+            >
+              {saving ? "Salvando..." : "Adicionar"}
+            </button>
+          </div>
         </form>
+        ) : null}
 
         <div className="flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="Filtros da biblioteca">
           {FILTER_OPTIONS.map((option) => (
@@ -277,7 +314,7 @@ export function LibraryPanel({
         ) : filteredItems.length === 0 ? (
           <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Nenhum item na biblioteca.</p>
-            <p className="mt-1">Adicione links, ferramentas, comandos, snippets ou referencias reutilizaveis.</p>
+            <p className="mt-1">Use Novo item para adicionar conhecimento reutilizavel.</p>
           </div>
         ) : (
           <div className="grid min-w-0 gap-3">

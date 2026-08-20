@@ -12,7 +12,7 @@ export const PROJECT_STATUS_OPTIONS: ProjectStatus[] = [
 export const PROJECT_STATUS_COLUMNS: Array<{ status: ProjectStatus; label: string }> = [
   { status: "IDEA", label: "Ideia" },
   { status: "PLANNING", label: "Planejamento" },
-  { status: "ACTIVE", label: "Em andamento" },
+  { status: "ACTIVE", label: "Em desenvolvimento" },
   { status: "BLOCKED", label: "Bloqueado" },
   { status: "PAUSED", label: "Pausado" },
   { status: "DONE", label: "Concluído" },

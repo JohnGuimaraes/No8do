@@ -16,6 +16,7 @@ type ProjectCreateFormProps = {
   onCurrentStateChange: (value: string) => void;
   onStatusChange: (value: ProjectStatus | "") => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
 };
 
 export function ProjectCreateForm({
@@ -30,6 +31,7 @@ export function ProjectCreateForm({
   onCurrentStateChange,
   onStatusChange,
   onSubmit,
+  onCancel,
 }: ProjectCreateFormProps) {
   return (
     <form className="grid gap-4 rounded-lg border border-border bg-card p-4 shadow-sm" onSubmit={onSubmit}>
@@ -80,6 +82,9 @@ export function ProjectCreateForm({
         <Button type="submit" className="md:min-w-36" disabled={creating}>
           <Plus className="h-4 w-4" />
           {creating ? "Criando..." : "Criar projeto"}
+        </Button>
+        <Button type="button" variant="outline" className="md:min-w-28" disabled={creating} onClick={onCancel}>
+          Cancelar
         </Button>
       </div>
 

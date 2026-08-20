@@ -25,6 +25,7 @@ export function ClientsPanel({
   selectedClientId,
 }: ClientsPanelProps) {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -67,11 +68,27 @@ export function ClientsPanel({
       setEmail("");
       setPhone("");
       setNotes("");
+      setCreateFormOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nao foi possivel criar o cliente.");
     } finally {
       setCreating(false);
     }
+  }
+
+  function resetCreateForm() {
+    setName("");
+    setCompanyName("");
+    setEmail("");
+    setPhone("");
+    setNotes("");
+    setError(null);
+    setCreating(false);
+  }
+
+  function handleCancelCreate() {
+    resetCreateForm();
+    setCreateFormOpen(false);
   }
 
   function relatedProjects(clientId: string) {
@@ -80,6 +97,20 @@ export function ClientsPanel({
 
   return (
     <div className="grid min-w-0 gap-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-foreground">Clientes</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Contatos e projetos relacionados.</p>
+        </div>
+        {!createFormOpen ? (
+          <Button type="button" onClick={() => setCreateFormOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Novo cliente
+          </Button>
+        ) : null}
+      </div>
+
+      {createFormOpen ? (
       <form className="grid gap-4 rounded-lg border border-border bg-card p-4 shadow-sm" onSubmit={handleSubmit}>
         <div>
           <h3 className="text-sm font-semibold text-card-foreground">Novo cliente</h3>
@@ -100,17 +131,22 @@ export function ClientsPanel({
           aria-label="Observacoes do cliente"
         />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" disabled={creating} onClick={handleCancelCreate}>
+            Cancelar
+          </Button>
           <Button type="submit" disabled={creating}>
             <Plus className="h-4 w-4" />
             {creating ? "Criando..." : "Criar cliente"}
           </Button>
         </div>
       </form>
+      ) : null}
 
       {clients.length === 0 ? (
         <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-          Nenhum cliente cadastrado
+          <p className="font-medium text-foreground">Nenhum cliente cadastrado.</p>
+          <p className="mt-1">Use Novo cliente para cadastrar o primeiro cliente.</p>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">

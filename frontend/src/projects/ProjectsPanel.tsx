@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { DndContext, type DragEndEvent } from "@dnd-kit/core";
-import { Circle, MagnifyingGlass } from "@phosphor-icons/react";
+import { DndContext, useDroppable, type DragEndEvent } from "@dnd-kit/core";
+import { Circle, MagnifyingGlass, Plus } from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
 import { ClientsPanel } from "@/clients/ClientsPanel";
 import { listClients, type Client } from "@/clients/clientApi";
 import { WorkspaceDashboard } from "@/dashboard/WorkspaceDashboard";
@@ -97,6 +98,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("overview");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
 
@@ -223,6 +225,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           setSelectedLibraryItemId(null);
           setSelectedIdeaId(null);
           setActiveSection("overview");
+          resetCreateForm();
           setSearchTerm("");
           setSearchOpen(false);
         }
@@ -287,11 +290,26 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       setDescription("");
       setCurrentState("");
       setStatus("");
+      setCreateFormOpen(false);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Nao foi possivel criar o projeto.");
     } finally {
       setCreating(false);
     }
+  }
+
+  function resetCreateForm() {
+    setName("");
+    setDescription("");
+    setCurrentState("");
+    setStatus("");
+    setFormError(null);
+    setCreating(false);
+  }
+
+  function handleCancelCreate() {
+    resetCreateForm();
+    setCreateFormOpen(false);
   }
 
   function startEditing(project: Project) {
@@ -428,6 +446,9 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setActiveSection(sectionId);
     setEditingProjectId(null);
     setBoardError(null);
+    if (sectionId !== "development") {
+      handleCancelCreate();
+    }
     setSelectedProject(null);
     setSelectedClientId(null);
     setSelectedLibraryItemId(null);
@@ -446,10 +467,15 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
     if (result.domain === "project") {
       const project = result.item as Project;
+      if (project.status === "DONE") {
+        handleCancelCreate();
+      }
       setActiveSection(project.status === "DONE" ? "projects" : "development");
       setSelectedProject(project);
       return;
     }
+
+    handleCancelCreate();
 
     if (result.domain === "client") {
       setActiveSection("clients");
@@ -608,6 +634,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
               currentState={currentState}
               status={status}
               creating={creating}
+              createFormOpen={createFormOpen}
               formError={formError}
               projects={developmentProjects}
               editingProjectId={editingProjectId}
@@ -620,6 +647,8 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
               onDescriptionChange={setDescription}
               onCurrentStateChange={setCurrentState}
               onStatusChange={setStatus}
+              onOpenCreateForm={() => setCreateFormOpen(true)}
+              onCancelCreate={handleCancelCreate}
               onSubmit={handleCreate}
               onDragEnd={handleDragEnd}
               onStartEditing={startEditing}
@@ -730,6 +759,7 @@ type DevelopmentSectionProps = {
   currentState: string;
   status: ProjectStatus | "";
   creating: boolean;
+  createFormOpen: boolean;
   formError: string | null;
   projects: Project[];
   editingProjectId: string | null;
@@ -742,6 +772,8 @@ type DevelopmentSectionProps = {
   onDescriptionChange: (value: string) => void;
   onCurrentStateChange: (value: string) => void;
   onStatusChange: (value: ProjectStatus | "") => void;
+  onOpenCreateForm: () => void;
+  onCancelCreate: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDragEnd: (event: DragEndEvent) => void;
   onStartEditing: (project: Project) => void;
@@ -760,6 +792,7 @@ function DevelopmentSection({
   currentState,
   status,
   creating,
+  createFormOpen,
   formError,
   projects,
   editingProjectId,
@@ -772,6 +805,8 @@ function DevelopmentSection({
   onDescriptionChange,
   onCurrentStateChange,
   onStatusChange,
+  onOpenCreateForm,
+  onCancelCreate,
   onSubmit,
   onDragEnd,
   onStartEditing,
@@ -785,29 +820,45 @@ function DevelopmentSection({
 }: DevelopmentSectionProps) {
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <ProjectCreateForm
-        name={name}
-        description={description}
-        currentState={currentState}
-        status={status}
-        creating={creating}
-        error={formError}
-        onNameChange={onNameChange}
-        onDescriptionChange={onDescriptionChange}
-        onCurrentStateChange={onCurrentStateChange}
-        onStatusChange={onStatusChange}
-        onSubmit={onSubmit}
-      />
-
-      {projects.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">Nenhum projeto em desenvolvimento.</p>
-          <p className="mt-1">Use o formulario acima para criar o primeiro card.</p>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-foreground">Desenvolvimento</h3>
+          <p className="mt-1 text-sm text-muted-foreground">Acompanhe o fluxo dos projetos ate a conclusao.</p>
         </div>
-      ) : (
-        <DndContext onDragEnd={(event) => onDragEnd(event)}>
+        {!createFormOpen ? (
+          <Button type="button" onClick={onOpenCreateForm}>
+            <Plus className="h-4 w-4" />
+            Novo projeto
+          </Button>
+        ) : null}
+      </div>
+
+      {createFormOpen ? (
+        <ProjectCreateForm
+          name={name}
+          description={description}
+          currentState={currentState}
+          status={status}
+          creating={creating}
+          error={formError}
+          onNameChange={onNameChange}
+          onDescriptionChange={onDescriptionChange}
+          onCurrentStateChange={onCurrentStateChange}
+          onStatusChange={onStatusChange}
+          onSubmit={onSubmit}
+          onCancel={onCancelCreate}
+        />
+      ) : null}
+
+      <DndContext onDragEnd={(event) => onDragEnd(event)}>
+        {projects.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Nenhum projeto em desenvolvimento.</p>
+            <p className="mt-1">Use Novo projeto para criar o primeiro card.</p>
+          </div>
+        ) : (
           <div className="w-full min-w-0 overflow-x-auto pb-3">
-            <div className="flex min-w-max gap-4 px-1">
+            <div className="flex min-w-max items-stretch gap-4 px-1">
               {DEVELOPMENT_PROJECT_STATUS_COLUMNS.map((column) => (
                 <ProjectStatusColumn
                   key={column.status}
@@ -830,11 +881,37 @@ function DevelopmentSection({
                   onOpenDetails={onOpenDetails}
                 />
               ))}
+              <CompleteProjectDropTarget />
             </div>
           </div>
-        </DndContext>
-      )}
+        )}
+      </DndContext>
     </div>
+  );
+}
+
+function CompleteProjectDropTarget() {
+  const { isOver, setNodeRef } = useDroppable({
+    id: "complete-project-drop-target",
+    data: {
+      status: "DONE" satisfies ProjectStatus,
+      type: "completion-target",
+    },
+  });
+
+  return (
+    <section
+      ref={setNodeRef}
+      className={`flex min-h-80 w-[min(72vw,220px)] min-w-[200px] max-w-[220px] flex-col justify-center rounded-lg border border-dashed p-3 text-center transition-colors ${
+        isOver ? "border-primary bg-primary/10 text-primary" : "border-border bg-background/70 text-muted-foreground"
+      }`}
+      aria-label="Concluir projeto"
+    >
+      <div className="rounded-md bg-card/80 px-3 py-4 shadow-sm">
+        <p className="text-sm font-semibold">Concluir projeto</p>
+        <p className="mt-1 text-xs">Arraste aqui para concluir.</p>
+      </div>
+    </section>
   );
 }
 

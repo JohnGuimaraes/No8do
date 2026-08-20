@@ -73,6 +73,7 @@ export function IdeasPanel({
   const [editForm, setEditForm] = useState<IdeaInput>(EMPTY_FORM);
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [convertingIdeaId, setConvertingIdeaId] = useState<string | null>(null);
@@ -151,11 +152,18 @@ export function IdeasPanel({
       });
       setSelectedIdea(createdIdea);
       setForm(EMPTY_FORM);
+      setCreateFormOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nao foi possivel criar a ideia.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleCancelCreate() {
+    setForm(EMPTY_FORM);
+    setError(null);
+    setCreateFormOpen(false);
   }
 
   function startEditing(idea: Idea) {
@@ -239,6 +247,24 @@ export function IdeasPanel({
   return (
     <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
       <div className="grid min-w-0 gap-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-foreground">Ideias</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Oportunidades, melhorias e projetos futuros.</p>
+          </div>
+          {!createFormOpen ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              onClick={() => setCreateFormOpen(true)}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Nova ideia
+            </button>
+          ) : null}
+        </div>
+
+        {createFormOpen ? (
         <form className="grid gap-3 rounded-md border border-border bg-card p-4 shadow-sm" onSubmit={handleCreate}>
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-card-foreground">Nova ideia</h2>
@@ -273,14 +299,25 @@ export function IdeasPanel({
             maxLength={10000}
             placeholder="Descricao"
           />
-          <button
-            type="submit"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={saving}
-          >
-            {saving ? "Salvando..." : "Adicionar"}
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-border px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+              onClick={handleCancelCreate}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+            >
+              {saving ? "Salvando..." : "Adicionar"}
+            </button>
+          </div>
         </form>
+        ) : null}
 
         <FilterButtons
           label="Filtros por status"
@@ -305,7 +342,7 @@ export function IdeasPanel({
         ) : filteredIdeas.length === 0 ? (
           <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Nenhuma ideia registrada.</p>
-            <p className="mt-1">Use o formulario ao lado para guardar uma oportunidade ou melhoria.</p>
+            <p className="mt-1">Use Nova ideia para registrar uma oportunidade, melhoria ou projeto.</p>
           </div>
         ) : (
           <div className="grid min-w-0 gap-3">
