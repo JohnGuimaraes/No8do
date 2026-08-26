@@ -1,7 +1,5 @@
 package com.no8do.api.project;
 
-import com.no8do.api.client.Client;
-import com.no8do.api.client.ClientRepository;
 import com.no8do.api.activity.ProjectActivity;
 import com.no8do.api.activity.ProjectActivityRepository;
 import com.no8do.api.activity.ProjectActivityType;
@@ -40,7 +38,6 @@ public class ProjectService {
     private final ProjectWorkItemRepository projectWorkItemRepository;
     private final ProjectTechnicalInfoRepository projectTechnicalInfoRepository;
     private final IdeaRepository ideaRepository;
-    private final ClientRepository clientRepository;
     private final UserRepository userRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final WorkspaceRepository workspaceRepository;
@@ -54,7 +51,6 @@ public class ProjectService {
             ProjectWorkItemRepository projectWorkItemRepository,
             ProjectTechnicalInfoRepository projectTechnicalInfoRepository,
             IdeaRepository ideaRepository,
-            ClientRepository clientRepository,
             UserRepository userRepository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
             WorkspaceRepository workspaceRepository,
@@ -67,7 +63,6 @@ public class ProjectService {
         this.projectWorkItemRepository = projectWorkItemRepository;
         this.projectTechnicalInfoRepository = projectTechnicalInfoRepository;
         this.ideaRepository = ideaRepository;
-        this.clientRepository = clientRepository;
         this.userRepository = userRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.workspaceRepository = workspaceRepository;
@@ -167,15 +162,13 @@ public class ProjectService {
         String newCurrentState = request.currentState();
         String newRepositoryUrl = normalizeRepositoryUrl(request.repositoryUrl());
         ProjectStatus newStatus = request.status() == null ? project.getStatus() : request.status();
-        Client newClient = resolveClient(workspaceId, request.clientId());
-        List<String> changes = describeChanges(project, newName, newDescription, newCurrentState, newRepositoryUrl, newStatus, newClient);
+        List<String> changes = describeChanges(project, newName, newDescription, newCurrentState, newRepositoryUrl, newStatus);
 
         project.setName(newName);
         project.setDescription(newDescription);
         project.setStatus(newStatus);
         project.setCurrentState(newCurrentState);
         project.setRepositoryUrl(newRepositoryUrl);
-        project.setClient(newClient);
 
         if (!changes.isEmpty()) {
             registerAutomaticActivity(project, currentUserId, "Projeto atualizado: " + String.join("; ", changes) + ".");
@@ -271,8 +264,7 @@ public class ProjectService {
             String newDescription,
             String newCurrentState,
             String newRepositoryUrl,
-            ProjectStatus newStatus,
-            Client newClient
+            ProjectStatus newStatus
     ) {
         List<String> changes = new ArrayList<>();
         if (!Objects.equals(project.getName(), newName)) {
@@ -290,20 +282,7 @@ public class ProjectService {
         if (!Objects.equals(project.getStatus(), newStatus)) {
             changes.add("status alterado de " + project.getStatus() + " para " + newStatus);
         }
-        UUID currentClientId = project.getClient() == null ? null : project.getClient().getId();
-        UUID newClientId = newClient == null ? null : newClient.getId();
-        if (!Objects.equals(currentClientId, newClientId)) {
-            changes.add("cliente vinculado alterado");
-        }
         return changes;
-    }
-
-    private Client resolveClient(UUID workspaceId, UUID clientId) {
-        if (clientId == null) {
-            return null;
-        }
-        return clientRepository.findByIdAndWorkspaceId(clientId, workspaceId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Client not found"));
     }
 
     private Project requireProject(UUID workspaceId, UUID projectId, UUID currentUserId) {

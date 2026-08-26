@@ -1,6 +1,5 @@
 package com.no8do.api.project;
 
-import com.no8do.api.client.Client;
 import com.no8do.api.user.User;
 import com.no8do.api.workspace.Workspace;
 import jakarta.persistence.Column;
@@ -60,11 +59,6 @@ public class Project {
     @JoinColumn(name = "created_by", nullable = false)
     @Setter
     private User createdBy;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "client_id")
-    @Setter
-    private Client client;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
