@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+
+server:
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        secure: true
+        http-only: true
+        same-site: lax
+        path: /
+
+no8do:
+  cors:
+    allowed-origin: ${NO8DO_CORS_ALLOWED_ORIGIN:}
+  frontend-url: ${NO8DO_FRONTEND_URL}
+  github:
+    oauth:
+      redirect-uri: ${NO8DO_GITHUB_REDIRECT_URI}
+    app:
+      callback-url: ${NO8DO_GITHUB_APP_CALLBACK_URL}
+
+logging:
+  level:
+    com.no8do: INFO

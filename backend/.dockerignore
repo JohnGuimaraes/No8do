@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+.idea
+.vscode
+target
+*.log
+*.tmp
+*.swp
+*.pem
+*.key
+uploads
