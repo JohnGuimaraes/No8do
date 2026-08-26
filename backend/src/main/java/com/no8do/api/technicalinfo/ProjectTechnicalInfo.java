@@ -34,10 +34,6 @@ public class ProjectTechnicalInfo {
     @Setter
     private Project project;
 
-    @Column(name = "repository_url", length = 1000)
-    @Setter
-    private String repositoryUrl;
-
     @Column(columnDefinition = "text")
     @Setter
     private String stack;

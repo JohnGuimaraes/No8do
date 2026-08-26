@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>No8do</title>
     <meta name="description" content="Workspace visual para projetos, ideias e decisões." />
+    <script>
+      (function () {
+        try {
+          var preference = localStorage.getItem("no8do-theme") || "system";
+          var dark = preference === "dark" || (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (_) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

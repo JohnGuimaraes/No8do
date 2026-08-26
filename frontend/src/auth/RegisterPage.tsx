@@ -68,7 +68,7 @@ export function RegisterPage({ onShowLogin }: RegisterPageProps) {
 
       <button
         type="button"
-        className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+        className="auth-secondary-action text-sm font-medium underline-offset-4"
         onClick={onShowLogin}
       >
         Ja tenho uma conta

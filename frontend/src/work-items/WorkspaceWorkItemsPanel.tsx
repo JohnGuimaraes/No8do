@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CheckCircle, Circle, WarningCircle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { ViewModeToggle, type ViewMode } from "@/components/ViewModeToggle";
 import {
   listWorkspaceWorkItems,
   updateProjectWorkItemStatus,
@@ -8,6 +9,7 @@ import {
   type ProjectWorkItemType,
   type WorkspaceWorkItem,
 } from "@/work-items/workItemApi";
+import { getWorkItemDueDateLabel } from "@/work-items/workItemDate";
 
 type WorkspaceWorkItemsPanelProps = {
   workspaceId: string;
@@ -15,9 +17,9 @@ type WorkspaceWorkItemsPanelProps = {
 };
 
 const OPEN_SECTIONS: Array<{ type: ProjectWorkItemType; title: string; emptyText: string }> = [
-  { type: "BLOCKER", title: "Bloqueios", emptyText: "Nenhum bloqueio aberto." },
-  { type: "PENDING", title: "Pendencias", emptyText: "Nenhuma pendencia aberta." },
   { type: "NEXT_STEP", title: "Proximos passos", emptyText: "Nenhum proximo passo aberto." },
+  { type: "PENDING", title: "Pendencias", emptyText: "Nenhuma pendencia aberta." },
+  { type: "BLOCKER", title: "Bloqueios", emptyText: "Nenhum bloqueio aberto." },
 ];
 
 export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: WorkspaceWorkItemsPanelProps) {
@@ -27,6 +29,7 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
   const [loading, setLoading] = useState(true);
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("visual");
 
   useEffect(() => {
     let active = true;
@@ -104,6 +107,8 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
             Bloqueios, pendencias e proximos passos abertos em todos os projetos.
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+        <ViewModeToggle value={viewMode} onChange={setViewMode} visualLabel="Agrupado" />
         <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
@@ -113,6 +118,7 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
           />
           Mostrar concluidos
         </label>
+        </div>
       </div>
 
       {loading ? <p className="text-sm text-muted-foreground">Carregando pendencias...</p> : null}
@@ -124,7 +130,7 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
         </p>
       ) : null}
 
-      {!loading && !error ? (
+      {!loading && !error && viewMode === "visual" ? (
         <div className="grid min-w-0 gap-4 xl:grid-cols-3">
           {groupedOpenItems.map((section) => (
             <WorkItemGroup
@@ -140,7 +146,11 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
         </div>
       ) : null}
 
-      {!loading && !error && showDone ? (
+      {!loading && !error && viewMode === "list" ? (
+        <WorkItemList items={showDone ? [...openItems, ...doneItems] : openItems} savingItemId={savingItemId} onOpenProject={onOpenProject} onStatusChange={handleStatusChange} />
+      ) : null}
+
+      {!loading && !error && showDone && viewMode === "visual" ? (
         <WorkItemGroup
           title="Concluidos"
           emptyText="Nenhum item concluido."
@@ -169,28 +179,64 @@ function WorkItemGroup({
   onOpenProject: (projectId: string) => void;
   onStatusChange: (item: WorkspaceWorkItem, status: ProjectWorkItemStatus) => void;
 }) {
+  const projectGroups = groupItemsByProject(items);
+
   return (
     <section className="grid min-w-0 content-start gap-2">
-      <h4 className="text-xs font-semibold uppercase text-muted-foreground">{title}</h4>
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</h4>
+      </div>
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
           {emptyText}
         </p>
       ) : (
-        <ol className="grid min-w-0 gap-2">
-          {items.map((item) => (
-            <WorkItemCard
-              key={item.id}
-              item={item}
-              saving={savingItemId === item.id}
-              onOpenProject={onOpenProject}
-              onStatusChange={onStatusChange}
-            />
+        <div className="grid min-w-0 gap-4">
+          {projectGroups.map((group) => (
+            <section key={group.projectId} className="grid min-w-0 gap-2">
+              <button
+                type="button"
+                className="w-fit max-w-full truncate text-left text-sm font-semibold text-foreground hover:text-primary hover:underline"
+                onClick={() => onOpenProject(group.projectId)}
+              >
+                {group.projectName}
+              </button>
+              <ol className="grid min-w-0 gap-2">
+                {group.items.map((item) => (
+                  <WorkItemCard
+                    key={item.id}
+                    item={item}
+                    saving={savingItemId === item.id}
+                    onOpenProject={onOpenProject}
+                    onStatusChange={onStatusChange}
+                  />
+                ))}
+              </ol>
+            </section>
           ))}
-        </ol>
+        </div>
       )}
     </section>
   );
+}
+
+function WorkItemList({
+  items,
+  savingItemId,
+  onOpenProject,
+  onStatusChange,
+}: {
+  items: WorkspaceWorkItem[];
+  savingItemId: string | null;
+  onOpenProject: (projectId: string) => void;
+  onStatusChange: (item: WorkspaceWorkItem, status: ProjectWorkItemStatus) => void;
+}) {
+  const sortedItems = sortWorkspaceItems(items);
+  return <ul className="divide-y divide-border rounded-xl border border-border bg-card">{sortedItems.map((item) => {
+    const metadata = getWorkItemMetadata(item);
+    const done = item.status === "DONE";
+    return <li key={item.id} className="grid min-w-0 gap-2 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:px-4"><span className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium ${metadata.badgeClassName}`}><metadata.Icon className="h-3.5 w-3.5" aria-hidden="true" />{metadata.label}</span><div className="grid min-w-0 gap-1"><span className={`break-words text-sm font-semibold ${done ? "text-muted-foreground line-through" : "text-card-foreground"}`}>{item.title}</span><button type="button" className="w-fit max-w-full truncate text-left text-xs font-semibold text-foreground/80 hover:text-primary hover:underline" onClick={() => onOpenProject(item.projectId)}>Projeto: {item.projectName}</button><span className="line-clamp-1 text-xs text-muted-foreground">{item.details || "Sem detalhes adicionais."}</span><span className="text-[11px] text-muted-foreground">Atualizado {formatDate(item.updatedAt)}</span></div><Button type="button" variant="outline" size="sm" disabled={savingItemId === item.id} onClick={() => onStatusChange(item, done ? "OPEN" : "DONE")}>{done ? "Reabrir" : "Concluir"}</Button></li>;
+  })}</ul>;
 }
 
 function WorkItemCard({
@@ -209,7 +255,7 @@ function WorkItemCard({
 
   return (
     <li className={`min-w-0 rounded-md border px-3 py-3 ${metadata.className} ${done ? "opacity-75" : ""}`}>
-      <div className="grid min-w-0 gap-3">
+      <div className="grid min-w-0 gap-2">
         <div className="min-w-0">
           <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
             <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${metadata.badgeClassName}`}>
@@ -223,16 +269,17 @@ function WorkItemCard({
           </p>
           <button
             type="button"
-            className="mt-1 min-w-0 break-words text-left text-xs font-medium text-primary hover:underline"
+            className="mt-1 min-w-0 break-words text-left text-xs font-semibold text-foreground/80 hover:text-primary hover:underline"
             onClick={() => onOpenProject(item.projectId)}
           >
-            {item.projectName}
+            Projeto: {item.projectName}
           </button>
           {item.details ? (
             <p className="mt-2 line-clamp-3 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
               {item.details}
             </p>
           ) : null}
+          {item.assigneeName || item.dueDate ? <p className="mt-2 text-[11px] text-muted-foreground">{item.assigneeName ? `Responsável: ${item.assigneeName}` : ""}{item.assigneeName && item.dueDate ? " · " : ""}{item.dueDate ? getWorkItemDueDateLabel(item.dueDate, item.status) : ""}</p> : null}
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>Autor: {item.createdByName}</span>
@@ -257,7 +304,7 @@ function getWorkItemMetadata(item: WorkspaceWorkItem) {
       label: item.type === "BLOCKER" ? "Resolvido" : "Concluido",
       Icon: CheckCircle,
       className: "border-border bg-card",
-      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/55 dark:text-emerald-200",
     };
   }
 
@@ -265,8 +312,8 @@ function getWorkItemMetadata(item: WorkspaceWorkItem) {
     return {
       label: "Bloqueio",
       Icon: WarningCircle,
-      className: "border-red-200 bg-red-50/70",
-      badgeClassName: "border-red-200 bg-red-50 text-red-700",
+      className: "border-red-200 bg-red-50/70 dark:border-red-900 dark:bg-red-950/35",
+      badgeClassName: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/55 dark:text-red-200",
     };
   }
 
@@ -274,8 +321,8 @@ function getWorkItemMetadata(item: WorkspaceWorkItem) {
     return {
       label: "Proximo passo",
       Icon: ArrowRight,
-      className: "border-violet-200 bg-violet-50/70",
-      badgeClassName: "border-violet-200 bg-violet-50 text-violet-700",
+      className: "border-violet-200 bg-violet-50/70 dark:border-violet-900 dark:bg-violet-950/35",
+      badgeClassName: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/55 dark:text-violet-200",
     };
   }
 
@@ -289,15 +336,30 @@ function getWorkItemMetadata(item: WorkspaceWorkItem) {
 
 function sortWorkspaceItems(items: WorkspaceWorkItem[]) {
   const typeOrder: Record<ProjectWorkItemType, number> = {
-    BLOCKER: 0,
+    NEXT_STEP: 0,
     PENDING: 1,
-    NEXT_STEP: 2,
+    BLOCKER: 2,
   };
 
   return [...items].sort((first, second) => {
     const typeDiff = typeOrder[first.type] - typeOrder[second.type];
     return typeDiff === 0 ? Date.parse(second.updatedAt) - Date.parse(first.updatedAt) : typeDiff;
   });
+}
+
+function groupItemsByProject(items: WorkspaceWorkItem[]) {
+  const groups = new Map<string, { projectId: string; projectName: string; items: WorkspaceWorkItem[] }>();
+
+  for (const item of sortWorkspaceItems(items)) {
+    const group = groups.get(item.projectId);
+    if (group) {
+      group.items.push(item);
+    } else {
+      groups.set(item.projectId, { projectId: item.projectId, projectName: item.projectName, items: [item] });
+    }
+  }
+
+  return [...groups.values()].sort((first, second) => first.projectName.localeCompare(second.projectName, "pt-BR"));
 }
 
 function formatDate(value: string) {

@@ -1,7 +1,9 @@
 import { type FormEvent, type ReactNode, useState } from "react";
-import { ArrowRight, Sparkle } from "@phosphor-icons/react";
+import { ArrowRight } from "@phosphor-icons/react";
+import no8doIcon from "@/assets/logo/no8do-icone.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthContext";
+import { WorkspaceNodeGraphic } from "@/components/visual/WorkspaceNodeGraphic";
 
 type LoginPageProps = {
   onShowRegister: () => void;
@@ -50,15 +52,15 @@ export function LoginPage({ onShowRegister }: LoginPageProps) {
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <Button type="submit" className="w-full" disabled={submitting}>
+        <Button type="submit" className="auth-submit-button group w-full" disabled={submitting}>
           {submitting ? "Entrando..." : "Entrar"}
-          <ArrowRight className="h-4 w-4" />
+          <ArrowRight className="auth-submit-button__arrow h-4 w-4" />
         </Button>
       </form>
 
       <button
         type="button"
-        className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+        className="auth-secondary-action text-sm font-medium underline-offset-4"
         onClick={onShowRegister}
       >
         Criar uma conta
@@ -78,10 +80,10 @@ type FieldProps = {
 
 export function Field({ label, name, type, value, autoComplete, onChange }: FieldProps) {
   return (
-    <label className="flex flex-col gap-2 text-left text-sm font-medium text-foreground">
+    <label className="auth-field flex flex-col gap-2 text-left text-sm font-medium text-foreground">
       {label}
       <input
-        className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="auth-field__input h-10 rounded-md border border-input px-3 text-sm outline-none transition-[border-color,box-shadow,background-color] placeholder:text-muted-foreground focus-visible:outline-none"
         name={name}
         type={type}
         value={value}
@@ -102,16 +104,14 @@ export function AuthShell({
   children: ReactNode;
 }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-10">
-      <section className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
-        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 shadow-sm">
-          <Sparkle weight="fill" className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium text-card-foreground">{eyebrow}</span>
+    <main className="auth-canvas flex min-h-screen items-center px-4 py-6 sm:px-6 lg:p-10">
+      <section className="auth-shell mx-auto grid w-full max-w-6xl overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(360px,.9fr)]">
+        <div className="auth-shell__content flex min-w-0 flex-col justify-center px-6 py-10 sm:px-10 lg:px-14 lg:py-16">
+          <div className="auth-brand mb-10 flex items-center gap-3 text-sm font-semibold text-foreground"><span className="auth-brand__mark"><img src={no8doIcon} alt="" aria-hidden="true" /></span><span>{eyebrow}</span></div>
+          <div className="max-w-md space-y-3"><p className="auth-eyebrow text-xs font-medium uppercase tracking-[.16em] text-primary"><span aria-hidden="true" />Memória operacional</p><h1 className="text-4xl font-medium tracking-tight text-foreground sm:text-5xl">{title}</h1><p className="auth-intro text-sm leading-6 text-muted-foreground">Projetos, decisões e próximos passos em um espaço que acompanha o seu ritmo.</p></div>
+          <div className="mt-10 flex w-full max-w-md flex-col gap-5">{children}</div>
         </div>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
-        </div>
-        {children}
+        <div className="auth-node-stage hidden min-h-full lg:flex"><WorkspaceNodeGraphic className="auth-node" /><p className="auth-node-caption"><span>ideias</span><i aria-hidden="true">•</i><span>projetos</span><i aria-hidden="true">•</i><span>memória</span></p></div>
       </section>
     </main>
   );

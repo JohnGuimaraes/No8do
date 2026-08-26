@@ -66,6 +66,15 @@ public class LibraryItem {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "archived_at")
+    @Setter
+    private Instant archivedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "archived_by")
+    @Setter
+    private User archivedBy;
+
     public LibraryItem(Workspace workspace, LibraryItemType type, String title, User createdBy) {
         this.workspace = workspace;
         this.type = type;

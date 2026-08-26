@@ -9,5 +9,7 @@ public interface LibraryItemRepository extends JpaRepository<LibraryItem, UUID> 
 
     Optional<LibraryItem> findByIdAndWorkspaceId(UUID id, UUID workspaceId);
 
-    List<LibraryItem> findByWorkspaceIdOrderByUpdatedAtDesc(UUID workspaceId);
+    List<LibraryItem> findByWorkspaceIdAndArchivedAtIsNullOrderByUpdatedAtDesc(UUID workspaceId);
+
+    List<LibraryItem> findByWorkspaceIdAndArchivedAtIsNotNullOrderByArchivedAtDesc(UUID workspaceId);
 }

@@ -9,7 +9,9 @@ public record ProjectNoteResponse(
         UUID createdBy,
         String createdByName,
         String content,
-        Instant createdAt
+        ProjectNoteType type,
+        Instant createdAt,
+        Instant updatedAt
 ) {
 
     static ProjectNoteResponse from(ProjectNote note) {
@@ -19,7 +21,7 @@ public record ProjectNoteResponse(
             note.getCreatedBy().getId(),
             note.getCreatedBy().getName(),
             note.getContent(),
-            note.getCreatedAt()
+            note.getType(), note.getCreatedAt(), note.getUpdatedAt()
         );
     }
 }

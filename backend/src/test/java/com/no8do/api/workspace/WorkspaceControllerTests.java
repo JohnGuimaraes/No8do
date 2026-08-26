@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -142,6 +143,50 @@ class WorkspaceControllerTests {
         WorkspaceMember member = workspaceMemberRepository.findByUserId(user.getId()).getFirst();
         assertThat(member.getUser().getId()).isEqualTo(user.getId());
         assertThat(workspaceMemberRepository.findByUserId(otherUser.getId())).isEmpty();
+    }
+
+    @Test
+    void onlyWorkspaceManagersCanReadLinkOrUnlinkGithubConnection() throws Exception {
+        User owner = createUser();
+        User member = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace GitHub", WorkspaceRole.OWNER);
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/integrations/github", workspace.getId())
+            .with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.linked").value(false));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/integrations/github", workspace.getId())
+                .with(user(new No8doUserDetails(member))))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/integrations/github/link", workspace.getId())
+                .with(user(new No8doUserDetails(member)))
+                .with(csrf()))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/integrations/github", workspace.getId())
+                .with(user(new No8doUserDetails(member)))
+                .with(csrf()))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void membersEndpointReturnsOnlyMembersWithPublicFields() throws Exception {
+        User owner = createUser(); User member = createUser(); User outsider = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace membros", WorkspaceRole.OWNER);
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        Workspace otherWorkspace = createWorkspaceFor(outsider, "Outro", WorkspaceRole.OWNER);
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(member))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].userId").exists()).andExpect(jsonPath("$[0].name").exists())
+            .andExpect(jsonPath("$[0].email").doesNotExist()).andExpect(jsonPath("$[0].role").doesNotExist());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(outsider))))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", otherWorkspace.getId()).with(user(new No8doUserDetails(member))))
+            .andExpect(status().isForbidden());
     }
 
     private Workspace createWorkspaceFor(User user, String name, WorkspaceRole role) {

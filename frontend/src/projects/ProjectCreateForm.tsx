@@ -8,12 +8,14 @@ type ProjectCreateFormProps = {
   name: string;
   description: string;
   currentState: string;
+  repositoryUrl: string;
   status: ProjectStatus | "";
   creating: boolean;
   error: string | null;
   onNameChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onCurrentStateChange: (value: string) => void;
+  onRepositoryUrlChange: (value: string) => void;
   onStatusChange: (value: ProjectStatus | "") => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
@@ -23,12 +25,14 @@ export function ProjectCreateForm({
   name,
   description,
   currentState,
+  repositoryUrl,
   status,
   creating,
   error,
   onNameChange,
   onDescriptionChange,
   onCurrentStateChange,
+  onRepositoryUrlChange,
   onStatusChange,
   onSubmit,
   onCancel,
@@ -69,6 +73,15 @@ export function ProjectCreateForm({
         onChange={(event) => onDescriptionChange(event.target.value)}
         placeholder="Descrição curta do que precisa acontecer"
         aria-label="Descrição do projeto"
+      />
+
+      <input
+        type="url"
+        className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        value={repositoryUrl}
+        onChange={(event) => onRepositoryUrlChange(event.target.value)}
+        placeholder="URL do repositório (opcional)"
+        aria-label="URL do repositório"
       />
 
       <div className="flex flex-col gap-3 md:flex-row">

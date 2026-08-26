@@ -10,4 +10,6 @@ public interface ProjectCredentialRepository extends JpaRepository<ProjectCreden
     List<ProjectCredential> findByProjectIdOrderByUpdatedAtDesc(UUID projectId);
 
     Optional<ProjectCredential> findByIdAndProjectId(UUID id, UUID projectId);
+
+    void deleteByProjectId(UUID projectId);
 }

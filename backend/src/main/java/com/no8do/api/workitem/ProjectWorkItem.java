@@ -14,6 +14,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -51,6 +52,9 @@ public class ProjectWorkItem {
     @Column(columnDefinition = "text")
     @Setter
     private String details;
+
+    @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "assignee_user_id") @Setter private User assignee;
+    @Column(name = "due_date") @Setter private LocalDate dueDate;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)

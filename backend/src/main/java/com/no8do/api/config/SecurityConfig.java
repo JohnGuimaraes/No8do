@@ -1,6 +1,7 @@
 package com.no8do.api.config;
 
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -21,11 +22,22 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    private final String corsAllowedOrigin;
+    private final boolean secureCookies;
+
+    public SecurityConfig(
+            @Value("${no8do.cors.allowed-origin:}") String corsAllowedOrigin,
+            @Value("${server.servlet.session.cookie.secure:false}") boolean secureCookies
+    ) {
+        this.corsAllowedOrigin = corsAllowedOrigin;
+        this.secureCookies = secureCookies;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
+            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository()))
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
             .exceptionHandling(exceptions -> exceptions
@@ -34,6 +46,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health", "/api/csrf").permitAll()
                 .requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
+                .requestMatchers("/api/account/integrations/github/app/callback").permitAll()
                 .requestMatchers("/api/auth/logout", "/api/auth/me").authenticated()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll()
@@ -52,10 +65,19 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    private CookieCsrfTokenRepository csrfTokenRepository() {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repository.setCookieCustomizer(cookie -> cookie.path("/").sameSite("Lax").secure(secureCookies));
+        return repository;
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+        if (corsAllowedOrigin.isBlank()) {
+            return request -> null;
+        }
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:5173"));
+        configuration.setAllowedOrigins(List.of(corsAllowedOrigin));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

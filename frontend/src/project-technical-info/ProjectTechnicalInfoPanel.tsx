@@ -6,6 +6,7 @@ import {
   saveProjectTechnicalInfo,
   type ProjectTechnicalInfo,
 } from "@/project-technical-info/technicalInfoApi";
+import { ProjectGithubRepositoryPanel } from "@/project-technical-info/ProjectGithubRepositoryPanel";
 
 type ProjectTechnicalInfoPanelProps = {
   workspaceId: string;
@@ -221,6 +222,10 @@ export function ProjectTechnicalInfoPanel({ workspaceId, projectId }: ProjectTec
             </Button>
           </div>
         </form>
+      ) : null}
+
+      {!loading && !error && technicalInfo ? (
+        <ProjectGithubRepositoryPanel workspaceId={workspaceId} projectId={projectId} />
       ) : null}
     </section>
   );

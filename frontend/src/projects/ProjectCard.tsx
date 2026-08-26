@@ -1,11 +1,10 @@
-import { useState } from "react";
-import { DotsSixVertical } from "@phosphor-icons/react";
+import { ArrowsOut } from "@phosphor-icons/react";
 import { useDraggable } from "@dnd-kit/core";
 import { Button } from "@/components/ui/button";
-import { ProjectActivityPanel } from "@/activities/ProjectActivityPanel";
 import { type Project, type ProjectStatus } from "@/projects/projectApi";
 import { ProjectEditForm } from "@/projects/ProjectEditForm";
 import { getProjectStatusLabel } from "@/projects/projectStatus";
+import { StickyNoteSurface } from "@/projects/StickyNoteSurface";
 
 type ProjectCardProps = {
   project: Project;
@@ -14,13 +13,16 @@ type ProjectCardProps = {
   editName: string;
   editDescription: string;
   editCurrentState: string;
+  editRepositoryUrl: string;
   editStatus: ProjectStatus;
+  completing: boolean;
   onStartEditing: (project: Project) => void;
   onCancelEditing: () => void;
   onSave: (project: Project) => void;
   onEditNameChange: (value: string) => void;
   onEditDescriptionChange: (value: string) => void;
   onEditCurrentStateChange: (value: string) => void;
+  onEditRepositoryUrlChange: (value: string) => void;
   onEditStatusChange: (value: ProjectStatus) => void;
   onOpenDetails: (project: Project) => void;
 };
@@ -32,17 +34,19 @@ export function ProjectCard({
   editName,
   editDescription,
   editCurrentState,
+  editRepositoryUrl,
   editStatus,
+  completing,
   onStartEditing,
   onCancelEditing,
   onSave,
   onEditNameChange,
   onEditDescriptionChange,
   onEditCurrentStateChange,
+  onEditRepositoryUrlChange,
   onEditStatusChange,
   onOpenDetails,
 }: ProjectCardProps) {
-  const [showActivities, setShowActivities] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: project.id,
     data: {
@@ -61,8 +65,11 @@ export function ProjectCard({
     <article
       ref={setNodeRef}
       style={style}
-      className={`min-w-0 rounded-lg border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md ${
-        isDragging ? "relative z-10 opacity-80 shadow-lg" : ""
+      {...attributes}
+      {...listeners}
+      data-project-status={project.status}
+      className={`kanban-card ${!editing ? "kanban-card--note p-0" : "p-4"} min-w-0 ${completing ? "kanban-card--completing" : ""} ${
+        isDragging ? "relative z-10 scale-[1.01] opacity-75 shadow-xl" : ""
       }`}
       onClick={() => {
         if (!editing) {
@@ -75,87 +82,73 @@ export function ProjectCard({
           name={editName}
           description={editDescription}
           currentState={editCurrentState}
+          repositoryUrl={editRepositoryUrl}
           status={editStatus}
           saving={saving}
           onNameChange={onEditNameChange}
           onDescriptionChange={onEditDescriptionChange}
           onCurrentStateChange={onEditCurrentStateChange}
+          onRepositoryUrlChange={onEditRepositoryUrlChange}
           onStatusChange={onEditStatusChange}
           onSave={() => onSave(project)}
           onCancel={onCancelEditing}
         />
       ) : (
-        <div className="flex h-full min-w-0 flex-col gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h3 className="break-words text-base font-semibold leading-snug text-card-foreground">
-                {project.name}
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                atualizado em {formatDate(project.updatedAt)}
-              </p>
-            </div>
-            <span className="rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              {getProjectStatusLabel(project.status)}
-            </span>
+        <div className="kanban-card__content flex h-full min-w-0 flex-col">
+          <StickyNoteSurface status={project.status} noteId={project.id} />
+          <div className="min-w-0">
+            <h3 className="kanban-card__title break-words">
+              {project.name}
+            </h3>
           </div>
 
-          <button
-            type="button"
-            className="flex w-full cursor-grab items-center justify-center gap-2 rounded-md border border-dashed border-border bg-background/70 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent active:cursor-grabbing"
-            aria-label={`Arrastar projeto ${project.name}`}
-            onClick={(event) => event.stopPropagation()}
-            {...attributes}
-            {...listeners}
-          >
-            <DotsSixVertical className="h-4 w-4" />
-            Arrastar para mudar status
-          </button>
+          {project.currentState ? (
+            <div className="kanban-card__state">
+              <p className="kanban-card__annotation-label text-[11px] font-medium">Agora</p>
+              <p className="kanban-card__current-state whitespace-pre-wrap">{project.currentState}</p>
+            </div>
+          ) : null}
 
           {project.description ? (
-            <p className="whitespace-pre-wrap rounded-md bg-background/70 px-3 py-2 text-sm leading-6 text-muted-foreground">
+            <p className="kanban-card__description line-clamp-3 whitespace-pre-wrap text-sm leading-6">
               {project.description}
             </p>
           ) : null}
 
-          {project.currentState ? (
-            <div className="rounded-md border border-border bg-background px-3 py-2">
-              <p className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">Estado atual</p>
-              <p className="whitespace-pre-wrap text-sm leading-6 text-card-foreground">{project.currentState}</p>
+          <div className="kanban-card__footer mt-auto flex flex-wrap items-center justify-between gap-2">
+            <div className="kanban-card__metadata">
+              <span className="kanban-card__status">{getProjectStatusLabel(project.status)}</span>
+              <span className="kanban-card__updated">atualizado em {formatDate(project.updatedAt)}</span>
             </div>
-          ) : null}
-
-          {showActivities ? (
-            <div onClick={(event) => event.stopPropagation()}>
-              <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} />
+            <div className="kanban-card__actions flex flex-wrap items-center justify-end gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-auto"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  onStartEditing(project);
+                }}
+              >
+                Editar
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-auto"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  onOpenDetails(project);
+                }}
+              >
+                <ArrowsOut className="h-4 w-4" />
+                Expandir
+              </Button>
             </div>
-          ) : null}
-
-          <div className="mt-auto grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={(event) => {
-                event.stopPropagation();
-                setShowActivities((current) => !current);
-              }}
-            >
-              {showActivities ? "Ocultar histórico" : "Histórico"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={(event) => {
-                event.stopPropagation();
-                onStartEditing(project);
-              }}
-            >
-              Editar
-            </Button>
           </div>
         </div>
       )}

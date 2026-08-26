@@ -53,6 +53,11 @@ public class Idea {
     @Setter
     private IdeaStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "archived_from_status", length = 30)
+    @Setter
+    private IdeaStatus archivedFromStatus;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "converted_project_id")
     @Setter

@@ -126,7 +126,9 @@ class ProjectCredentialControllerTests {
     void persistedValueIsNotPlaintextAndRevealReturnsPlaintext() throws Exception {
         TestData data = createProjectForMember();
         createCredential(data, "Senha", ProjectCredentialType.PASSWORD, "senha com espaco ");
-        ProjectCredential credential = projectCredentialRepository.findAll().get(0);
+        ProjectCredential credential = projectCredentialRepository
+            .findByProjectIdOrderByUpdatedAtDesc(data.project().getId())
+            .getFirst();
 
         mockMvc.perform(post(
                     "/api/workspaces/{workspaceId}/projects/{projectId}/credentials/{credentialId}/reveal",

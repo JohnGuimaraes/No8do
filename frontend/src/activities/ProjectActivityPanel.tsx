@@ -19,6 +19,9 @@ import {
 type ProjectActivityPanelProps = {
   workspaceId: string;
   projectId: string;
+  activities?: ProjectActivity[];
+  loading?: boolean;
+  onActivitiesChange?: (activities: ProjectActivity[]) => void;
 };
 
 const ACTIVITY_TYPES: Array<{
@@ -32,35 +35,35 @@ const ACTIVITY_TYPES: Array<{
     value: "UPDATE",
     label: "Atualização",
     Icon: NotePencil,
-    badgeClassName: "border-sky-200 bg-sky-50 text-sky-700",
-    markerClassName: "border-sky-200 bg-sky-50 text-sky-700",
+    badgeClassName: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/60 dark:text-sky-200",
+    markerClassName: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/60 dark:text-sky-200",
   },
   {
     value: "DECISION",
     label: "Decisão",
     Icon: CheckCircle,
-    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    markerClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/55 dark:text-emerald-200",
+    markerClassName: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/55 dark:text-emerald-200",
   },
   {
     value: "BLOCKER",
     label: "Bloqueio",
     Icon: WarningCircle,
-    badgeClassName: "border-red-200 bg-red-50 text-red-700",
-    markerClassName: "border-red-200 bg-red-50 text-red-700",
+    badgeClassName: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/55 dark:text-red-200",
+    markerClassName: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/55 dark:text-red-200",
   },
   {
     value: "NEXT_STEP",
     label: "Próximo passo",
     Icon: ArrowRight,
-    badgeClassName: "border-violet-200 bg-violet-50 text-violet-700",
-    markerClassName: "border-violet-200 bg-violet-50 text-violet-700",
+    badgeClassName: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/55 dark:text-violet-200",
+    markerClassName: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/55 dark:text-violet-200",
   },
 ];
 
-export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivityPanelProps) {
+export function ProjectActivityPanel({ workspaceId, projectId, activities: providedActivities, loading: providedLoading, onActivitiesChange }: ProjectActivityPanelProps) {
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [localLoading, setLocalLoading] = useState(providedActivities === undefined);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -68,10 +71,13 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
   const [type, setType] = useState<ProjectActivityType | "">("UPDATE");
 
   useEffect(() => {
+    if (providedActivities !== undefined) {
+      return;
+    }
     let active = true;
 
     async function loadActivities() {
-      setLoading(true);
+      setLocalLoading(true);
       setError(null);
       try {
         const response = await listProjectActivities(workspaceId, projectId);
@@ -84,7 +90,7 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
         }
       } finally {
         if (active) {
-          setLoading(false);
+          setLocalLoading(false);
         }
       }
     }
@@ -94,7 +100,10 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
     return () => {
       active = false;
     };
-  }, [workspaceId, projectId]);
+  }, [workspaceId, projectId, providedActivities]);
+
+  const displayedActivities = providedActivities ?? activities;
+  const loading = providedLoading ?? localLoading;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,7 +122,12 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
         content: normalizedContent,
         ...(type ? { type } : {}),
       });
-      setActivities((current) => [created, ...current]);
+      const nextActivities = [created, ...displayedActivities];
+      if (onActivitiesChange) {
+        onActivitiesChange(nextActivities);
+      } else {
+        setActivities(nextActivities);
+      }
       setContent("");
       setType("UPDATE");
     } catch (err) {
@@ -164,47 +178,35 @@ export function ProjectActivityPanel({ workspaceId, projectId }: ProjectActivity
       <div className="mt-4 min-w-0">
         {loading ? <p className="text-sm text-muted-foreground">Carregando histórico...</p> : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        {!loading && !error && activities.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-3 py-6 text-center">
+        {!loading && !error && displayedActivities.length === 0 ? (
+          <div className="px-3 py-6 text-center">
             <p className="text-sm font-medium text-muted-foreground">Sem atividades ainda</p>
             <p className="mt-1 text-xs text-muted-foreground">
               O histórico guarda updates, decisões, bloqueios e próximos passos do projeto.
             </p>
           </div>
         ) : null}
-        {!loading && !error && activities.length > 0 ? (
-          <ol className="min-w-0 space-y-3">
-            {activities.map((activity) => {
+        {!loading && !error && displayedActivities.length > 0 ? (
+          <ol className="min-w-0 space-y-6">
+            {displayedActivities.map((activity) => {
               const metadata = getActivityTypeMetadata(activity.type);
-              const SourceIcon = isSystemActivity(activity) ? Flag : metadata.Icon;
+              const systemActivity = isSystemActivity(activity);
+              const SourceIcon = systemActivity ? Flag : metadata.Icon;
 
               return (
-                <li key={activity.id} className="grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-3">
+                <li key={activity.id} className="grid min-w-0 grid-cols-[20px_minmax(0,1fr)] gap-3">
                   <div className="flex flex-col items-center">
                     <span
-                      className={`flex h-7 w-7 items-center justify-center rounded-full border ${metadata.markerClassName}`}
+                      className={`mt-1 flex h-5 w-5 items-center justify-center rounded-full border ${metadata.markerClassName}`}
                     >
-                      <metadata.Icon className="h-4 w-4" />
+                      <metadata.Icon className="h-3 w-3" />
                     </span>
-                    <span className="mt-2 min-h-6 w-px flex-1 bg-border" />
+                    <span className="mt-2 w-px flex-1 bg-border" />
                   </div>
 
-                  <article className="min-w-0 rounded-md border border-border bg-card px-3 py-3">
-                    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex max-w-full items-center gap-1.5 break-words rounded-full border px-2 py-0.5 text-[11px] font-medium ${metadata.badgeClassName}`}
-                      >
-                        <metadata.Icon className="h-3.5 w-3.5 shrink-0" />
-                        {metadata.label}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                        <SourceIcon className="h-3.5 w-3.5" />
-                        {isSystemActivity(activity) ? "Sistema" : "Manual"}
-                      </span>
-                      <time className="break-words text-[11px] text-muted-foreground">
-                        {formatDate(activity.createdAt)}
-                      </time>
-                    </div>
+                  <article className="min-w-0 pb-1">
+                    <time className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{formatDate(activity.createdAt)}</time>
+                    <p className="mt-1 flex items-center gap-1.5 break-words text-sm font-medium text-foreground"><SourceIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />{systemActivity ? "Sistema" : activity.createdByName || "Usuário"}</p>
                     <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
                       {activity.content}
                     </p>
@@ -224,12 +226,12 @@ function getActivityTypeMetadata(type: ProjectActivityType) {
 }
 
 function isSystemActivity(activity: ProjectActivity) {
-  return activity.content === "Projeto criado." || activity.content.startsWith("Projeto atualizado:");
+  return !activity.createdBy && !activity.createdByName;
 }
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
+    dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
 }

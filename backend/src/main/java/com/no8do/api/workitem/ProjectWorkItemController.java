@@ -57,4 +57,5 @@ public class ProjectWorkItemController {
             request
         );
     }
+    @org.springframework.web.bind.annotation.PutMapping("/{workItemId}") public ProjectWorkItemResponse update(@PathVariable UUID workspaceId,@PathVariable UUID projectId,@PathVariable UUID workItemId,@AuthenticationPrincipal No8doUserDetails currentUser,@RequestBody UpdateProjectWorkItemRequest request){return projectWorkItemService.update(workspaceId,projectId,workItemId,currentUser.user().getId(),request);}
 }

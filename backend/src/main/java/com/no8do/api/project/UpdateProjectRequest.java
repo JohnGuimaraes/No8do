@@ -7,10 +7,15 @@ public record UpdateProjectRequest(
         String description,
         ProjectStatus status,
         String currentState,
-        UUID clientId
+        UUID clientId,
+        String repositoryUrl
 ) {
 
     public UpdateProjectRequest(String name, String description, ProjectStatus status, String currentState) {
-        this(name, description, status, currentState, null);
+        this(name, description, status, currentState, null, null);
+    }
+
+    public UpdateProjectRequest(String name, String description, ProjectStatus status, String currentState, UUID clientId) {
+        this(name, description, status, currentState, clientId, null);
     }
 }

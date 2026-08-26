@@ -1,13 +1,19 @@
 import { apiRequest } from "@/lib/api";
 
 export type LibraryItemType =
+  | "DOCUMENT"
+  | "IDENTITY"
   | "LINK"
   | "TOOL"
   | "COMMAND"
   | "SNIPPET"
   | "REFERENCE"
   | "TEMPLATE"
-  | "NOTE";
+  | "NOTE"
+  | "DECISION"
+  | "PROCESS"
+  | "INFRASTRUCTURE"
+  | "MATERIAL";
 
 export type LibraryItem = {
   id: string;
@@ -19,6 +25,7 @@ export type LibraryItem = {
   url: string | null;
   createdBy: string;
   createdByName: string;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -31,8 +38,8 @@ export type LibraryItemInput = {
   url?: string;
 };
 
-export function listLibraryItems(workspaceId: string) {
-  return apiRequest<LibraryItem[]>(`/api/workspaces/${workspaceId}/library-items`);
+export function listLibraryItems(workspaceId: string, archived = false) {
+  return apiRequest<LibraryItem[]>(`/api/workspaces/${workspaceId}/library-items${archived ? "?archived=true" : ""}`);
 }
 
 export function createLibraryItem(workspaceId: string, input: LibraryItemInput) {
@@ -47,4 +54,16 @@ export function updateLibraryItem(workspaceId: string, itemId: string, input: Li
     method: "PATCH",
     body: input,
   });
+}
+
+export function archiveLibraryItem(workspaceId: string, itemId: string) {
+  return apiRequest<LibraryItem>(`/api/workspaces/${workspaceId}/library-items/${itemId}/archive`, { method: "POST" });
+}
+
+export function restoreLibraryItem(workspaceId: string, itemId: string) {
+  return apiRequest<LibraryItem>(`/api/workspaces/${workspaceId}/library-items/${itemId}/restore`, { method: "POST" });
+}
+
+export function deleteLibraryItem(workspaceId: string, itemId: string) {
+  return apiRequest<void>(`/api/workspaces/${workspaceId}/library-items/${itemId}`, { method: "DELETE" });
 }

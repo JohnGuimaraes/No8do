@@ -15,14 +15,14 @@ public record ProjectTechnicalInfoResponse(
         Instant updatedAt
 ) {
 
-    static ProjectTechnicalInfoResponse empty(UUID projectId) {
-        return new ProjectTechnicalInfoResponse(projectId, null, null, null, null, null, null, null, null);
+    static ProjectTechnicalInfoResponse empty(UUID projectId, String repositoryUrl) {
+        return new ProjectTechnicalInfoResponse(projectId, repositoryUrl, null, null, null, null, null, null, null);
     }
 
-    static ProjectTechnicalInfoResponse from(ProjectTechnicalInfo info) {
+    static ProjectTechnicalInfoResponse from(ProjectTechnicalInfo info, String repositoryUrl) {
         return new ProjectTechnicalInfoResponse(
             info.getProjectId(),
-            info.getRepositoryUrl(),
+            repositoryUrl,
             info.getStack(),
             info.getProductionUrl(),
             info.getDevelopmentUrl(),

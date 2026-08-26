@@ -7,6 +7,7 @@ public record ProjectActivityResponse(
         UUID id,
         UUID projectId,
         UUID createdBy,
+        String createdByName,
         ProjectActivityType type,
         String content,
         Instant createdAt
@@ -17,6 +18,7 @@ public record ProjectActivityResponse(
             activity.getId(),
             activity.getProject().getId(),
             activity.getCreatedBy().getId(),
+            activity.getCreatedBy().getName(),
             activity.getType(),
             activity.getContent(),
             activity.getCreatedAt()

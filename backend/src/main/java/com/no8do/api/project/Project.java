@@ -52,6 +52,10 @@ public class Project {
     @Setter
     private String currentState;
 
+    @Column(name = "repository_url", length = 2048)
+    @Setter
+    private String repositoryUrl;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)
     @Setter
@@ -67,6 +71,23 @@ public class Project {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    @Column(name = "cover_image_key", length = 255)
+    @Setter
+    private String coverImageKey;
+
+    @Column(name = "cover_image_updated_at")
+    @Setter
+    private Instant coverImageUpdatedAt;
+
+    @Column(name = "archived_at")
+    @Setter
+    private Instant archivedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "archived_by")
+    @Setter
+    private User archivedBy;
 
     public Project(Workspace workspace, String name, User createdBy) {
         this.workspace = workspace;

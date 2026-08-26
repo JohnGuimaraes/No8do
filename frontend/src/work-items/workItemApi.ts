@@ -12,6 +12,9 @@ export type ProjectWorkItem = {
   details: string | null;
   createdBy: string;
   createdByName: string;
+  assigneeUserId: string | null;
+  assigneeName: string | null;
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -25,7 +28,10 @@ export type CreateProjectWorkItemInput = {
   type: ProjectWorkItemType;
   title: string;
   details?: string;
+  assigneeUserId?: string | null;
+  dueDate?: string | null;
 };
+export type UpdateProjectWorkItemInput = CreateProjectWorkItemInput;
 
 export type UpdateProjectWorkItemStatusInput = {
   status: ProjectWorkItemStatus;
@@ -36,6 +42,7 @@ export function listProjectWorkItems(workspaceId: string, projectId: string) {
     `/api/workspaces/${workspaceId}/projects/${projectId}/work-items`,
   );
 }
+export function updateProjectWorkItem(workspaceId:string,projectId:string,workItemId:string,input:UpdateProjectWorkItemInput){return apiRequest<ProjectWorkItem>(`/api/workspaces/${workspaceId}/projects/${projectId}/work-items/${workItemId}`,{method:"PUT",body:input});}
 
 export function listWorkspaceWorkItems(
   workspaceId: string,

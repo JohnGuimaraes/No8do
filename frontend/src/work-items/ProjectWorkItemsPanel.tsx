@@ -1,14 +1,17 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle, Circle, WarningCircle } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, Circle, WarningCircle, PencilSimple, Plus } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
   createProjectWorkItem,
   listProjectWorkItems,
   updateProjectWorkItemStatus,
+  updateProjectWorkItem,
   type ProjectWorkItem,
   type ProjectWorkItemStatus,
   type ProjectWorkItemType,
 } from "@/work-items/workItemApi";
+import { listWorkspaceMembers, type WorkspaceMember } from "@/workspaces/workspaceApi";
+import { getWorkItemDueDateLabel } from "@/work-items/workItemDate";
 
 type ProjectWorkItemsPanelProps = {
   workspaceId: string;
@@ -40,6 +43,11 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
   const [type, setType] = useState<ProjectWorkItemType>("NEXT_STEP");
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
+  const [assigneeUserId, setAssigneeUserId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [creatingOpen, setCreatingOpen] = useState(false);
+  const [editing, setEditing] = useState<ProjectWorkItem | null>(null);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -70,6 +78,8 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
       active = false;
     };
   }, [workspaceId, projectId]);
+  useEffect(() => { setCreatingOpen(false); setEditing(null); setTitle(""); setDetails(""); setAssigneeUserId(""); setDueDate(""); }, [projectId]);
+  useEffect(() => { void listWorkspaceMembers(workspaceId).then(setMembers).catch(() => setMembers([])); }, [workspaceId]);
 
   const doneItems = useMemo(() => items.filter((item) => item.status === "DONE"), [items]);
 
@@ -95,21 +105,24 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
     setFormError(null);
 
     try {
-      const created = await createProjectWorkItem(workspaceId, projectId, {
+      const input = {
         type,
         title: normalizedTitle,
         ...(normalizedDetails ? { details: normalizedDetails } : {}),
-      });
-      setItems((current) => sortItems([created, ...current]));
-      setType("NEXT_STEP");
-      setTitle("");
-      setDetails("");
+        ...(assigneeUserId ? { assigneeUserId } : { assigneeUserId: null }),
+        ...(dueDate ? { dueDate } : { dueDate: null }),
+      };
+      const saved = editing ? await updateProjectWorkItem(workspaceId, projectId, editing.id, input) : await createProjectWorkItem(workspaceId, projectId, input);
+      setItems((current) => sortItems(editing ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]));
+      resetForm(); setCreatingOpen(false);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Nao foi possivel criar o item.");
     } finally {
       setCreating(false);
     }
   }
+  function resetForm() { setType("NEXT_STEP"); setTitle(""); setDetails(""); setAssigneeUserId(""); setDueDate(""); setEditing(null); setFormError(null); }
+  function startEditing(item: ProjectWorkItem) { setEditing(item); setType(item.type); setTitle(item.title); setDetails(item.details ?? ""); setAssigneeUserId(item.assigneeUserId ?? ""); setDueDate(item.dueDate ?? ""); }
 
   async function handleStatusChange(item: ProjectWorkItem, status: ProjectWorkItemStatus) {
     setSavingItemId(item.id);
@@ -136,7 +149,8 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
         </p>
       </div>
 
-      <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
+      {!creatingOpen && !editing ? <Button type="button" size="sm" variant="outline" onClick={() => setCreatingOpen(true)}><Plus className="h-4 w-4" />Criar item</Button> : null}
+      {creatingOpen || editing ? <form className="mt-3 grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select
           className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={type}
@@ -165,13 +179,16 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
           placeholder="Detalhes opcionais"
           aria-label="Detalhes do item"
         />
+        <select className="h-9 rounded-md border border-input bg-card px-3 text-sm" value={assigneeUserId} onChange={(event) => setAssigneeUserId(event.target.value)}><option value="">Sem responsável</option>{members.map((member) => <option key={member.userId} value={member.userId}>{member.name}</option>)}</select>
+        <input className="h-9 rounded-md border border-input bg-card px-3 text-sm" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
-        <div className="flex justify-stretch sm:justify-end">
+        <div className="flex justify-stretch gap-2 sm:justify-end">
+          <Button type="button" variant="ghost" size="sm" disabled={creating} onClick={() => { resetForm(); setCreatingOpen(false); }}>Cancelar</Button>
           <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={creating}>
-            {creating ? "Criando..." : "Criar item"}
+            {creating ? "Salvando..." : editing ? "Salvar alterações" : "Criar item"}
           </Button>
         </div>
-      </form>
+      </form> : null}
 
       <div className="mt-4 grid min-w-0 gap-4">
         {loading ? <p className="text-sm text-muted-foreground">Carregando itens...</p> : null}
@@ -186,6 +203,7 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
                 items={items.filter((item) => item.type === section.type && item.status === "OPEN")}
                 savingItemId={savingItemId}
                 onStatusChange={handleStatusChange}
+                onEdit={startEditing}
               />
             ))}
 
@@ -196,6 +214,7 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
                 items={doneItems}
                 savingItemId={savingItemId}
                 onStatusChange={handleStatusChange}
+                onEdit={startEditing}
               />
             ) : null}
           </>
@@ -211,12 +230,14 @@ function WorkItemSection({
   items,
   savingItemId,
   onStatusChange,
+  onEdit,
 }: {
   title: string;
   emptyText: string;
   items: ProjectWorkItem[];
   savingItemId: string | null;
   onStatusChange: (item: ProjectWorkItem, status: ProjectWorkItemStatus) => void;
+  onEdit: (item: ProjectWorkItem) => void;
 }) {
   return (
     <section className="min-w-0">
@@ -233,6 +254,7 @@ function WorkItemSection({
               item={item}
               saving={savingItemId === item.id}
               onStatusChange={onStatusChange}
+              onEdit={onEdit}
             />
           ))}
         </ol>
@@ -245,10 +267,12 @@ function WorkItemCard({
   item,
   saving,
   onStatusChange,
+  onEdit,
 }: {
   item: ProjectWorkItem;
   saving: boolean;
   onStatusChange: (item: ProjectWorkItem, status: ProjectWorkItemStatus) => void;
+  onEdit: (item: ProjectWorkItem) => void;
 }) {
   const done = item.status === "DONE";
   const metadata = getWorkItemMetadata(item);
@@ -274,10 +298,12 @@ function WorkItemCard({
           ) : null}
           <p className="mt-2 text-[11px] text-muted-foreground">
             Autor: {item.createdByName}
+            {item.assigneeName ? ` · Responsável: ${item.assigneeName}` : ""}
+            {item.dueDate ? ` · ${getWorkItemDueDateLabel(item.dueDate, item.status)}` : ""}
             {item.completedAt ? ` · ${item.type === "BLOCKER" ? "Resolvido" : "Concluido"} em ${formatDate(item.completedAt)}` : ""}
           </p>
         </div>
-        <Button
+        <div className="flex gap-1"><Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => onEdit(item)}><PencilSimple className="h-4 w-4" />Editar</Button><Button
           type="button"
           variant="outline"
           size="sm"
@@ -285,7 +311,7 @@ function WorkItemCard({
           onClick={() => onStatusChange(item, done ? "OPEN" : "DONE")}
         >
           {done ? "Reabrir" : "Concluir"}
-        </Button>
+        </Button></div>
       </div>
     </li>
   );
@@ -297,7 +323,7 @@ function getWorkItemMetadata(item: ProjectWorkItem) {
       label: item.type === "BLOCKER" ? "Resolvido" : "Concluido",
       Icon: CheckCircle,
       className: "border-border bg-card",
-      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/55 dark:text-emerald-200",
     };
   }
 
@@ -305,8 +331,8 @@ function getWorkItemMetadata(item: ProjectWorkItem) {
     return {
       label: "Proximo passo",
       Icon: ArrowRight,
-      className: "border-violet-200 bg-violet-50/70",
-      badgeClassName: "border-violet-200 bg-violet-50 text-violet-700",
+      className: "border-violet-200 bg-violet-50/70 dark:border-violet-900 dark:bg-violet-950/35",
+      badgeClassName: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/55 dark:text-violet-200",
     };
   }
 
@@ -314,8 +340,8 @@ function getWorkItemMetadata(item: ProjectWorkItem) {
     return {
       label: "Bloqueio",
       Icon: WarningCircle,
-      className: "border-red-200 bg-red-50/70",
-      badgeClassName: "border-red-200 bg-red-50 text-red-700",
+      className: "border-red-200 bg-red-50/70 dark:border-red-900 dark:bg-red-950/35",
+      badgeClassName: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/55 dark:text-red-200",
     };
   }
 

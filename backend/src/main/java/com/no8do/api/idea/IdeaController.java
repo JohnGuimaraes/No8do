@@ -10,7 +10,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.DeleteMapping;
 
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}/ideas")
@@ -25,9 +27,10 @@ public class IdeaController {
     @GetMapping
     public List<IdeaResponse> list(
             @PathVariable UUID workspaceId,
+            @RequestParam(defaultValue = "false") boolean archived,
             @AuthenticationPrincipal No8doUserDetails currentUser
     ) {
-        return ideaService.list(workspaceId, currentUser.user().getId());
+        return ideaService.list(workspaceId, currentUser.user().getId(), archived);
     }
 
     @PostMapping
@@ -65,5 +68,23 @@ public class IdeaController {
             @AuthenticationPrincipal No8doUserDetails currentUser
     ) {
         return ideaService.convertToProject(workspaceId, ideaId, currentUser.user().getId());
+    }
+
+    @PostMapping("/{ideaId}/archive")
+    public IdeaResponse archive(@PathVariable UUID workspaceId, @PathVariable UUID ideaId,
+            @AuthenticationPrincipal No8doUserDetails currentUser) {
+        return ideaService.archive(workspaceId, ideaId, currentUser.user().getId());
+    }
+
+    @PostMapping("/{ideaId}/restore")
+    public IdeaResponse restore(@PathVariable UUID workspaceId, @PathVariable UUID ideaId,
+            @AuthenticationPrincipal No8doUserDetails currentUser) {
+        return ideaService.restore(workspaceId, ideaId, currentUser.user().getId());
+    }
+
+    @DeleteMapping("/{ideaId}")
+    public void delete(@PathVariable UUID workspaceId, @PathVariable UUID ideaId,
+            @AuthenticationPrincipal No8doUserDetails currentUser) {
+        ideaService.delete(workspaceId, ideaId, currentUser.user().getId());
     }
 }

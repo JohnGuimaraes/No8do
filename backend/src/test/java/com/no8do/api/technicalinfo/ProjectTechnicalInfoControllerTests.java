@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.no8do.api.activity.ProjectActivityRepository;
+import com.no8do.api.activity.ProjectActivityType;
 import com.no8do.api.auth.No8doUserDetails;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
@@ -22,13 +24,17 @@ import com.no8do.api.workspace.WorkspaceRole;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import jakarta.persistence.EntityManager;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -46,7 +52,16 @@ class ProjectTechnicalInfoControllerTests {
     private ProjectTechnicalInfoRepository projectTechnicalInfoRepository;
 
     @Autowired
+    private ProjectActivityRepository projectActivityRepository;
+
+    @Autowired
     private ProjectRepository projectRepository;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private UserRepository userRepository;
@@ -70,7 +85,9 @@ class ProjectTechnicalInfoControllerTests {
     @Test
     void memberReadsTechnicalInfo() throws Exception {
         TestData data = createProjectForMember();
-        projectTechnicalInfoRepository.save(infoFor(data.project(), "https://github.com/example/app"));
+        data.project().setRepositoryUrl("https://github.com/example/app");
+        projectRepository.saveAndFlush(data.project());
+        projectTechnicalInfoRepository.save(new ProjectTechnicalInfo(data.project()));
 
         mockMvc.perform(get(
                     "/api/workspaces/{workspaceId}/projects/{projectId}/technical-info",
@@ -114,6 +131,11 @@ class ProjectTechnicalInfoControllerTests {
             .andExpect(jsonPath("$.runCommand").value("npm run dev"))
             .andExpect(jsonPath("$.createdAt").exists())
             .andExpect(jsonPath("$.updatedAt").exists());
+
+        assertThat(projectRepository.findById(data.project().getId()))
+            .get()
+            .extracting(Project::getRepositoryUrl)
+            .isEqualTo("https://github.com/example/app");
     }
 
     @Test
@@ -208,8 +230,9 @@ class ProjectTechnicalInfoControllerTests {
     @Test
     void maximumLengthsAreAccepted() throws Exception {
         TestData data = createProjectForMember();
+        String repositoryUrl = "https://example.com/" + "r".repeat(980);
         ProjectTechnicalInfoRequest request = new ProjectTechnicalInfoRequest(
-            "r".repeat(1000),
+            repositoryUrl,
             "s".repeat(3000),
             "p".repeat(1000),
             "d".repeat(1000),
@@ -227,7 +250,7 @@ class ProjectTechnicalInfoControllerTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.repositoryUrl").value("r".repeat(1000)))
+            .andExpect(jsonPath("$.repositoryUrl").value(repositoryUrl))
             .andExpect(jsonPath("$.stack").value("s".repeat(3000)))
             .andExpect(jsonPath("$.localPath").value("l".repeat(2000)));
     }
@@ -236,7 +259,7 @@ class ProjectTechnicalInfoControllerTests {
     void valuesAboveLimitReturnBadRequest() throws Exception {
         TestData data = createProjectForMember();
         ProjectTechnicalInfoRequest request = new ProjectTechnicalInfoRequest(
-            "r".repeat(1001),
+            "https://example.com/" + "r".repeat(981),
             null,
             null,
             null,
@@ -257,9 +280,9 @@ class ProjectTechnicalInfoControllerTests {
     }
 
     @Test
-    void updatedAtChangesAfterUpdate() throws Exception {
+    void projectUpdatedAtChangesAfterRepositoryUpdate() throws Exception {
         TestData data = createProjectForMember();
-        MvcResult firstResult = putInfo(data, new ProjectTechnicalInfoRequest(
+        putInfo(data, new ProjectTechnicalInfoRequest(
             "https://old.example.com",
             null,
             null,
@@ -267,12 +290,10 @@ class ProjectTechnicalInfoControllerTests {
             null,
             null
         ));
-        Instant firstUpdatedAt = Instant.parse(objectMapper.readTree(firstResult.getResponse().getContentAsString())
-            .get("updatedAt")
-            .asText());
+        Instant firstUpdatedAt = projectRepository.findById(data.project().getId()).orElseThrow().getUpdatedAt();
         Thread.sleep(5);
 
-        MvcResult secondResult = putInfo(data, new ProjectTechnicalInfoRequest(
+        putInfo(data, new ProjectTechnicalInfoRequest(
             "https://new.example.com",
             null,
             null,
@@ -280,11 +301,95 @@ class ProjectTechnicalInfoControllerTests {
             null,
             null
         ));
-        Instant secondUpdatedAt = Instant.parse(objectMapper.readTree(secondResult.getResponse().getContentAsString())
-            .get("updatedAt")
-            .asText());
+        Instant secondUpdatedAt = projectRepository.findById(data.project().getId()).orElseThrow().getUpdatedAt();
 
         assertThat(secondUpdatedAt).isAfter(firstUpdatedAt);
+    }
+
+    @Test
+    void technicalInfoPreservesProjectRepositoryUrlValidation() throws Exception {
+        TestData data = createProjectForMember();
+
+        mockMvc.perform(put(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}/technical-info",
+                    data.workspace().getId(),
+                    data.project().getId()
+                )
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new ProjectTechnicalInfoRequest(
+                    "javascript:alert(1)",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+                ))))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void technicalInfoChangeCreatesOneSummarizedActivity() throws Exception {
+        TestData data = createProjectForMember();
+
+        putInfo(data, new ProjectTechnicalInfoRequest(null, "React", null, null, null, null));
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId()))
+            .extracting(activity -> activity.getType(), activity -> activity.getContent())
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(
+                ProjectActivityType.UPDATE,
+                "Informações técnicas atualizadas: stack."
+            ));
+    }
+
+    @Test
+    void multipleTechnicalChangesCreateOneSummarizedActivity() throws Exception {
+        TestData data = createProjectForMember();
+
+        putInfo(data, new ProjectTechnicalInfoRequest(
+            null,
+            "React",
+            "https://app.example.com",
+            null,
+            null,
+            "npm run dev"
+        ));
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId()))
+            .extracting(activity -> activity.getContent())
+            .containsExactly("Informações técnicas atualizadas: stack, produção, comando.");
+    }
+
+    @Test
+    void identicalTechnicalInfoDoesNotCreateActivity() throws Exception {
+        TestData data = createProjectForMember();
+        ProjectTechnicalInfoRequest request = new ProjectTechnicalInfoRequest(null, "React", null, null, null, null);
+        putInfo(data, request);
+        projectActivityRepository.deleteByProjectId(data.project().getId());
+        projectActivityRepository.flush();
+
+        putInfo(data, request);
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId())).isEmpty();
+    }
+
+    @Test
+    void repositoryUrlChangeDoesNotCreateTechnicalActivity() throws Exception {
+        TestData data = createProjectForMember();
+
+        putInfo(data, new ProjectTechnicalInfoRequest(
+            "https://github.com/no8do/workspace",
+            null,
+            null,
+            null,
+            null,
+            null
+        ));
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId()))
+            .extracting(activity -> activity.getContent())
+            .containsExactly("Projeto atualizado: repositório alterado.");
     }
 
     @Test
@@ -308,6 +413,57 @@ class ProjectTechnicalInfoControllerTests {
     }
 
     @Test
+    void technicalInfoAlwaysReflectsCanonicalProjectRepositoryUrl() throws Exception {
+        TestData data = createProjectForMember();
+        data.project().setRepositoryUrl("https://github.com/no8do/canonical");
+        projectRepository.saveAndFlush(data.project());
+        ProjectTechnicalInfo info = projectTechnicalInfoRepository.saveAndFlush(new ProjectTechnicalInfo(data.project()));
+        entityManager.createNativeQuery("update project_technical_info set repository_url = :repositoryUrl where project_id = :projectId")
+            .setParameter("repositoryUrl", "https://github.com/no8do/legacy")
+            .setParameter("projectId", info.getProjectId())
+            .executeUpdate();
+        entityManager.clear();
+
+        mockMvc.perform(get(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}/technical-info",
+                    data.workspace().getId(),
+                    data.project().getId()
+                )
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.repositoryUrl").value("https://github.com/no8do/canonical"));
+    }
+
+    @Test
+    void repositoryUrlBackfillOnlyFillsMissingCanonicalValues() {
+        TestData data = createProjectForMember();
+        Project projectWithCanonicalUrl = new Project(data.workspace(), "Projeto canônico " + UUID.randomUUID(), data.user());
+        projectWithCanonicalUrl.setRepositoryUrl("https://github.com/no8do/canonical");
+        projectWithCanonicalUrl = projectRepository.saveAndFlush(projectWithCanonicalUrl);
+
+        ProjectTechnicalInfo missingCanonicalInfo = projectTechnicalInfoRepository.saveAndFlush(new ProjectTechnicalInfo(data.project()));
+        ProjectTechnicalInfo canonicalInfo = projectTechnicalInfoRepository.saveAndFlush(new ProjectTechnicalInfo(projectWithCanonicalUrl));
+        entityManager.createNativeQuery("update project_technical_info set repository_url = :repositoryUrl where project_id = :projectId")
+            .setParameter("repositoryUrl", "https://github.com/no8do/legacy")
+            .setParameter("projectId", missingCanonicalInfo.getProjectId())
+            .executeUpdate();
+        entityManager.createNativeQuery("update project_technical_info set repository_url = :repositoryUrl where project_id = :projectId")
+            .setParameter("repositoryUrl", "https://github.com/no8do/legacy-ignored")
+            .setParameter("projectId", canonicalInfo.getProjectId())
+            .executeUpdate();
+        entityManager.clear();
+
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V23__backfill_project_repository_urls.sql"))
+            .populate(DataSourceUtils.getConnection(dataSource));
+        entityManager.clear();
+
+        assertThat(projectRepository.findById(data.project().getId()).orElseThrow().getRepositoryUrl())
+            .isEqualTo("https://github.com/no8do/legacy");
+        assertThat(projectRepository.findById(projectWithCanonicalUrl.getId()).orElseThrow().getRepositoryUrl())
+            .isEqualTo("https://github.com/no8do/canonical");
+    }
+
+    @Test
     void onlyOneTechnicalInfoRecordExistsPerProject() throws Exception {
         TestData data = createProjectForMember();
 
@@ -318,24 +474,17 @@ class ProjectTechnicalInfoControllerTests {
         assertThat(projectTechnicalInfoRepository.countByProjectId(data.project().getId())).isEqualTo(1);
     }
 
-    private MvcResult putInfo(TestData data, ProjectTechnicalInfoRequest request) throws Exception {
-        return mockMvc.perform(put(
+    private void putInfo(TestData data, ProjectTechnicalInfoRequest request) throws Exception {
+        mockMvc.perform(put(
                     "/api/workspaces/{workspaceId}/projects/{projectId}/technical-info",
                     data.workspace().getId(),
                     data.project().getId()
                 )
                 .with(user(new No8doUserDetails(data.user())))
                 .with(csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isOk())
-            .andReturn();
-    }
-
-    private ProjectTechnicalInfo infoFor(Project project, String repositoryUrl) {
-        ProjectTechnicalInfo info = new ProjectTechnicalInfo(project);
-        info.setRepositoryUrl(repositoryUrl);
-        return info;
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk());
     }
 
     private TestData createProjectForMember() {

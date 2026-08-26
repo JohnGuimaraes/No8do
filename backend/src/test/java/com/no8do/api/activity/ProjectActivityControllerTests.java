@@ -263,6 +263,56 @@ class ProjectActivityControllerTests {
             .andExpect(jsonPath("$[0].content").value("Projeto criado."));
     }
 
+    @Test
+    void workspaceListingReturnsRecentActivitiesForItsProjectsOnlyWithDashboardFields() throws Exception {
+        TestData data = createProjectForMember();
+        Project secondProject = projectRepository.save(new Project(data.workspace(), "Segundo projeto", data.user()));
+        TestData otherWorkspace = createProjectForMember();
+
+        ProjectActivity olderActivity = projectActivityRepository.save(new ProjectActivity(
+            data.project(), data.user(), ProjectActivityType.UPDATE, "Atualização anterior"
+        ));
+        projectActivityRepository.flush();
+        Thread.sleep(5);
+        ProjectActivity newerActivity = projectActivityRepository.save(new ProjectActivity(
+            secondProject, data.user(), ProjectActivityType.BLOCKER, "Aguardando acesso"
+        ));
+        projectActivityRepository.save(new ProjectActivity(
+            otherWorkspace.project(), otherWorkspace.user(), ProjectActivityType.UPDATE, "Atividade externa"
+        ));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/activities", data.workspace().getId())
+                .param("limit", "2")
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].activityId").value(newerActivity.getId().toString()))
+            .andExpect(jsonPath("$[0].projectId").value(secondProject.getId().toString()))
+            .andExpect(jsonPath("$[0].projectName").value(secondProject.getName()))
+            .andExpect(jsonPath("$[0].type").value(ProjectActivityType.BLOCKER.name()))
+            .andExpect(jsonPath("$[0].content").value("Aguardando acesso"))
+            .andExpect(jsonPath("$[0].createdByName").value(data.user().getName()))
+            .andExpect(jsonPath("$[0].createdAt").isNotEmpty())
+            .andExpect(jsonPath("$[0].id").doesNotExist())
+            .andExpect(jsonPath("$[0].createdBy").doesNotExist())
+            .andExpect(jsonPath("$[1].activityId").value(olderActivity.getId().toString()));
+    }
+
+    @Test
+    void workspaceListingRejectsOutsiderAndUnsafeLimit() throws Exception {
+        TestData data = createProjectForMember();
+        User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/activities", data.workspace().getId())
+                .with(user(new No8doUserDetails(outsider))))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/activities", data.workspace().getId())
+                .param("limit", "31")
+                .with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isBadRequest());
+    }
+
     private TestData createMember() {
         User user = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
         Workspace workspace = workspaceRepository.save(new Workspace("Workspace " + UUID.randomUUID()));

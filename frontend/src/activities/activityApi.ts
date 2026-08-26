@@ -6,6 +6,7 @@ export type ProjectActivity = {
   id: string;
   projectId: string;
   createdBy: string;
+  createdByName: string;
   type: ProjectActivityType;
   content: string;
   createdAt: string;
@@ -16,9 +17,25 @@ export type CreateProjectActivityInput = {
   type?: ProjectActivityType;
 };
 
+export type WorkspaceProjectActivity = {
+  activityId: string;
+  projectId: string;
+  projectName: string;
+  type: ProjectActivityType;
+  content: string;
+  createdByName: string;
+  createdAt: string;
+};
+
 export function listProjectActivities(workspaceId: string, projectId: string) {
   return apiRequest<ProjectActivity[]>(
     `/api/workspaces/${workspaceId}/projects/${projectId}/activities`,
+  );
+}
+
+export function listWorkspaceProjectActivities(workspaceId: string, limit = 10) {
+  return apiRequest<WorkspaceProjectActivity[]>(
+    `/api/workspaces/${workspaceId}/activities?limit=${limit}`,
   );
 }
 

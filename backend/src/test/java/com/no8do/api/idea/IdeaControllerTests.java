@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -326,6 +327,49 @@ class IdeaControllerTests {
             .get("updatedAt")
             .asText());
         assertThat(updatedAt).isAfter(previousUpdatedAt);
+    }
+
+    @Test
+    void archiveRestoreAndDedicatedListPreserveIdeaStatus() throws Exception {
+        TestData data = createMember();
+        Idea idea = new Idea(data.workspace(), "Ideia", IdeaType.PROJECT, data.user());
+        idea.setStatus(IdeaStatus.PLANNED);
+        idea = ideaRepository.saveAndFlush(idea);
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/ideas/{ideaId}/archive", data.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ARCHIVED"));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/ideas", data.workspace().getId()).with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/ideas?archived=true", data.workspace().getId()).with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(idea.getId().toString()));
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/ideas/{ideaId}/restore", data.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PLANNED"));
+    }
+
+    @Test
+    void deletingConvertedIdeaKeepsConvertedProject() throws Exception {
+        TestData data = createMember();
+        Idea idea = ideaRepository.save(new Idea(data.workspace(), "Ideia", IdeaType.PROJECT, data.user()));
+        MvcResult result = mockMvc.perform(post("/api/workspaces/{workspaceId}/ideas/{ideaId}/convert-to-project", data.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf())).andExpect(status().isOk()).andReturn();
+        UUID projectId = UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("project").get("id").asText());
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/ideas/{ideaId}", data.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf())).andExpect(status().isOk());
+        assertThat(ideaRepository.findById(idea.getId())).isEmpty();
+        assertThat(projectRepository.findById(projectId)).isPresent();
+    }
+
+    @Test
+    void archiveRestoreAndDeleteDoNotCrossWorkspaceBoundary() throws Exception {
+        TestData data = createMember(); TestData other = createMember();
+        Idea idea = ideaRepository.save(new Idea(data.workspace(), "Ideia", IdeaType.PROJECT, data.user()));
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/ideas/{ideaId}/archive", other.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/ideas/{ideaId}/restore", other.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/ideas/{ideaId}", other.workspace().getId(), idea.getId())
+                .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
     }
 
     private void expectBadRequest(IdeaRequest request) throws Exception {

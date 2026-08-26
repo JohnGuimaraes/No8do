@@ -10,9 +10,14 @@ public record ProjectResponse(
         String description,
         ProjectStatus status,
         String currentState,
+        String repositoryUrl,
         UUID clientId,
         String clientName,
         UUID createdBy,
+        String createdByName,
+        boolean hasCover,
+        Instant coverUpdatedAt,
+        Instant archivedAt,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -25,9 +30,14 @@ public record ProjectResponse(
             project.getDescription(),
             project.getStatus(),
             project.getCurrentState(),
+            project.getRepositoryUrl(),
             project.getClient() == null ? null : project.getClient().getId(),
             project.getClient() == null ? null : project.getClient().getName(),
             project.getCreatedBy().getId(),
+            project.getCreatedBy().getName(),
+            project.getCoverImageKey() != null,
+            project.getCoverImageUpdatedAt(),
+            project.getArchivedAt(),
             project.getCreatedAt(),
             project.getUpdatedAt()
         );

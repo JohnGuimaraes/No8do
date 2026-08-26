@@ -41,9 +41,12 @@ public class IdeaService {
     }
 
     @Transactional(readOnly = true)
-    public List<IdeaResponse> list(UUID workspaceId, UUID currentUserId) {
+    public List<IdeaResponse> list(UUID workspaceId, UUID currentUserId, boolean archived) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
-        return ideaRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspaceId)
+        List<Idea> ideas = archived
+            ? ideaRepository.findByWorkspaceIdAndStatusOrderByUpdatedAtDesc(workspaceId, IdeaStatus.ARCHIVED)
+            : ideaRepository.findByWorkspaceIdAndStatusNotOrderByUpdatedAtDesc(workspaceId, IdeaStatus.ARCHIVED);
+        return ideas
             .stream()
             .map(IdeaResponse::from)
             .toList();
@@ -86,11 +89,44 @@ public class IdeaService {
     }
 
     @Transactional
+    public IdeaResponse archive(UUID workspaceId, UUID ideaId, UUID currentUserId) {
+        Idea idea = requireIdea(workspaceId, ideaId, currentUserId);
+        if (idea.getStatus() != IdeaStatus.ARCHIVED) {
+            idea.setArchivedFromStatus(idea.getStatus());
+            idea.setStatus(IdeaStatus.ARCHIVED);
+        }
+        return IdeaResponse.from(idea);
+    }
+
+    @Transactional
+    public IdeaResponse restore(UUID workspaceId, UUID ideaId, UUID currentUserId) {
+        Idea idea = requireIdea(workspaceId, ideaId, currentUserId);
+        if (idea.getStatus() == IdeaStatus.ARCHIVED) {
+            IdeaStatus restoredStatus = idea.getArchivedFromStatus();
+            if (restoredStatus == null) {
+                restoredStatus = idea.getConvertedProject() == null ? IdeaStatus.INBOX : IdeaStatus.CONVERTED;
+            }
+            idea.setStatus(restoredStatus);
+            idea.setArchivedFromStatus(null);
+        }
+        return IdeaResponse.from(idea);
+    }
+
+    @Transactional
+    public void delete(UUID workspaceId, UUID ideaId, UUID currentUserId) {
+        Idea idea = requireIdea(workspaceId, ideaId, currentUserId);
+        ideaRepository.delete(idea);
+    }
+
+    @Transactional
     public IdeaConvertResponse convertToProject(UUID workspaceId, UUID ideaId, UUID currentUserId) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
         Idea idea = ideaRepository.findByIdAndWorkspaceId(ideaId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Idea not found"));
 
+        if (idea.getStatus() == IdeaStatus.ARCHIVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Archived idea must be restored before conversion");
+        }
         if (idea.getConvertedProject() != null || idea.getStatus() == IdeaStatus.CONVERTED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Idea already converted");
         }
@@ -132,10 +168,16 @@ public class IdeaService {
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idea status is invalid");
         }
-        if (normalizedStatus == IdeaStatus.CONVERTED) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idea cannot be marked as converted directly");
+        if (normalizedStatus == IdeaStatus.CONVERTED || normalizedStatus == IdeaStatus.ARCHIVED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idea status must be changed through its lifecycle action");
         }
         return normalizedStatus;
+    }
+
+    private Idea requireIdea(UUID workspaceId, UUID ideaId, UUID currentUserId) {
+        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return ideaRepository.findByIdAndWorkspaceId(ideaId, workspaceId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Idea not found"));
     }
 
     private String normalizeRequiredTitle(String title) {

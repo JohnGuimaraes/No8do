@@ -1,144 +1,59 @@
-import { X } from "@phosphor-icons/react";
-import { type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Archive, ImageSquare, Key, NotePencil, PencilSimple, Stack, Trash, Wrench, X } from "@phosphor-icons/react";
+import { listProjectActivities, type ProjectActivity } from "@/activities/activityApi";
 import { ProjectActivityPanel } from "@/activities/ProjectActivityPanel";
-import { type Client } from "@/clients/clientApi";
+import { ProjectMedia } from "@/components/visual/ProjectMedia";
 import { Button } from "@/components/ui/button";
 import { ProjectCredentialsPanel } from "@/credentials/ProjectCredentialsPanel";
 import { ProjectNotesPanel } from "@/notes/ProjectNotesPanel";
 import { ProjectTechnicalInfoPanel } from "@/project-technical-info/ProjectTechnicalInfoPanel";
-import { type Project } from "@/projects/projectApi";
+import { deleteProjectCover, uploadProjectCover, type Project } from "@/projects/projectApi";
 import { getProjectStatusLabel } from "@/projects/projectStatus";
 import { ProjectWorkItemsPanel } from "@/work-items/ProjectWorkItemsPanel";
 
-type ProjectDetailsPanelProps = {
-  project: Project;
-  clients: Client[];
-  onClientChange: (clientId: string | null) => void;
-  onClose: () => void;
-};
+type DetailTab = "summary" | "work" | "technical" | "memory" | "vault" | "activity";
+type ProjectDetailsPanelProps = { project: Project; onClose: () => void; onProjectUpdated?: (project: Project) => void; onArchive?: (project: Project) => void; onDelete?: (project: Project) => void; actionLoading?: boolean };
+const TABS: Array<{ id: DetailTab; label: string; Icon: typeof Stack }> = [
+  { id: "summary", label: "Resumo", Icon: Stack }, { id: "work", label: "Trabalho", Icon: Wrench },
+  { id: "technical", label: "Técnico", Icon: Wrench }, { id: "memory", label: "Notas", Icon: NotePencil },
+  { id: "vault", label: "Cofre", Icon: Key }, { id: "activity", label: "Histórico", Icon: NotePencil },
+];
 
-export function ProjectDetailsPanel({ project, clients, onClientChange, onClose }: ProjectDetailsPanelProps) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end bg-foreground/30 px-3 py-4 backdrop-blur-sm sm:items-center sm:justify-center sm:px-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="project-details-title"
-      onClick={onClose}
-    >
-      <section
-        className="max-h-[92vh] w-full min-w-0 overflow-y-auto rounded-lg border border-border bg-card shadow-xl sm:max-w-3xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card/95 px-4 py-4 backdrop-blur sm:px-6">
-          <div className="min-w-0">
-            <h2
-              id="project-details-title"
-              className="break-words text-xl font-semibold leading-tight text-card-foreground"
-            >
-              {project.name}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              atualizado em {formatDate(project.updatedAt)}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={onClose}
-            aria-label="Fechar detalhes do projeto"
-          >
-            <X className="h-5 w-5" />
-          </Button>
-        </div>
+export function ProjectDetailsPanel({ project, onClose, onProjectUpdated, onArchive, onDelete, actionLoading = false }: ProjectDetailsPanelProps) {
+  const [activeTab, setActiveTab] = useState<DetailTab>("summary");
+  const [coverProject, setCoverProject] = useState(project);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  const [savingCover, setSavingCover] = useState(false);
+  const [activities, setActivities] = useState<ProjectActivity[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
+  const [revealedCredentials, setRevealedCredentials] = useState<Record<string, string>>({});
 
-        <div className="grid min-w-0 gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <div className="min-w-0 space-y-4">
-            <DetailSection title="Descricao">
-              {project.description ? (
-                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
-                  {project.description}
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">Sem descricao cadastrada.</p>
-              )}
-            </DetailSection>
+  useEffect(() => { document.documentElement.classList.add("no8do-dialog-open"); const previousOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; return () => { document.documentElement.classList.remove("no8do-dialog-open"); document.body.style.overflow = previousOverflow; }; }, []);
+  useEffect(() => { setCoverProject(project); }, [project]);
+  useEffect(() => { setRevealedCredentials({}); }, [project.id]);
+  useEffect(() => { let active = true; async function loadActivities() { setActivitiesLoading(true); try { const result = await listProjectActivities(project.workspaceId, project.id); if (active) setActivities(result); } catch { if (active) setActivities([]); } finally { if (active) setActivitiesLoading(false); } } void loadActivities(); return () => { active = false; }; }, [project.id, project.workspaceId]);
+  function clearCoverSelection() { setCoverFile(null); setCoverError(null); }
+  function selectCover(file: File | null) { if (!file) return; if (!["image/png", "image/jpeg"].includes(file.type) || file.size > 5 * 1024 * 1024) { setCoverError("Selecione uma imagem PNG ou JPEG de até 5 MB."); return; } setCoverFile(file); setCoverError(null); }
+  async function saveCover() { if (!coverFile) return; setSavingCover(true); setCoverError(null); try { const updated = await uploadProjectCover(project.workspaceId, project.id, coverFile); setCoverProject(updated); onProjectUpdated?.(updated); clearCoverSelection(); } catch (error) { setCoverError(error instanceof Error ? error.message : "Não foi possível salvar a capa."); } finally { setSavingCover(false); } }
+  async function removeCover() { setSavingCover(true); setCoverError(null); try { const updated = await deleteProjectCover(project.workspaceId, project.id); setCoverProject(updated); onProjectUpdated?.(updated); } catch (error) { setCoverError(error instanceof Error ? error.message : "Não foi possível remover a capa."); } finally { setSavingCover(false); } }
 
-            <DetailSection title="Estado atual">
-              {project.currentState ? (
-                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
-                  {project.currentState}
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">Sem estado atual cadastrado.</p>
-              )}
-            </DetailSection>
+  const latestActivity = activities[0];
+  const latestActor = latestActivity ? getActivityActor(latestActivity) : "Usuário";
 
-            <ProjectWorkItemsPanel workspaceId={project.workspaceId} projectId={project.id} />
-
-            <ProjectTechnicalInfoPanel workspaceId={project.workspaceId} projectId={project.id} />
-
-            <ProjectCredentialsPanel workspaceId={project.workspaceId} projectId={project.id} />
-
-            <ProjectNotesPanel workspaceId={project.workspaceId} projectId={project.id} />
-
-            <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} />
-          </div>
-
-          <aside className="min-w-0 rounded-md border border-border bg-background/70 p-4">
-            <dl className="grid gap-4">
-              <DetailItem label="Status" value={getProjectStatusLabel(project.status)} />
-              <div className="min-w-0">
-                <dt className="text-[11px] font-medium uppercase text-muted-foreground">Cliente</dt>
-                <dd className="mt-1">
-                  <select
-                    className="h-10 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={project.clientId ?? ""}
-                    onChange={(event) => onClientChange(event.target.value || null)}
-                    aria-label="Cliente vinculado ao projeto"
-                  >
-                    <option value="">Sem cliente vinculado</option>
-                    {clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.name}
-                      </option>
-                    ))}
-                  </select>
-                </dd>
-              </div>
-              <DetailItem label="Criado em" value={formatDate(project.createdAt)} />
-              <DetailItem label="Atualizado em" value={formatDate(project.updatedAt)} />
-            </dl>
-          </aside>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DetailSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="min-w-0 rounded-md border border-border bg-background/70 p-4">
-      <h3 className="mb-2 text-sm font-semibold text-foreground">{title}</h3>
-      {children}
+  return <div className="project-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="project-details-title" onClick={onClose}>
+    <section className="project-dialog" onClick={(event) => event.stopPropagation()}>
+      <header className="project-dialog__header"><div className="flex min-w-0 gap-4 sm:gap-5"><div className="w-24 shrink-0 sm:w-32"><ProjectMedia workspaceId={coverProject.workspaceId} project={coverProject} alt={`Capa do projeto ${coverProject.name}`} /></div><div className="min-w-0"><span className="status-chip">{getProjectStatusLabel(coverProject.status)}</span><h2 id="project-details-title" className="mt-2 break-words text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{coverProject.name}</h2>{coverProject.description ? <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted-foreground">{coverProject.description}</p> : null}<div className="mt-3 grid gap-1 text-xs text-muted-foreground sm:text-sm"><p>Criado por {coverProject.createdByName || "Usuário"} · {formatDate(coverProject.createdAt)}</p><p>Última alteração por {activitiesLoading ? "..." : latestActor} · {formatDate(coverProject.updatedAt)}</p></div></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1"><Button type="button" variant="ghost" size="icon" disabled={actionLoading} onClick={() => onArchive?.(coverProject)} aria-label="Arquivar projeto" title="Arquivar projeto"><Archive className="h-4 w-4" /></Button><Button type="button" variant="ghost" size="icon" disabled={actionLoading} onClick={() => onDelete?.(coverProject)} aria-label="Excluir projeto" title="Excluir projeto"><Trash className="h-4 w-4" /></Button><Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={onClose} aria-label="Fechar detalhes do projeto"><X className="h-5 w-5" /></Button></div></header>
+      <nav className="project-detail-tabs" aria-label="Seções do projeto">{TABS.map(({ id, label, Icon }) => <button key={id} type="button" className={`project-detail-tabs__item ${activeTab === id ? "project-detail-tabs__item--active" : ""}`} aria-current={activeTab === id ? "page" : undefined} onClick={() => setActiveTab(id)}><Icon className="h-4 w-4" />{label}</button>)}</nav>
+      <div className="project-dialog__body">{activeTab === "summary" ? <><Summary project={coverProject} latestActor={latestActor} /><CoverEditor project={coverProject} fileSelected={Boolean(coverFile)} error={coverError} saving={savingCover} onSelect={selectCover} onSave={() => void saveCover()} onCancel={clearCoverSelection} onRemove={() => void removeCover()} /></> : null}{activeTab === "work" ? <ProjectWorkItemsPanel workspaceId={project.workspaceId} projectId={project.id} /> : null}{activeTab === "technical" ? <ProjectTechnicalInfoPanel workspaceId={project.workspaceId} projectId={project.id} /> : null}{activeTab === "memory" ? <ProjectNotesPanel workspaceId={project.workspaceId} projectId={project.id} /> : null}{activeTab === "vault" ? <div className="vault-surface"><ProjectCredentialsPanel workspaceId={project.workspaceId} projectId={project.id} revealedCredentials={revealedCredentials} onRevealedCredentialsChange={setRevealedCredentials} /></div> : null}{activeTab === "activity" ? <ProjectActivityPanel workspaceId={project.workspaceId} projectId={project.id} activities={activities} loading={activitiesLoading} onActivitiesChange={setActivities} /> : null}</div>
     </section>
-  );
+  </div>;
 }
 
-function DetailItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[11px] font-medium uppercase text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-card-foreground">{value}</dd>
-    </div>
-  );
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+function Summary({ project, latestActor }: { project: Project; latestActor: string }) { return <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.7fr)]"><div className="grid min-w-0 gap-7"><DetailSection title="Sobre o projeto"><div className="grid gap-5"><div><p className="text-xs font-medium uppercase text-muted-foreground">Descrição</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-card-foreground">{project.description || "Sem descrição cadastrada."}</p></div><div><p className="text-xs font-medium uppercase text-muted-foreground">Estado atual</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-card-foreground">{project.currentState || "Estado atual não informado."}</p></div></div></DetailSection></div><aside className="project-summary-meta"><h3 className="text-sm font-semibold text-foreground">Informações</h3><dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5"><DetailItem label="Status" value={getProjectStatusLabel(project.status)} /><DetailItem label="Criado por" value={project.createdByName || "Usuário"} /><DetailItem label="Criado em" value={formatDate(project.createdAt)} /><DetailItem label="Atualizado em" value={formatDate(project.updatedAt)} /><DetailItem label="Última alteração" value={latestActor} /></dl></aside></div>; }
+function CoverEditor({ project, fileSelected, error, saving, onSelect, onSave, onCancel, onRemove }: { project: Project; fileSelected: boolean; error: string | null; saving: boolean; onSelect: (file: File | null) => void; onSave: () => void; onCancel: () => void; onRemove: () => void }) { const hasCover = project.hasCover; const description = fileSelected ? "Nova capa selecionada. PNG ou JPEG de até 5 MB." : hasCover ? "Uma capa está aplicada a este projeto." : "Nenhuma capa adicionada. PNG ou JPEG de até 5 MB."; return <section className="mt-6 border-t border-border/70 pt-5"><div className="flex min-w-0 flex-wrap items-center justify-between gap-3"><div className="min-w-0"><h3 className="text-sm font-semibold text-foreground">Capa do projeto</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div><div className="flex flex-wrap items-center gap-1"><label className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-accent-foreground"><span>{hasCover ? <PencilSimple className="h-4 w-4" aria-hidden="true" /> : <ImageSquare className="h-4 w-4" aria-hidden="true" />}</span><span>{hasCover ? "Alterar" : "Adicionar capa"}</span><input className="sr-only" type="file" accept="image/png,image/jpeg" disabled={saving} onChange={(event) => onSelect(event.target.files?.[0] ?? null)} /></label>{fileSelected ? <><Button type="button" size="sm" disabled={saving} onClick={onSave}>{saving ? "Salvando..." : "Salvar"}</Button><Button type="button" variant="ghost" size="sm" disabled={saving} onClick={onCancel}>Cancelar</Button></> : null}{hasCover && !fileSelected ? <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={saving} onClick={onRemove}><Trash className="h-4 w-4" aria-hidden="true" />Remover</Button> : null}</div></div>{error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}</section>; }
+function DetailSection({ title, children }: { title: string; children: ReactNode }) { return <section className="detail-reading-section"><h3>{title}</h3>{children}</section>; }
+function DetailItem({ label, value }: { label: string; value: string }) { return <div><dt className="text-[11px] font-medium uppercase text-muted-foreground">{label}</dt><dd className="mt-1 break-words text-sm font-medium text-card-foreground">{value}</dd></div>; }
+function getActivityActor(activity: ProjectActivity) { return isSystemActivity(activity) ? "Sistema" : activity.createdByName || "Usuário"; }
+function isSystemActivity(activity: ProjectActivity) { return !activity.createdBy && !activity.createdByName; }
+function formatDate(value: string) { return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }

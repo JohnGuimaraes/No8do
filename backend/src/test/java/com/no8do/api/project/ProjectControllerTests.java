@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -104,6 +105,26 @@ class ProjectControllerTests {
     }
 
     @Test
+    void authenticatedUserCreatesProjectWithRepositoryUrl() throws Exception {
+        TestData data = createMember();
+        CreateProjectRequest request = new CreateProjectRequest(
+            "Projeto novo",
+            null,
+            null,
+            null,
+            " https://github.com/no8do/workspace "
+        );
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/projects", data.workspace().getId())
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.repositoryUrl").value("https://github.com/no8do/workspace"));
+    }
+
+    @Test
     void authenticatedUserDoesNotCreateProjectWhereIsNotMember() throws Exception {
         TestData data = createMember();
         User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
@@ -157,6 +178,32 @@ class ProjectControllerTests {
             .andExpect(jsonPath("$.description").value("Nova descricao"))
             .andExpect(jsonPath("$.status").value(ProjectStatus.ACTIVE.name()))
             .andExpect(jsonPath("$.currentState").value("Novo estado"));
+    }
+
+    @Test
+    void authenticatedUserUpdatesProjectRepositoryUrl() throws Exception {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+        UpdateProjectRequest request = new UpdateProjectRequest(
+            "Projeto",
+            null,
+            ProjectStatus.ACTIVE,
+            null,
+            null,
+            "https://github.com/no8do/workspace"
+        );
+
+        mockMvc.perform(patch(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}",
+                    data.workspace().getId(),
+                    project.getId()
+                )
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.repositoryUrl").value("https://github.com/no8do/workspace"));
     }
 
     @Test
@@ -285,6 +332,71 @@ class ProjectControllerTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void invalidRepositoryUrlReturnsBadRequest() throws Exception {
+        TestData data = createMember();
+        CreateProjectRequest request = new CreateProjectRequest("Projeto", null, null, null, "javascript:alert(1)");
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/projects", data.workspace().getId())
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void archivePreservesStatusAndMovesProjectOutOfNormalList() throws Exception {
+        TestData data = createMember();
+        Project project = new Project(data.workspace(), "Projeto", data.user());
+        project.setStatus(ProjectStatus.BLOCKED);
+        project = projectRepository.saveAndFlush(project);
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/projects/{projectId}/archive", data.workspace().getId(), project.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("BLOCKED"))
+            .andExpect(jsonPath("$.archivedAt").exists());
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/projects", data.workspace().getId()).with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/projects?archived=true", data.workspace().getId()).with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(project.getId().toString()));
+    }
+
+    @Test
+    void restoreKeepsOriginalProjectStatus() throws Exception {
+        TestData data = createMember();
+        Project project = new Project(data.workspace(), "Projeto", data.user());
+        project.setStatus(ProjectStatus.DONE);
+        project.setArchivedAt(java.time.Instant.now());
+        project = projectRepository.saveAndFlush(project);
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/projects/{projectId}/restore", data.workspace().getId(), project.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DONE"))
+            .andExpect(jsonPath("$.archivedAt").doesNotExist());
+    }
+
+    @Test
+    void archiveAndDeleteDoNotCrossWorkspaceBoundary() throws Exception {
+        TestData data = createMember(); TestData other = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/projects/{projectId}/archive", other.workspace().getId(), project.getId())
+                .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/projects/{projectId}", other.workspace().getId(), project.getId())
+                .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteRemovesProject() throws Exception {
+        TestData data = createMember();
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto", data.user()));
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/projects/{projectId}", data.workspace().getId(), project.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf())).andExpect(status().isNoContent());
+        org.assertj.core.api.Assertions.assertThat(projectRepository.findById(project.getId())).isEmpty();
     }
 
     private TestData createMember() {

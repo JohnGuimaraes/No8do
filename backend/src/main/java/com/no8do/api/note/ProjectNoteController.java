@@ -7,6 +7,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,4 +42,7 @@ public class ProjectNoteController {
     ) {
         return projectNoteService.create(workspaceId, projectId, currentUser.user().getId(), request);
     }
+
+    @PutMapping("/{noteId}") public ProjectNoteResponse update(@PathVariable UUID workspaceId, @PathVariable UUID projectId, @PathVariable UUID noteId, @AuthenticationPrincipal No8doUserDetails currentUser, @RequestBody UpdateProjectNoteRequest request) { return projectNoteService.update(workspaceId, projectId, noteId, currentUser.user().getId(), request); }
+    @DeleteMapping("/{noteId}") public ResponseEntity<Void> delete(@PathVariable UUID workspaceId, @PathVariable UUID projectId, @PathVariable UUID noteId, @AuthenticationPrincipal No8doUserDetails currentUser) { projectNoteService.delete(workspaceId, projectId, noteId, currentUser.user().getId()); return ResponseEntity.noContent().build(); }
 }

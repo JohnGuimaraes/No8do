@@ -1,4 +1,5 @@
 import { useDroppable } from "@dnd-kit/core";
+import { Lightbulb, MapTrifold, PauseCircle, RocketLaunch, WarningCircle } from "@phosphor-icons/react";
 import { type Project, type ProjectStatus } from "@/projects/projectApi";
 import { ProjectCard } from "@/projects/ProjectCard";
 
@@ -11,13 +12,16 @@ type ProjectStatusColumnProps = {
   editName: string;
   editDescription: string;
   editCurrentState: string;
+  editRepositoryUrl: string;
   editStatus: ProjectStatus;
+  completingProjectId: string | null;
   onStartEditing: (project: Project) => void;
   onCancelEditing: () => void;
   onSave: (project: Project) => void;
   onEditNameChange: (value: string) => void;
   onEditDescriptionChange: (value: string) => void;
   onEditCurrentStateChange: (value: string) => void;
+  onEditRepositoryUrlChange: (value: string) => void;
   onEditStatusChange: (value: ProjectStatus) => void;
   onOpenDetails: (project: Project) => void;
 };
@@ -31,13 +35,16 @@ export function ProjectStatusColumn({
   editName,
   editDescription,
   editCurrentState,
+  editRepositoryUrl,
   editStatus,
+  completingProjectId,
   onStartEditing,
   onCancelEditing,
   onSave,
   onEditNameChange,
   onEditDescriptionChange,
   onEditCurrentStateChange,
+  onEditRepositoryUrlChange,
   onEditStatusChange,
   onOpenDetails,
 }: ProjectStatusColumnProps) {
@@ -52,19 +59,25 @@ export function ProjectStatusColumn({
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-h-80 w-[min(82vw,320px)] min-w-[280px] max-w-[320px] flex-col rounded-lg border p-3 transition-colors sm:min-w-[300px] ${
-        isOver ? "border-primary bg-primary/10" : "border-border bg-muted/30"
+      data-status={status}
+      className={`project-status-column flex min-h-36 w-[min(82vw,320px)] min-w-[280px] max-w-[320px] flex-col rounded-xl border p-3 transition-colors sm:min-w-[300px] ${
+        isOver ? "border-primary bg-primary/10 shadow-[0_18px_42px_-34px_hsl(var(--primary))]" : "border-transparent bg-transparent"
       }`}
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="min-w-0 break-words text-sm font-semibold text-foreground">{label}</h3>
-        <span className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">
+      <div className="project-status-column__header mb-3">
+        <span className="project-status-column__icon" aria-hidden="true">{getColumnIcon(status)}</span>
+        <div className="min-w-0">
+          <p className="project-status-column__step">{getColumnMeta(status).step}</p>
+          <h3 className="project-status-column__title min-w-0 break-words text-sm font-semibold text-foreground">{label}</h3>
+          <p className="project-status-column__helper">{getColumnMeta(status).helper}</p>
+        </div>
+        <span className="project-status-column__count shrink-0 text-xs font-medium text-muted-foreground">
           {projects.length} {projects.length === 1 ? "card" : "cards"}
         </span>
       </div>
 
       {projects.length === 0 ? (
-        <div className="flex min-h-32 flex-1 items-center justify-center rounded-md border border-dashed border-border bg-background/60 px-3 py-8 text-center">
+        <div className="project-status-column__empty flex min-h-32 flex-1 items-center justify-center px-3 py-8 text-center">
           <div>
             <p className="text-sm font-medium text-muted-foreground">Sem projetos</p>
             <p className="mt-1 text-xs text-muted-foreground">Esta etapa ainda está livre.</p>
@@ -81,13 +94,16 @@ export function ProjectStatusColumn({
               editName={editName}
               editDescription={editDescription}
               editCurrentState={editCurrentState}
+              editRepositoryUrl={editRepositoryUrl}
               editStatus={editStatus}
+              completing={completingProjectId === project.id}
               onStartEditing={onStartEditing}
               onCancelEditing={onCancelEditing}
               onSave={onSave}
               onEditNameChange={onEditNameChange}
               onEditDescriptionChange={onEditDescriptionChange}
               onEditCurrentStateChange={onEditCurrentStateChange}
+              onEditRepositoryUrlChange={onEditRepositoryUrlChange}
               onEditStatusChange={onEditStatusChange}
               onOpenDetails={onOpenDetails}
             />
@@ -96,4 +112,29 @@ export function ProjectStatusColumn({
       )}
     </section>
   );
+}
+
+function getColumnMeta(status: ProjectStatus) {
+  const metadata: Record<Exclude<ProjectStatus, "DONE">, { step: string; helper: string }> = {
+    IDEA: { step: "Etapa 01", helper: "Ponto de partida" },
+    PLANNING: { step: "Etapa 02", helper: "Organize o proximo movimento" },
+    ACTIVE: { step: "Em fluxo", helper: "Trabalho em andamento" },
+    BLOCKED: { step: "Atenção", helper: "Precisa ser destravado" },
+    PAUSED: { step: "Em espera", helper: "Pausa intencional" },
+  };
+
+  return metadata[status as Exclude<ProjectStatus, "DONE">];
+}
+
+function getColumnIcon(status: ProjectStatus) {
+  const iconClassName = "h-4 w-4";
+
+  switch (status) {
+    case "IDEA": return <Lightbulb className={iconClassName} weight="duotone" />;
+    case "PLANNING": return <MapTrifold className={iconClassName} weight="duotone" />;
+    case "ACTIVE": return <RocketLaunch className={iconClassName} weight="duotone" />;
+    case "BLOCKED": return <WarningCircle className={iconClassName} weight="duotone" />;
+    case "PAUSED": return <PauseCircle className={iconClassName} weight="duotone" />;
+    default: return null;
+  }
 }

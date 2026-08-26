@@ -6,11 +6,13 @@ type ProjectEditFormProps = {
   name: string;
   description: string;
   currentState: string;
+  repositoryUrl: string;
   status: ProjectStatus;
   saving: boolean;
   onNameChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
   onCurrentStateChange: (value: string) => void;
+  onRepositoryUrlChange: (value: string) => void;
   onStatusChange: (value: ProjectStatus) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -20,11 +22,13 @@ export function ProjectEditForm({
   name,
   description,
   currentState,
+  repositoryUrl,
   status,
   saving,
   onNameChange,
   onDescriptionChange,
   onCurrentStateChange,
+  onRepositoryUrlChange,
   onStatusChange,
   onSave,
   onCancel,
@@ -67,6 +71,14 @@ export function ProjectEditForm({
           onChange={(event) => onCurrentStateChange(event.target.value)}
           placeholder="Estado atual"
           aria-label="Estado atual do projeto"
+        />
+        <input
+          type="url"
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          value={repositoryUrl}
+          onChange={(event) => onRepositoryUrlChange(event.target.value)}
+          placeholder="URL do repositório (opcional)"
+          aria-label="URL do repositório"
         />
       </div>
 

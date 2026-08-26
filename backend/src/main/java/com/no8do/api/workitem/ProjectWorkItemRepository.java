@@ -25,6 +25,7 @@ public interface ProjectWorkItemRepository extends JpaRepository<ProjectWorkItem
         join fetch item.project project
         join fetch item.createdBy
         where project.workspace.id = :workspaceId
+            and project.archivedAt is null
             and (:status is null or item.status = :status)
             and (:type is null or item.type = :type)
         order by
@@ -42,4 +43,6 @@ public interface ProjectWorkItemRepository extends JpaRepository<ProjectWorkItem
     );
 
     Optional<ProjectWorkItem> findByIdAndProjectId(UUID id, UUID projectId);
+
+    void deleteByProjectId(UUID projectId);
 }

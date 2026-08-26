@@ -1,16 +1,20 @@
 package com.no8do.api.workitem;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.activity.ProjectActivityRepository;
+import com.no8do.api.activity.ProjectActivityType;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.User;
@@ -44,6 +48,9 @@ class ProjectWorkItemControllerTests {
 
     @Autowired
     private ProjectWorkItemRepository projectWorkItemRepository;
+
+    @Autowired
+    private ProjectActivityRepository projectActivityRepository;
 
     @Autowired
     private ProjectRepository projectRepository;
@@ -100,6 +107,13 @@ class ProjectWorkItemControllerTests {
             .andExpect(jsonPath("$.createdBy").value(data.user().getId().toString()))
             .andExpect(jsonPath("$.createdByName").value(data.user().getName()))
             .andExpect(jsonPath("$.completedAt").doesNotExist());
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId()))
+            .extracting(activity -> activity.getType(), activity -> activity.getContent())
+            .containsExactly(org.assertj.core.groups.Tuple.tuple(
+                ProjectActivityType.NEXT_STEP,
+                "Próximo passo criado: Preparar roteiro"
+            ));
     }
 
     @Test
@@ -217,6 +231,40 @@ class ProjectWorkItemControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value(ProjectWorkItemStatus.OPEN.name()))
             .andExpect(jsonPath("$.completedAt").doesNotExist());
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId()))
+            .extracting(activity -> activity.getType(), activity -> activity.getContent())
+            .containsExactly(
+                org.assertj.core.groups.Tuple.tuple(ProjectActivityType.BLOCKER, "Bloqueio reaberto: Bloqueio"),
+                org.assertj.core.groups.Tuple.tuple(ProjectActivityType.BLOCKER, "Bloqueio resolvido: Bloqueio")
+            );
+    }
+
+    @Test
+    void unchangedStatusDoesNotCreateDuplicateActivity() throws Exception {
+        TestData data = createProjectForMember();
+        ProjectWorkItem item = projectWorkItemRepository.save(new ProjectWorkItem(
+            data.project(),
+            ProjectWorkItemType.PENDING,
+            "Pendência aberta",
+            null,
+            data.user()
+        ));
+
+        mockMvc.perform(patch(
+                    "/api/workspaces/{workspaceId}/projects/{projectId}/work-items/{workItemId}",
+                    data.workspace().getId(),
+                    data.project().getId(),
+                    item.getId()
+                )
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("status", ProjectWorkItemStatus.OPEN))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value(ProjectWorkItemStatus.OPEN.name()));
+
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId())).isEmpty();
     }
 
     @Test
@@ -525,6 +573,51 @@ class ProjectWorkItemControllerTests {
             .andExpect(jsonPath("$[0].id").value(openItem.getId().toString()))
             .andExpect(jsonPath("$[1].id").value(doneItem.getId().toString()));
     }
+
+    @Test
+    void createsLegacyAndAssignedDueDatedItemsAndRejectsExternalAssignee() throws Exception {
+        TestData data = createProjectForMember();
+        User assignee = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        workspaceMemberRepository.save(new WorkspaceMember(data.workspace(), assignee, WorkspaceRole.MEMBER));
+        CreateProjectWorkItemRequest legacy = new CreateProjectWorkItemRequest(ProjectWorkItemType.PENDING, "Legado", null);
+        mockMvc.perform(post(path(data)).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(legacy)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.assigneeUserId").doesNotExist()).andExpect(jsonPath("$.dueDate").doesNotExist());
+        CreateProjectWorkItemRequest assigned = new CreateProjectWorkItemRequest(ProjectWorkItemType.NEXT_STEP, "Atribuído", null, assignee.getId(), java.time.LocalDate.of(2026, 9, 1));
+        mockMvc.perform(post(path(data)).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(assigned)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.assigneeUserId").value(assignee.getId().toString())).andExpect(jsonPath("$.assigneeName").value(assignee.getName())).andExpect(jsonPath("$.dueDate").value("2026-09-01"));
+        User external = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        CreateProjectWorkItemRequest invalid = new CreateProjectWorkItemRequest(ProjectWorkItemType.PENDING, "Inválido", null, external.getId(), null);
+        mockMvc.perform(post(path(data)).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(invalid))).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void editsAllOperationalFieldsAndNoOpDoesNotAddActivity() throws Exception {
+        TestData data = createProjectForMember();
+        User first = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash")); User second = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        workspaceMemberRepository.save(new WorkspaceMember(data.workspace(), first, WorkspaceRole.MEMBER)); workspaceMemberRepository.save(new WorkspaceMember(data.workspace(), second, WorkspaceRole.MEMBER));
+        ProjectWorkItem item = projectWorkItemRepository.save(new ProjectWorkItem(data.project(), ProjectWorkItemType.PENDING, "Antes", "Detalhe secreto", data.user()));
+        UpdateProjectWorkItemRequest changed = new UpdateProjectWorkItemRequest(ProjectWorkItemType.BLOCKER, "Depois", "Novo detalhe", first.getId(), java.time.LocalDate.of(2026, 9, 2));
+        mockMvc.perform(put(path(data)+"/"+item.getId()).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(changed)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.type").value("BLOCKER")).andExpect(jsonPath("$.title").value("Depois")).andExpect(jsonPath("$.details").value("Novo detalhe")).andExpect(jsonPath("$.assigneeUserId").value(first.getId().toString())).andExpect(jsonPath("$.dueDate").value("2026-09-02"));
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId())).extracting(activity -> activity.getContent()).containsExactly("Bloqueio atualizado: Depois").noneMatch(content -> content.contains("Novo detalhe"));
+        mockMvc.perform(put(path(data)+"/"+item.getId()).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(changed))).andExpect(status().isOk());
+        assertThat(projectActivityRepository.findByProjectIdOrderByCreatedAtDesc(data.project().getId())).hasSize(1);
+        UpdateProjectWorkItemRequest switched = new UpdateProjectWorkItemRequest(ProjectWorkItemType.NEXT_STEP, "Depois", null, second.getId(), java.time.LocalDate.of(2026, 9, 3));
+        mockMvc.perform(put(path(data)+"/"+item.getId()).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(switched))).andExpect(status().isOk()).andExpect(jsonPath("$.assigneeUserId").value(second.getId().toString())).andExpect(jsonPath("$.dueDate").value("2026-09-03"));
+        UpdateProjectWorkItemRequest cleared = new UpdateProjectWorkItemRequest(ProjectWorkItemType.NEXT_STEP, "Depois", null, null, null);
+        mockMvc.perform(put(path(data)+"/"+item.getId()).with(user(new No8doUserDetails(data.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(cleared))).andExpect(status().isOk()).andExpect(jsonPath("$.assigneeUserId").doesNotExist()).andExpect(jsonPath("$.dueDate").doesNotExist());
+    }
+
+    @Test
+    void updateIsScopedAndBlockedForOutsider() throws Exception {
+        TestData data = createProjectForMember(); TestData other = createProjectForMember(); User outsider = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));
+        ProjectWorkItem item = projectWorkItemRepository.save(new ProjectWorkItem(data.project(), ProjectWorkItemType.PENDING, "Item", null, data.user()));
+        UpdateProjectWorkItemRequest request = new UpdateProjectWorkItemRequest(ProjectWorkItemType.PENDING, "Item", null, null, null);
+        mockMvc.perform(put(path(other)+"/"+item.getId()).with(user(new No8doUserDetails(other.user()))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request))).andExpect(status().isNotFound());
+        mockMvc.perform(put(path(data)+"/"+item.getId()).with(user(new No8doUserDetails(outsider))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request))).andExpect(status().isForbidden());
+    }
+
+    private String path(TestData data) { return "/api/workspaces/" + data.workspace().getId() + "/projects/" + data.project().getId() + "/work-items"; }
 
     private TestData createProjectForMember() {
         User user = userRepository.save(new User(uniqueName(), uniqueEmail(), "hash"));

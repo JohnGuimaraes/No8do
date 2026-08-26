@@ -36,6 +36,10 @@ export function listIdeas(workspaceId: string) {
   return apiRequest<Idea[]>(`/api/workspaces/${workspaceId}/ideas`);
 }
 
+export function listArchivedIdeas(workspaceId: string) {
+  return apiRequest<Idea[]>(`/api/workspaces/${workspaceId}/ideas?archived=true`);
+}
+
 export function createIdea(workspaceId: string, input: IdeaInput) {
   return apiRequest<Idea>(`/api/workspaces/${workspaceId}/ideas`, {
     method: "POST",
@@ -54,4 +58,16 @@ export function convertIdeaToProject(workspaceId: string, ideaId: string) {
   return apiRequest<IdeaConvertResult>(`/api/workspaces/${workspaceId}/ideas/${ideaId}/convert-to-project`, {
     method: "POST",
   });
+}
+
+export function archiveIdea(workspaceId: string, ideaId: string) {
+  return apiRequest<Idea>(`/api/workspaces/${workspaceId}/ideas/${ideaId}/archive`, { method: "POST" });
+}
+
+export function restoreIdea(workspaceId: string, ideaId: string) {
+  return apiRequest<Idea>(`/api/workspaces/${workspaceId}/ideas/${ideaId}/restore`, { method: "POST" });
+}
+
+export function deleteIdea(workspaceId: string, ideaId: string) {
+  return apiRequest<void>(`/api/workspaces/${workspaceId}/ideas/${ideaId}`, { method: "DELETE" });
 }

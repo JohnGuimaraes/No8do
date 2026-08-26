@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -82,6 +83,20 @@ class LibraryItemControllerTests {
             .andExpect(jsonPath("$.description").value("Referencia util"))
             .andExpect(jsonPath("$.content").value("Conteudo"))
             .andExpect(jsonPath("$.url").value("https://example.com"));
+    }
+
+    @Test
+    void memberCreatesAcervoSpecificItemType() throws Exception {
+        TestData data = createMember();
+        LibraryItemRequest request = new LibraryItemRequest("IDENTITY", "Logo principal", "Marca institucional", null, "https://example.com/logo.png");
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/library-items", data.workspace().getId())
+                .with(user(new No8doUserDetails(data.user())))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.type").value("IDENTITY"));
     }
 
     @Test
@@ -296,6 +311,56 @@ class LibraryItemControllerTests {
                 .with(user(new No8doUserDetails(data.user()))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.createdByName").value(data.user().getName()));
+    }
+
+    @Test
+    void archivePersistsAndMovesItemToDedicatedList() throws Exception {
+        TestData data = createMember();
+        LibraryItem item = libraryItemRepository.saveAndFlush(new LibraryItem(data.workspace(), LibraryItemType.NOTE, "Nota", data.user()));
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/library-items/{itemId}/archive", data.workspace().getId(), item.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.archivedAt").exists());
+        assertThat(libraryItemRepository.findById(item.getId()).orElseThrow().getArchivedAt()).isNotNull();
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/library-items", data.workspace().getId()).with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/library-items?archived=true", data.workspace().getId()).with(user(new No8doUserDetails(data.user()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(item.getId().toString()));
+    }
+
+    @Test
+    void restoreClearsArchiveAndReturnsItemToNormalList() throws Exception {
+        TestData data = createMember();
+        LibraryItem item = new LibraryItem(data.workspace(), LibraryItemType.NOTE, "Nota", data.user());
+        item.setArchivedAt(Instant.now()); item = libraryItemRepository.saveAndFlush(item);
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/library-items/{itemId}/restore", data.workspace().getId(), item.getId())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.archivedAt").doesNotExist());
+        assertThat(libraryItemRepository.findById(item.getId()).orElseThrow().getArchivedAt()).isNull();
+    }
+
+    @Test
+    void deleteRemovesActiveAndArchivedItems() throws Exception {
+        TestData data = createMember();
+        LibraryItem active = libraryItemRepository.save(new LibraryItem(data.workspace(), LibraryItemType.NOTE, "Ativo", data.user()));
+        LibraryItem archived = new LibraryItem(data.workspace(), LibraryItemType.NOTE, "Arquivado", data.user()); archived.setArchivedAt(Instant.now()); archived = libraryItemRepository.save(archived);
+        for (LibraryItem item : java.util.List.of(active, archived)) {
+            mockMvc.perform(delete("/api/workspaces/{workspaceId}/library-items/{itemId}", data.workspace().getId(), item.getId())
+                    .with(user(new No8doUserDetails(data.user()))).with(csrf())).andExpect(status().isOk());
+            assertThat(libraryItemRepository.findById(item.getId())).isEmpty();
+        }
+    }
+
+    @Test
+    void lifecycleActionsRejectCrossWorkspaceAndMissingItems() throws Exception {
+        TestData data = createMember(); TestData other = createMember();
+        LibraryItem item = libraryItemRepository.save(new LibraryItem(data.workspace(), LibraryItemType.NOTE, "Nota", data.user()));
+        for (String action : java.util.List.of("archive", "restore")) {
+            mockMvc.perform(post("/api/workspaces/{workspaceId}/library-items/{itemId}/" + action, other.workspace().getId(), item.getId())
+                    .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
+        }
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/library-items/{itemId}", other.workspace().getId(), item.getId())
+                .with(user(new No8doUserDetails(other.user()))).with(csrf())).andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/library-items/{itemId}/archive", data.workspace().getId(), UUID.randomUUID())
+                .with(user(new No8doUserDetails(data.user()))).with(csrf())).andExpect(status().isNotFound());
     }
 
     private void expectBadRequest(LibraryItemRequest request) throws Exception {

@@ -13,6 +13,7 @@ public record LibraryItemResponse(
         String url,
         UUID createdBy,
         String createdByName,
+        Instant archivedAt,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -28,6 +29,7 @@ public record LibraryItemResponse(
             item.getUrl(),
             item.getCreatedBy().getId(),
             item.getCreatedBy().getName(),
+            item.getArchivedAt(),
             item.getCreatedAt(),
             item.getUpdatedAt()
         );

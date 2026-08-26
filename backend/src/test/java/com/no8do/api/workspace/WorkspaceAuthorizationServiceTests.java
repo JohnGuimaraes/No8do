@@ -98,7 +98,7 @@ class WorkspaceAuthorizationServiceTests {
 
         assertThat(projectRepository.existsByIdAndWorkspaceId(project.getId(), allowed.workspace().getId())).isTrue();
         assertThat(projectRepository.findByIdAndWorkspaceId(project.getId(), allowed.workspace().getId())).isPresent();
-        assertThat(projectRepository.findByWorkspaceId(allowed.workspace().getId())).hasSize(1);
+        assertThat(projectRepository.findByWorkspaceIdAndArchivedAtIsNull(allowed.workspace().getId())).hasSize(1);
 
         assertThat(projectRepository.existsByIdAndWorkspaceId(project.getId(), otherMember.workspace().getId())).isFalse();
         assertThat(projectRepository.findByIdAndWorkspaceId(project.getId(), otherMember.workspace().getId())).isEmpty();

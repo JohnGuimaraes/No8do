@@ -36,9 +36,12 @@ public class LibraryItemService {
     }
 
     @Transactional(readOnly = true)
-    public List<LibraryItemResponse> list(UUID workspaceId, UUID currentUserId) {
+    public List<LibraryItemResponse> list(UUID workspaceId, UUID currentUserId, boolean archived) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
-        return libraryItemRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspaceId)
+        List<LibraryItem> items = archived
+            ? libraryItemRepository.findByWorkspaceIdAndArchivedAtIsNotNullOrderByArchivedAtDesc(workspaceId)
+            : libraryItemRepository.findByWorkspaceIdAndArchivedAtIsNullOrderByUpdatedAtDesc(workspaceId);
+        return items
             .stream()
             .map(LibraryItemResponse::from)
             .toList();
@@ -74,6 +77,37 @@ public class LibraryItemService {
         item.setTitle(normalizeRequiredTitle(request.title()));
         apply(item, request);
         return LibraryItemResponse.from(libraryItemRepository.saveAndFlush(item));
+    }
+
+    @Transactional
+    public LibraryItemResponse archive(UUID workspaceId, UUID itemId, UUID currentUserId) {
+        LibraryItem item = requireItem(workspaceId, itemId, currentUserId);
+        if (item.getArchivedAt() == null) {
+            item.setArchivedAt(java.time.Instant.now());
+            item.setArchivedBy(userRepository.getReferenceById(currentUserId));
+        }
+        return LibraryItemResponse.from(item);
+    }
+
+    @Transactional
+    public LibraryItemResponse restore(UUID workspaceId, UUID itemId, UUID currentUserId) {
+        LibraryItem item = requireItem(workspaceId, itemId, currentUserId);
+        if (item.getArchivedAt() != null) {
+            item.setArchivedAt(null);
+            item.setArchivedBy(null);
+        }
+        return LibraryItemResponse.from(item);
+    }
+
+    @Transactional
+    public void delete(UUID workspaceId, UUID itemId, UUID currentUserId) {
+        libraryItemRepository.delete(requireItem(workspaceId, itemId, currentUserId));
+    }
+
+    private LibraryItem requireItem(UUID workspaceId, UUID itemId, UUID currentUserId) {
+        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return libraryItemRepository.findByIdAndWorkspaceId(itemId, workspaceId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library item not found"));
     }
 
     private void apply(LibraryItem item, LibraryItemRequest request) {

@@ -1,4 +1,9 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, "");
+const API_BASE_URL = configuredApiBaseUrl ?? (import.meta.env.DEV ? "http://localhost:8080" : "");
+
+export function getApiUrl(path: string) {
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 type ApiRequestOptions = Omit<RequestInit, "body" | "credentials"> & {
   body?: unknown;
@@ -45,7 +50,9 @@ export async function apiRequest<T>(
   const method = options.method?.toUpperCase() ?? "GET";
   const headers = new Headers(options.headers);
 
-  if (options.body !== undefined) {
+  const isFormData = options.body instanceof FormData;
+
+  if (options.body !== undefined && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -54,12 +61,12 @@ export async function apiRequest<T>(
     headers.set(token.headerName, token.token);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(getApiUrl(path), {
     ...options,
     method,
     credentials: "include",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : isFormData ? options.body as BodyInit : JSON.stringify(options.body),
   });
 
   return parseResponse<T>(response);
