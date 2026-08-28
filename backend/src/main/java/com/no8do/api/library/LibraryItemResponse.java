@@ -27,8 +27,8 @@ public record LibraryItemResponse(
             item.getDescription(),
             item.getContent(),
             item.getUrl(),
-            item.getCreatedBy().getId(),
-            item.getCreatedBy().getName(),
+            item.getCreatedBy() == null ? null : item.getCreatedBy().getId(),
+            item.getCreatedBy() == null ? "Usuário excluído" : item.getCreatedBy().getName(),
             item.getArchivedAt(),
             item.getCreatedAt(),
             item.getUpdatedAt()

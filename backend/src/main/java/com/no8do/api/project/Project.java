@@ -55,8 +55,8 @@ public class Project {
     @Setter
     private String repositoryUrl;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "created_by", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
     @Setter
     private User createdBy;
 
