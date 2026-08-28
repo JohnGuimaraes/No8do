@@ -24,13 +24,28 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public AuthUserResponse register(@Valid @RequestBody RegisterRequest request) {
-        return authService.register(request);
+    public AuthUserResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+        return authService.register(request, httpRequest);
     }
 
     @PostMapping("/login")
     public AuthUserResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
         return authService.login(request, httpRequest);
+    }
+
+    @PostMapping("/password/forgot")
+    public Map<String, String> forgotPassword(@Valid @RequestBody PasswordForgotRequest request) {
+        return authService.requestPasswordReset(request);
+    }
+
+    @PostMapping("/password/reset")
+    public Map<String, String> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        return authService.resetPassword(request);
+    }
+
+    @GetMapping("/google")
+    public void startGoogleLogin(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {
+        authService.startGoogleLogin(request, response);
     }
 
     @PostMapping("/logout")

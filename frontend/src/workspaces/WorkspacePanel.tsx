@@ -1,7 +1,15 @@
-import { ProjectsPanel } from "@/projects/ProjectsPanel";
+import { ProjectsPanel, type WorkspaceSection } from "@/projects/ProjectsPanel";
 import { type Workspace } from "@/workspaces/workspaceApi";
 
-export function WorkspacePanel({ workspace }: { workspace: Workspace | null }) {
+type WorkspacePanelProps = {
+  workspace: Workspace | null;
+  activeSection: WorkspaceSection;
+  selectedProjectId: string | null;
+  onNavigateSection: (section: WorkspaceSection) => void;
+  onOpenProject: (projectId: string, section: WorkspaceSection) => void;
+};
+
+export function WorkspacePanel({ workspace, activeSection, selectedProjectId, onNavigateSection, onOpenProject }: WorkspacePanelProps) {
   if (!workspace) {
     return (
       <section className="editorial-empty-state">
@@ -11,5 +19,5 @@ export function WorkspacePanel({ workspace }: { workspace: Workspace | null }) {
     );
   }
 
-  return <ProjectsPanel workspace={workspace} />;
+  return <ProjectsPanel workspace={workspace} activeSection={activeSection} selectedProjectId={selectedProjectId} onNavigateSection={onNavigateSection} onOpenProject={onOpenProject} />;
 }

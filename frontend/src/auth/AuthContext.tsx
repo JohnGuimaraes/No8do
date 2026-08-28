@@ -59,16 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadCurrentUser]);
 
   const register = useCallback(async (input: RegisterInput) => {
-    await apiRequest<AuthUser>("/api/auth/register", {
+    const currentUser = await apiRequest<AuthUser>("/api/auth/register", {
       method: "POST",
       body: input,
-    });
-    const currentUser = await apiRequest<AuthUser>("/api/auth/login", {
-      method: "POST",
-      body: {
-        email: input.email,
-        password: input.password,
-      },
     });
     setUser(currentUser);
     setStatus("authenticated");

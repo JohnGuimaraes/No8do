@@ -1,20 +1,24 @@
 import { type FormEvent, type ReactNode, useState } from "react";
-import { ArrowRight } from "@phosphor-icons/react";
+import { ArrowRight, GoogleLogo } from "@phosphor-icons/react";
 import no8doIcon from "@/assets/logo/no8do-icone.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthContext";
 import { WorkspaceNodeGraphic } from "@/components/visual/WorkspaceNodeGraphic";
+import { getApiUrl } from "@/lib/api";
 
 type LoginPageProps = {
   onShowRegister: () => void;
+  onShowForgotPassword: () => void;
+  googleError?: string | null;
 };
 
-export function LoginPage({ onShowRegister }: LoginPageProps) {
+export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = null }: LoginPageProps) {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(googleError);
   const [submitting, setSubmitting] = useState(false);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -28,6 +32,11 @@ export function LoginPage({ onShowRegister }: LoginPageProps) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleGoogleLogin() {
+    setConnectingGoogle(true);
+    window.location.assign(getApiUrl("/api/auth/google"));
   }
 
   return (
@@ -58,13 +67,33 @@ export function LoginPage({ onShowRegister }: LoginPageProps) {
         </Button>
       </form>
 
-      <button
-        type="button"
-        className="auth-secondary-action text-sm font-medium underline-offset-4"
-        onClick={onShowRegister}
-      >
-        Criar uma conta
-      </button>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
+        <span className="h-px flex-1 bg-border" />
+        <span>ou</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+
+      <Button type="button" variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={submitting || connectingGoogle}>
+        <GoogleLogo className="h-4 w-4" />
+        {connectingGoogle ? "Conectando com Google..." : "Continuar com Google"}
+      </Button>
+
+      <div className="flex flex-col items-start gap-3">
+        <button
+          type="button"
+          className="auth-secondary-action text-sm font-medium underline-offset-4"
+          onClick={onShowForgotPassword}
+        >
+          Esqueci minha senha
+        </button>
+        <button
+          type="button"
+          className="auth-secondary-action text-sm font-medium underline-offset-4"
+          onClick={onShowRegister}
+        >
+          Criar uma conta
+        </button>
+      </div>
     </AuthShell>
   );
 }

@@ -24,10 +24,26 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      "[mail.smtp.auth]": ${SMTP_AUTH:true}
+      "[mail.smtp.starttls.enable]": ${SMTP_STARTTLS_ENABLED:true}
+
 server:
   port: ${SERVER_PORT:8080}
 
 no8do:
+  google:
+    client-id: ${NO8DO_GOOGLE_CLIENT_ID:}
+    client-secret: ${NO8DO_GOOGLE_CLIENT_SECRET:}
+  password-reset:
+    from: ${SMTP_FROM:}
+  registration:
+    enabled: ${NO8DO_REGISTRATION_ENABLED:true}
   cors:
     allowed-origin: ${NO8DO_CORS_ALLOWED_ORIGIN:http://localhost:5173}
   frontend-url: ${NO8DO_FRONTEND_URL:http://localhost:5173}

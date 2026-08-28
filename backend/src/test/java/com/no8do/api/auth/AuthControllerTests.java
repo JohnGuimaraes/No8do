@@ -51,22 +51,63 @@ class AuthControllerTests {
     }
 
     @Test
-    void registerCreatesUserWithPasswordHash() throws Exception {
-        String email = uniqueEmail();
-        RegisterRequest request = new RegisterRequest("Ana No8do", email, "senha-segura");
+    void googleLoginStartReturnsControlledErrorWhenItIsNotConfigured() throws Exception {
+        mockMvc.perform(get("/api/auth/google"))
+            .andExpect(status().is3xxRedirection())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl(
+                "http://localhost:5173/?authError=google-unavailable"
+            ));
+    }
 
-        mockMvc.perform(post("/api/auth/register")
+    @Test
+    void registerCreatesUserWithPasswordHash() throws Exception {
+        String email = uniqueEmail().toUpperCase();
+        String normalizedEmail = email.toLowerCase();
+        RegisterRequest request = new RegisterRequest(" Ana No8do ", " " + email + " ", "senha-segura");
+
+        MvcResult result = mockMvc.perform(post("/api/auth/register")
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.email").value(email))
-            .andExpect(jsonPath("$.passwordHash").doesNotExist());
+            .andExpect(jsonPath("$.name").value("Ana No8do"))
+            .andExpect(jsonPath("$.email").value(normalizedEmail))
+            .andExpect(jsonPath("$.passwordHash").doesNotExist())
+            .andReturn();
 
-        User user = userRepository.findByEmail(email).orElseThrow();
+        User user = userRepository.findByEmail(normalizedEmail).orElseThrow();
         assertThat(user.getPasswordHash()).isNotBlank();
         assertThat(user.getPasswordHash()).isNotEqualTo("senha-segura");
         assertThat(passwordEncoder.matches("senha-segura", user.getPasswordHash())).isTrue();
+
+        MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
+        assertThat(session).isNotNull();
+        mockMvc.perform(get("/api/auth/me").session(session))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email").value(normalizedEmail));
+    }
+
+    @Test
+    void registerRejectsDuplicateEmail() throws Exception {
+        String email = uniqueEmail();
+        userRepository.save(new User("Existing User", email, passwordEncoder.encode("senha-correta")));
+
+        mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new RegisterRequest("Another User", email.toUpperCase(), "senha-segura"))))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value("Email already registered"));
+    }
+
+    @Test
+    void registerRejectsInvalidFields() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"\",\"email\":\"invalid\",\"password\":\"short\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("Invalid request"));
     }
 
     @Test

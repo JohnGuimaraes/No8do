@@ -44,7 +44,7 @@ import { type Workspace } from "@/workspaces/workspaceApi";
 import { ProjectMedia } from "@/components/visual/ProjectMedia";
 import no8doLogo from "@/assets/logo/no8do-logo.png";
 
-type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas";
+export type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas";
 type SearchDomain = "project" | "library" | "idea";
 type SearchResult = {
   id: string;
@@ -88,7 +88,15 @@ const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string; descripti
   },
 ];
 
-export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
+type ProjectsPanelProps = {
+  workspace: Workspace;
+  activeSection: WorkspaceSection;
+  selectedProjectId: string | null;
+  onNavigateSection: (section: WorkspaceSection) => void;
+  onOpenProject: (projectId: string, section: WorkspaceSection) => void;
+};
+
+export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onNavigateSection, onOpenProject }: ProjectsPanelProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -106,10 +114,8 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
   const [editCurrentState, setEditCurrentState] = useState("");
   const [editRepositoryUrl, setEditRepositoryUrl] = useState("");
   const [editStatus, setEditStatus] = useState<ProjectStatus>("IDEA");
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedLibraryItemId, setSelectedLibraryItemId] = useState<string | null>(null);
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<WorkspaceSection>("overview");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [createFormOpen, setCreateFormOpen] = useState(false);
@@ -129,6 +135,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
   const developmentProjects = projects.filter((project) => project.status !== "DONE");
   const completedProjects = projects.filter((project) => project.status === "DONE");
+  const selectedProject = selectedProjectId ? projects.find((project) => project.id === selectedProjectId) ?? null : null;
   const activeSectionInfo = WORKSPACE_SECTIONS.find((section) => section.id === activeSection) ?? WORKSPACE_SECTIONS[0];
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const searchResults = useMemo(() => {
@@ -234,10 +241,8 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
           setProjects(items);
           setLibraryItems(libraryItems);
           setIdeas(ideaItems.filter((idea) => idea.status !== "CONVERTED"));
-          setSelectedProject(null);
           setSelectedLibraryItemId(null);
           setSelectedIdeaId(null);
-          setActiveSection("overview");
           resetCreateForm();
           setSearchTerm("");
           setSearchOpen(false);
@@ -263,6 +268,12 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       cancelled = true;
     };
   }, [workspace.id]);
+
+  useEffect(() => {
+    if (!loading && !boardError && selectedProjectId && !selectedProject) {
+      onNavigateSection(activeSection);
+    }
+  }, [activeSection, boardError, loading, onNavigateSection, selectedProject, selectedProjectId]);
 
   const handleLibraryItemsChange = useCallback((items: LibraryItem[]) => {
     setLibraryItems(items);
@@ -359,7 +370,6 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setProjects((current) =>
       current.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
     );
-    setSelectedProject((current) => (current?.id === updatedProject.id ? updatedProject : current));
   }
 
   async function handleUpdate(project: Project) {
@@ -501,7 +511,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       const archived = await archiveProject(workspace.id, project.id);
       setProjects((current) => current.filter((item) => item.id !== archived.id));
       setArchivedProjects((current) => [archived, ...current.filter((item) => item.id !== archived.id)]);
-      setSelectedProject(null);
+      onNavigateSection(activeSection);
       showLifecycleToast("Projeto arquivado", `${archived.name} foi movido para Arquivados.`);
     } catch (err) { setBoardError(err instanceof Error ? err.message : "Nao foi possivel arquivar o projeto."); }
     finally { setProjectActionId(null); }
@@ -526,7 +536,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       await deleteProject(workspace.id, project.id);
       setProjects((current) => current.filter((item) => item.id !== project.id));
       setArchivedProjects((current) => current.filter((item) => item.id !== project.id));
-      setSelectedProject(null); setProjectPendingDeletion(null);
+      onNavigateSection(activeSection); setProjectPendingDeletion(null);
       showLifecycleToast("Projeto excluído", `${project.name} foi excluído permanentemente.`);
     } catch (err) { setBoardError(err instanceof Error ? err.message : "Nao foi possivel excluir o projeto."); }
     finally { setProjectActionId(null); }
@@ -534,18 +544,16 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
   function handleIdeaConverted(project: Project) {
     setProjects((current) => [project, ...current.filter((item) => item.id !== project.id)]);
-    setSelectedProject(project);
-    setActiveSection("development");
+    onOpenProject(project.id, "development");
   }
 
   function handleSectionChange(sectionId: WorkspaceSection) {
-    setActiveSection(sectionId);
+    onNavigateSection(sectionId);
     setEditingProjectId(null);
     setBoardError(null);
     if (sectionId !== "development") {
       handleCancelCreate();
     }
-    setSelectedProject(null);
     setSelectedLibraryItemId(null);
     setSelectedIdeaId(null);
   }
@@ -555,7 +563,6 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
     setSearchOpen(false);
     setEditingProjectId(null);
     setBoardError(null);
-    setSelectedProject(null);
     setSelectedLibraryItemId(null);
     setSelectedIdeaId(null);
 
@@ -564,8 +571,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       if (project.status === "DONE") {
         handleCancelCreate();
       }
-      setActiveSection(project.status === "DONE" ? "projects" : "development");
-      setSelectedProject(project);
+      onOpenProject(project.id, project.status === "DONE" ? "projects" : "development");
       return;
     }
 
@@ -573,18 +579,17 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
 
 
     if (result.domain === "library") {
-      setActiveSection("library");
+      onNavigateSection("library");
       setSelectedLibraryItemId(result.id);
       return;
     }
 
-    setActiveSection("ideas");
+    onNavigateSection("ideas");
     setSelectedIdeaId(result.id);
   }
 
   function openProjectFromDashboard(project: Project) {
-    setActiveSection(project.status === "DONE" ? "projects" : "development");
-    setSelectedProject(project);
+    onOpenProject(project.id, project.status === "DONE" ? "projects" : "development");
   }
 
   function openProjectFromWorkItems(projectId: string) {
@@ -593,8 +598,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       return;
     }
 
-    setActiveSection(project.status === "DONE" ? "projects" : "development");
-    setSelectedProject(project);
+    onOpenProject(project.id, project.status === "DONE" ? "projects" : "development");
   }
 
   function openSectionFromDashboard(sectionId: Exclude<WorkspaceSection, "overview">) {
@@ -737,12 +741,12 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
               onEditCurrentStateChange={setEditCurrentState}
               onEditRepositoryUrlChange={setEditRepositoryUrl}
               onEditStatusChange={setEditStatus}
-              onOpenDetails={setSelectedProject}
+              onOpenDetails={openProjectFromDashboard}
             />
           ) : null}
 
           {activeSection === "projects" ? (
-            <CompletedProjectsSection projects={completedProjects} archivedProjects={archivedProjects} archivedOpen={archivedProjectsOpen} actionId={projectActionId} recentlyCompletedProjectId={recentlyCompletedProjectId} onOpenDetails={setSelectedProject} onOpenArchived={() => void openArchivedProjects()} onCloseArchived={() => setArchivedProjectsOpen(false)} onRestore={(project) => void handleRestoreProject(project)} onDelete={setProjectPendingDeletion} name={name} description={description} currentState={currentState} repositoryUrl={repositoryUrl} creating={creating} createFormOpen={createFormOpen} formError={formError} onOpenCreateForm={() => { setStatus("DONE"); setCreateFormOpen(true); }} onCancelCreate={handleCancelCreate} onSubmit={handleCreate} onNameChange={setName} onDescriptionChange={setDescription} onCurrentStateChange={setCurrentState} onRepositoryUrlChange={setRepositoryUrl} />
+            <CompletedProjectsSection projects={completedProjects} archivedProjects={archivedProjects} archivedOpen={archivedProjectsOpen} actionId={projectActionId} recentlyCompletedProjectId={recentlyCompletedProjectId} onOpenDetails={openProjectFromDashboard} onOpenArchived={() => void openArchivedProjects()} onCloseArchived={() => setArchivedProjectsOpen(false)} onRestore={(project) => void handleRestoreProject(project)} onDelete={setProjectPendingDeletion} name={name} description={description} currentState={currentState} repositoryUrl={repositoryUrl} creating={creating} createFormOpen={createFormOpen} formError={formError} onOpenCreateForm={() => { setStatus("DONE"); setCreateFormOpen(true); }} onCancelCreate={handleCancelCreate} onSubmit={handleCreate} onNameChange={setName} onDescriptionChange={setDescription} onCurrentStateChange={setCurrentState} onRepositoryUrlChange={setRepositoryUrl} />
           ) : null}
 
           {activeSection === "work-items" ? (
@@ -763,7 +767,7 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
               workspaceId={workspace.id}
               projects={projects}
               onProjectCreated={handleIdeaConverted}
-              onOpenProject={setSelectedProject}
+              onOpenProject={openProjectFromDashboard}
               selectedIdeaId={selectedIdeaId}
               onIdeasChange={handleIdeasChange}
               onIdeaRestored={(idea) => setIdeas((current) => [idea, ...current.filter((item) => item.id !== idea.id)])}
@@ -775,8 +779,8 @@ export function ProjectsPanel({ workspace }: { workspace: Workspace }) {
       {selectedProject ? (
         <ProjectDetailsPanel
           project={selectedProject}
-          onClose={() => setSelectedProject(null)}
-          onProjectUpdated={(project) => { applyProjectUpdate(project); setSelectedProject(project); }}
+          onClose={() => onNavigateSection(activeSection)}
+          onProjectUpdated={applyProjectUpdate}
           onArchive={(project) => void handleArchiveProject(project)}
           onDelete={setProjectPendingDeletion}
           actionLoading={projectActionId === selectedProject.id}

@@ -1,6 +1,10 @@
 package com.no8do.api.config;
 
+import com.no8do.api.auth.GoogleOAuth2FailureHandler;
+import com.no8do.api.auth.GoogleOAuth2SuccessHandler;
+import com.no8do.api.auth.TransientOAuth2AuthorizedClientRepository;
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,6 +15,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -24,13 +29,25 @@ public class SecurityConfig {
 
     private final String corsAllowedOrigin;
     private final boolean secureCookies;
+    private final ObjectProvider<ClientRegistrationRepository> clientRegistrationRepository;
+    private final GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler;
+    private final GoogleOAuth2FailureHandler googleOAuth2FailureHandler;
+    private final TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository;
 
     public SecurityConfig(
             @Value("${no8do.cors.allowed-origin:}") String corsAllowedOrigin,
-            @Value("${server.servlet.session.cookie.secure:false}") boolean secureCookies
+            @Value("${server.servlet.session.cookie.secure:false}") boolean secureCookies,
+            ObjectProvider<ClientRegistrationRepository> clientRegistrationRepository,
+            GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler,
+            GoogleOAuth2FailureHandler googleOAuth2FailureHandler,
+            TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository
     ) {
         this.corsAllowedOrigin = corsAllowedOrigin;
         this.secureCookies = secureCookies;
+        this.clientRegistrationRepository = clientRegistrationRepository;
+        this.googleOAuth2SuccessHandler = googleOAuth2SuccessHandler;
+        this.googleOAuth2FailureHandler = googleOAuth2FailureHandler;
+        this.transientOAuth2AuthorizedClientRepository = transientOAuth2AuthorizedClientRepository;
     }
 
     @Bean
@@ -45,12 +62,30 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/health", "/api/csrf").permitAll()
-                .requestMatchers("/api/auth/register", "/api/auth/login").permitAll()
+                .requestMatchers(
+                    "/api/auth/register",
+                    "/api/auth/login",
+                    "/api/auth/password/forgot",
+                    "/api/auth/password/reset",
+                    "/api/auth/google",
+                    "/api/auth/google/callback",
+                    "/api/oauth2/authorization/google"
+                ).permitAll()
                 .requestMatchers("/api/account/integrations/github/app/callback").permitAll()
                 .requestMatchers("/api/auth/logout", "/api/auth/me").authenticated()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll()
             );
+
+        if (clientRegistrationRepository.getIfAvailable() != null) {
+            http.oauth2Login(oauth2 -> oauth2
+                .authorizationEndpoint(authorization -> authorization.baseUri("/api/oauth2/authorization"))
+                .redirectionEndpoint(redirection -> redirection.baseUri("/api/auth/google/callback"))
+                .authorizedClientRepository(transientOAuth2AuthorizedClientRepository)
+                .successHandler(googleOAuth2SuccessHandler)
+                .failureHandler(googleOAuth2FailureHandler)
+            );
+        }
 
         return http.build();
     }
