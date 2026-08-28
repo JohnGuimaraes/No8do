@@ -104,7 +104,8 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
     }
   }
 
-  const deleteDisabled = deletingAccount || !confirmationEmail.trim() || confirmationText !== "EXCLUIR";
+  const emailMatches = confirmationEmail.trim().toLocaleLowerCase("pt-BR") === (user?.email ?? "").toLocaleLowerCase("pt-BR");
+  const deleteDisabled = deletingAccount || !emailMatches || confirmationText !== "EXCLUIR";
 
   return (
     <section className="mx-auto grid w-full max-w-4xl gap-8">
