@@ -14,4 +14,5 @@ public interface IdeaRepository extends JpaRepository<Idea, UUID> {
     List<Idea> findByWorkspaceIdAndStatusOrderByUpdatedAtDesc(UUID workspaceId, IdeaStatus status);
 
     Optional<Idea> findByConvertedProjectId(UUID projectId);
+    void deleteByWorkspaceId(UUID workspaceId);
 }

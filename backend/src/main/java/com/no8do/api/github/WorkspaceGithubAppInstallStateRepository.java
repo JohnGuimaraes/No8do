@@ -17,4 +17,6 @@ public interface WorkspaceGithubAppInstallStateRepository extends JpaRepository<
     @Transactional
     @Query("update WorkspaceGithubAppInstallState state set state.consumedAt = :consumedAt where state.id = :id and state.consumedAt is null")
     int markConsumed(@Param("id") UUID id, @Param("consumedAt") Instant consumedAt);
+
+    void deleteByWorkspaceId(UUID workspaceId);
 }

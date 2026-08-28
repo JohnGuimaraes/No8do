@@ -60,6 +60,13 @@ export function createWorkspace(name: string) {
   });
 }
 
+export function deleteWorkspace(workspaceId: string, confirmationName: string) {
+  return apiRequest<void>(`/api/workspaces/${workspaceId}`, {
+    method: "DELETE",
+    body: { confirmationName },
+  });
+}
+
 export function getWorkspaceGithubLink(workspaceId: string) {
   return apiRequest<WorkspaceGithubLink>(`/api/workspaces/${workspaceId}/integrations/github`);
 }

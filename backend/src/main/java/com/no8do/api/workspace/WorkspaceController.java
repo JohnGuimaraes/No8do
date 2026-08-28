@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -62,5 +63,14 @@ public class WorkspaceController {
             @Valid @RequestBody CreateWorkspaceRequest request
     ) {
         return workspaceService.create(currentUser.user().getId(), request);
+    }
+
+    @DeleteMapping("/{workspaceId}")
+    public void delete(
+            @PathVariable UUID workspaceId,
+            @AuthenticationPrincipal No8doUserDetails currentUser,
+            @Valid @RequestBody DeleteWorkspaceRequest request
+    ) {
+        workspaceService.delete(workspaceId, currentUser.user().getId(), request);
     }
 }

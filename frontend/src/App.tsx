@@ -310,7 +310,13 @@ function App() {
         {route.view === "profile" ? <ProfilePage user={user} onReturnToWorkspace={returnToWorkspace} onLogout={() => void handleLogout()} loggingOut={loggingOut} /> : null}
         {route.view === "preferences" ? <PreferencesPage user={user} onReturnToWorkspace={returnToWorkspace} /> : null}
         {route.view === "help" ? <HelpPage onReturnToWorkspace={returnToWorkspace} /> : null}
-        {route.view === "workspace-settings" && routedWorkspace ? <WorkspaceSettingsPage workspace={routedWorkspace} onReturnToWorkspace={returnToWorkspace} /> : null}
+        {route.view === "workspace-settings" && routedWorkspace ? <WorkspaceSettingsPage workspace={routedWorkspace} onReturnToWorkspace={returnToWorkspace} onWorkspaceDeleted={(workspaceId) => {
+          const remaining = workspaces.filter((workspace) => workspace.id !== workspaceId);
+          setWorkspaces(remaining);
+          const nextWorkspace = remaining[0] ?? null;
+          setActiveWorkspaceId(nextWorkspace?.id ?? null);
+          replaceNavigation(nextWorkspace ? workspacePath(nextWorkspace.id, "overview") : "/");
+        }} /> : null}
         {route.view === "workspace-settings" && !routedWorkspace ? <div className="editorial-empty-state"><p className="text-sm text-muted-foreground">Carregando workspace...</p></div> : null}
         {route.view === "workspace" || route.view === "project-details" ? <WorkspacePanel workspace={routedWorkspace} activeSection={route.section} selectedProjectId={route.view === "project-details" ? route.projectId : null} onNavigateSection={navigateWorkspaceSection} onOpenProject={openWorkspaceProject} /> : null}
       </section>

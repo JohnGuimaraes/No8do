@@ -12,6 +12,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.idea.Idea;
+import com.no8do.api.idea.IdeaRepository;
+import com.no8do.api.idea.IdeaType;
+import com.no8do.api.library.LibraryItem;
+import com.no8do.api.library.LibraryItemRepository;
+import com.no8do.api.library.LibraryItemType;
+import com.no8do.api.project.Project;
+import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
 import java.util.Map;
@@ -43,6 +51,15 @@ class WorkspaceControllerTests {
 
     @Autowired
     private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
+    private IdeaRepository ideaRepository;
+
+    @Autowired
+    private LibraryItemRepository libraryItemRepository;
 
     @Test
     void endpointWithoutLoginIsBlocked() throws Exception {
@@ -187,6 +204,54 @@ class WorkspaceControllerTests {
             .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/workspaces/{workspaceId}/members", otherWorkspace.getId()).with(user(new No8doUserDetails(member))))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void onlyOwnerCanDeleteWorkspaceWithItsExactName() throws Exception {
+        User owner = createUser();
+        User admin = createUser();
+        User member = createUser();
+        User viewer = createUser();
+        User outsider = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace para excluir", WorkspaceRole.OWNER);
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, admin, WorkspaceRole.ADMIN));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
+
+        deleteWorkspace(workspace, admin, workspace.getName()).andExpect(status().isForbidden());
+        deleteWorkspace(workspace, member, workspace.getName()).andExpect(status().isForbidden());
+        deleteWorkspace(workspace, viewer, workspace.getName()).andExpect(status().isForbidden());
+        deleteWorkspace(workspace, outsider, workspace.getName()).andExpect(status().isForbidden());
+        deleteWorkspace(workspace, owner, "nome diferente").andExpect(status().isBadRequest());
+        deleteWorkspace(workspace, owner, workspace.getName()).andExpect(status().isOk());
+
+        assertThat(workspaceRepository.findById(workspace.getId())).isEmpty();
+        assertThat(workspaceMemberRepository.findByWorkspaceIdAndUserId(workspace.getId(), owner.getId())).isEmpty();
+    }
+
+    @Test
+    void deletionRemovesWorkspaceDataBeforeItsProjects() throws Exception {
+        User owner = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace completo", WorkspaceRole.OWNER);
+        Project project = projectRepository.save(new Project(workspace, "Projeto", owner));
+        Idea idea = new Idea(workspace, "Ideia convertida", IdeaType.PRODUCT, owner);
+        idea.setConvertedProject(project);
+        ideaRepository.save(idea);
+        libraryItemRepository.save(new LibraryItem(workspace, LibraryItemType.NOTE, "Nota", owner));
+
+        deleteWorkspace(workspace, owner, workspace.getName()).andExpect(status().isOk());
+
+        assertThat(projectRepository.findById(project.getId())).isEmpty();
+        assertThat(ideaRepository.findById(idea.getId())).isEmpty();
+        assertThat(libraryItemRepository.findAll().stream().noneMatch(item -> item.getWorkspace().getId().equals(workspace.getId()))).isTrue();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions deleteWorkspace(Workspace workspace, User user, String confirmationName) throws Exception {
+        return mockMvc.perform(delete("/api/workspaces/{workspaceId}", workspace.getId())
+            .with(user(new No8doUserDetails(user)))
+            .with(csrf())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(Map.of("confirmationName", confirmationName))));
     }
 
     private Workspace createWorkspaceFor(User user, String name, WorkspaceRole role) {

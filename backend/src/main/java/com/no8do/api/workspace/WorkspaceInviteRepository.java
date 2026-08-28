@@ -8,4 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface WorkspaceInviteRepository extends JpaRepository<WorkspaceInvite, UUID> {
     Optional<WorkspaceInvite> findByTokenHash(String tokenHash);
     List<WorkspaceInvite> findByWorkspaceIdOrderByCreatedAtDesc(UUID workspaceId);
+    void deleteByWorkspaceId(UUID workspaceId);
 }

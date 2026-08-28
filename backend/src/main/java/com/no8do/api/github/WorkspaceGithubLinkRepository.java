@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface WorkspaceGithubLinkRepository extends JpaRepository<WorkspaceGithubLink, UUID> {
 
     Optional<WorkspaceGithubLink> findByWorkspaceId(UUID workspaceId);
+
+    void deleteByWorkspaceId(UUID workspaceId);
 }

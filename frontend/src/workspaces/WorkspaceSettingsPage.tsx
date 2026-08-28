@@ -1,9 +1,9 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { ArrowLeft, Copy, GearSix, GithubLogo, Plug, Plus, Trash } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { createWorkspaceInvite, getWorkspaceGithubAppInstallation, getWorkspaceGithubAppInstallUrl, listWorkspaceInvites, listWorkspaceMembersForManagement, revokeWorkspaceInvite, type Workspace, type WorkspaceGithubAppInstallation, type WorkspaceInvite, type WorkspaceInviteRole, type WorkspaceMemberManagement } from "@/workspaces/workspaceApi";
+import { createWorkspaceInvite, deleteWorkspace, getWorkspaceGithubAppInstallation, getWorkspaceGithubAppInstallUrl, listWorkspaceInvites, listWorkspaceMembersForManagement, revokeWorkspaceInvite, type Workspace, type WorkspaceGithubAppInstallation, type WorkspaceInvite, type WorkspaceInviteRole, type WorkspaceMemberManagement } from "@/workspaces/workspaceApi";
 
-export function WorkspaceSettingsPage({ workspace, onReturnToWorkspace }: { workspace: Workspace; onReturnToWorkspace: () => void }) {
+export function WorkspaceSettingsPage({ workspace, onReturnToWorkspace, onWorkspaceDeleted }: { workspace: Workspace; onReturnToWorkspace: () => void; onWorkspaceDeleted: (workspaceId: string) => void }) {
   const [githubInstallation, setGithubInstallation] = useState<WorkspaceGithubAppInstallation | null>(null);
   const [githubError, setGithubError] = useState<string | null>(null);
   const [githubSuccess, setGithubSuccess] = useState<string | null>(null);
@@ -15,6 +15,10 @@ export function WorkspaceSettingsPage({ workspace, onReturnToWorkspace }: { work
   const [createdInviteUrl, setCreatedInviteUrl] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [savingInvite, setSavingInvite] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmationName, setConfirmationName] = useState("");
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -46,6 +50,20 @@ export function WorkspaceSettingsPage({ workspace, onReturnToWorkspace }: { work
   async function handleInvite(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSavingInvite(true); setInviteError(null); setCreatedInviteUrl(null); try { const invite = await createWorkspaceInvite(workspace.id, { email: inviteEmail, role: inviteRole }); setInvites((current) => [invite, ...current]); setInviteEmail(""); setCreatedInviteUrl(invite.inviteUrl); } catch (error) { setInviteError(error instanceof Error ? error.message : "Não foi possível criar o convite."); } finally { setSavingInvite(false); } }
   async function handleRevoke(inviteId: string) { setInviteError(null); try { await revokeWorkspaceInvite(workspace.id, inviteId); setInvites((current) => current.map((invite) => invite.id === inviteId ? { ...invite, revokedAt: new Date().toISOString() } : invite)); } catch (error) { setInviteError(error instanceof Error ? error.message : "Não foi possível revogar o convite."); } }
   async function copyInviteUrl() { if (!createdInviteUrl) return; try { await navigator.clipboard.writeText(createdInviteUrl); } catch { setInviteError("Não foi possível copiar o link."); } }
+  function closeDeleteWorkspace() { setDeleteOpen(false); setConfirmationName(""); setDeleteError(null); }
+  async function handleDeleteWorkspace(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDeletingWorkspace(true);
+    setDeleteError(null);
+    try {
+      await deleteWorkspace(workspace.id, confirmationName);
+      onWorkspaceDeleted(workspace.id);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Não foi possível excluir o workspace.");
+    } finally {
+      setDeletingWorkspace(false);
+    }
+  }
 
   return (
     <section className="mx-auto grid w-full max-w-4xl gap-8">
@@ -71,6 +89,10 @@ export function WorkspaceSettingsPage({ workspace, onReturnToWorkspace }: { work
             <div className="flex w-fit flex-wrap items-center gap-2"><span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${githubInstallation?.installed ? "border-primary/25 bg-primary/10 text-primary" : "border-border bg-muted text-muted-foreground"}`}>{githubInstallation?.installed ? "Instalado" : githubInstallation ? "Não instalado" : "Carregando..."}</span>{githubInstallation && !githubInstallation.installed ? <Button type="button" size="sm" onClick={handleInstallGithubApp} disabled={installingGithubApp}>{installingGithubApp ? "Redirecionando..." : "Instalar GitHub App"}</Button> : null}</div>
           </article>
         </section>
+        {workspace.role === "OWNER" ? <section className="grid gap-4 border-t border-destructive/25 pt-8" aria-labelledby="workspace-danger-title">
+          <div><h2 id="workspace-danger-title" className="text-lg font-semibold text-foreground">Zona de perigo</h2><p className="mt-1 text-sm text-muted-foreground">A exclusão remove permanentemente os projetos, dados operacionais e integrações deste workspace.</p></div>
+          <article className="grid gap-4 rounded-xl border border-destructive/30 bg-destructive/5 p-5 sm:p-6"><div><h3 className="text-base font-semibold text-card-foreground">Excluir workspace</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">Esta ação não pode ser desfeita. Capas vinculadas aos projetos também serão removidas.</p></div>{!deleteOpen ? <Button type="button" variant="outline" size="sm" className="w-fit border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setDeleteOpen(true)}><Trash className="h-4 w-4" />Excluir workspace</Button> : <form className="grid gap-3 border-t border-destructive/20 pt-4" onSubmit={handleDeleteWorkspace}><label className="grid gap-2 text-sm font-medium text-foreground">Digite <span className="font-semibold">{workspace.name}</span> para confirmar<input className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal" value={confirmationName} onChange={(event) => setConfirmationName(event.target.value)} autoComplete="off" /></label>{deleteError ? <p className="text-sm text-destructive" role="alert">{deleteError}</p> : null}<div className="flex flex-wrap gap-2"><Button type="submit" size="sm" variant="destructive" disabled={deletingWorkspace || confirmationName !== workspace.name}>{deletingWorkspace ? "Excluindo..." : "Excluir definitivamente"}</Button><Button type="button" size="sm" variant="ghost" onClick={closeDeleteWorkspace} disabled={deletingWorkspace}>Cancelar</Button></div></form>}</article>
+        </section> : null}
       </div>
     </section>
   );
