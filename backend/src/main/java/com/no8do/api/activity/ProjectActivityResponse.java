@@ -17,8 +17,8 @@ public record ProjectActivityResponse(
         return new ProjectActivityResponse(
             activity.getId(),
             activity.getProject().getId(),
-            activity.getCreatedBy().getId(),
-            activity.getCreatedBy().getName(),
+            activity.getCreatedBy() == null ? null : activity.getCreatedBy().getId(),
+            activity.getCreatedBy() == null ? "Usuário excluído" : activity.getCreatedBy().getName(),
             activity.getType(),
             activity.getContent(),
             activity.getCreatedAt()
