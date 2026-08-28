@@ -24,12 +24,16 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
   const [formError, setFormError] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [type, setType] = useState<ProjectNote["type"]>("NOTE");
+  const [createFormOpen, setCreateFormOpen] = useState(false);
   const [editing, setEditing] = useState<ProjectNote | null>(null);
   const [deleting, setDeleting] = useState<ProjectNote | null>(null);
   const [deletingNote, setDeletingNote] = useState(false);
 
   useEffect(() => {
     let active = true;
+    setCreateFormOpen(false);
+    cancelEditing();
+    setDeleting(null);
 
     async function loadNotes() {
       setLoading(true);
@@ -79,6 +83,7 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
       const saved = editing ? await updateProjectNote(workspaceId, projectId, editing.id, { content: normalizedContent, type }) : await createProjectNote(workspaceId, projectId, { content: normalizedContent, type });
       setNotes((current) => editing ? current.map((note) => note.id === saved.id ? saved : note) : [saved, ...current]);
       cancelEditing();
+      setCreateFormOpen(false);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Nao foi possivel criar a anotacao.");
     } finally {
@@ -86,18 +91,23 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
     }
   }
   function cancelEditing() { setContent(""); setType("NOTE"); setEditing(null); setFormError(null); }
+  function startEditing(note: ProjectNote) { setEditing(note); setContent(note.content); setType(note.type); setFormError(null); setCreateFormOpen(true); }
+  function closeForm() { cancelEditing(); setCreateFormOpen(false); }
   async function confirmDelete() { if (!deleting || deletingNote) return; setDeletingNote(true); setError(null); try { await deleteProjectNote(workspaceId, projectId, deleting.id); setNotes((current) => current.filter((note) => note.id !== deleting.id)); if (editing?.id === deleting.id) cancelEditing(); setDeleting(null); } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível excluir a anotação."); } finally { setDeletingNote(false); } }
 
   return (
     <div className="min-w-0 rounded-md border border-border bg-background p-3">
-      <div className="mb-3 min-w-0">
-        <p className="text-sm font-semibold text-foreground">Anotacoes</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Guarde observacoes, comandos, links e referencias deste projeto.
-        </p>
+      <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">Anotacoes</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Guarde observacoes, comandos, links e referencias deste projeto.
+          </p>
+        </div>
+        {!createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Adicionar nota</Button> : null}
       </div>
 
-      <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
+      {createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select className="h-9 rounded-md border border-input bg-card px-3 text-sm" value={type} onChange={(event) => setType(noteType(event.target.value))}><option value="NOTE">Anotação</option><option value="DECISION">Decisão</option><option value="CONTEXT">Contexto</option></select><textarea
           className="min-h-28 w-full min-w-0 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={content}
@@ -111,13 +121,13 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
         </p>
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
         <div className="flex flex-wrap justify-stretch gap-2 sm:justify-end">
-          {editing ? <Button type="button" variant="ghost" size="sm" disabled={creating} onClick={cancelEditing}>Cancelar</Button> : null}
+          <Button type="button" variant="ghost" size="sm" disabled={creating} onClick={closeForm}>Cancelar</Button>
           <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={creating}>
             <Plus className="h-4 w-4" />
             {creating ? "Salvando..." : editing ? "Salvar alteração" : "Salvar anotacao"}
           </Button>
         </div>
-      </form>
+      </form> : null}
 
       <div className="mt-4 min-w-0">
         {loading ? <p className="text-sm text-muted-foreground">Carregando anotacoes...</p> : null}
@@ -148,7 +158,7 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
                 </div>
                 <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
                   {note.content}
-                </p><div className="mt-3 flex gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => { setEditing(note); setContent(note.content); setType(note.type); }}><PencilSimple className="h-4 w-4" />Editar</Button><Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(note)}><Trash className="h-4 w-4" />Excluir</Button></div>
+                </p><div className="mt-3 flex gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => startEditing(note)}><PencilSimple className="h-4 w-4" />Editar</Button><Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(note)}><Trash className="h-4 w-4" />Excluir</Button></div>
               </li>
             ))}
           </ol>

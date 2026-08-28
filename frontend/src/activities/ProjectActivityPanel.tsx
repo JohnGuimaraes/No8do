@@ -69,8 +69,13 @@ export function ProjectActivityPanel({ workspaceId, projectId, activities: provi
   const [formError, setFormError] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [type, setType] = useState<ProjectActivityType | "">("UPDATE");
+  const [createFormOpen, setCreateFormOpen] = useState(false);
 
   useEffect(() => {
+    setCreateFormOpen(false);
+    setContent("");
+    setType("UPDATE");
+    setFormError(null);
     if (providedActivities !== undefined) {
       return;
     }
@@ -130,6 +135,7 @@ export function ProjectActivityPanel({ workspaceId, projectId, activities: provi
       }
       setContent("");
       setType("UPDATE");
+      setCreateFormOpen(false);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Não foi possível criar a atividade.");
     } finally {
@@ -139,14 +145,17 @@ export function ProjectActivityPanel({ workspaceId, projectId, activities: provi
 
   return (
     <div className="min-w-0 rounded-md border border-border bg-background p-3">
-      <div className="mb-3 min-w-0">
-        <p className="text-sm font-semibold text-foreground">Histórico do projeto</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Registre updates, decisões, bloqueios e próximos passos.
-        </p>
+      <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">Histórico do projeto</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Registre updates, decisões, bloqueios e próximos passos.
+          </p>
+        </div>
+        {!createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Registrar atividade</Button> : null}
       </div>
 
-      <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
+      {createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select
           className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={type}
@@ -167,13 +176,14 @@ export function ProjectActivityPanel({ workspaceId, projectId, activities: provi
           aria-label="Conteúdo da atividade"
         />
         {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
-        <div className="flex justify-stretch sm:justify-end">
+        <div className="flex flex-wrap justify-stretch gap-2 sm:justify-end">
+          <Button type="button" variant="ghost" size="sm" disabled={creating} onClick={() => { setContent(""); setType("UPDATE"); setFormError(null); setCreateFormOpen(false); }}>Cancelar</Button>
           <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={creating}>
             <Plus className="h-4 w-4" />
             {creating ? "Registrando..." : "Registrar atividade"}
           </Button>
         </div>
-      </form>
+      </form> : null}
 
       <div className="mt-4 min-w-0">
         {loading ? <p className="text-sm text-muted-foreground">Carregando histórico...</p> : null}
