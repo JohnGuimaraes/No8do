@@ -18,8 +18,8 @@ public record ProjectNoteResponse(
         return new ProjectNoteResponse(
             note.getId(),
             note.getProject().getId(),
-            note.getCreatedBy().getId(),
-            note.getCreatedBy().getName(),
+            note.getCreatedBy() == null ? null : note.getCreatedBy().getId(),
+            note.getCreatedBy() == null ? "Usuário excluído" : note.getCreatedBy().getName(),
             note.getContent(),
             note.getType(), note.getCreatedAt(), note.getUpdatedAt()
         );
