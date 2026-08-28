@@ -24,8 +24,8 @@ public record ProjectCredentialResponse(
             credential.getType(),
             credential.getUsername(),
             credential.getNotes(),
-            credential.getCreatedBy() == null ? null : credential.getCreatedBy().getId(),
-            credential.getCreatedBy() == null ? "Usuário excluído" : credential.getCreatedBy().getName(),
+            credential.getCreatedBy().getId(),
+            credential.getCreatedBy().getName(),
             credential.getCreatedAt(),
             credential.getUpdatedAt()
         );

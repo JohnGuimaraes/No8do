@@ -63,8 +63,8 @@ public class Idea {
     @Setter
     private Project convertedProject;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "created_by")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by", nullable = false)
     @Setter
     private User createdBy;
 

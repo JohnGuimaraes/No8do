@@ -23,7 +23,7 @@ public interface ProjectWorkItemRepository extends JpaRepository<ProjectWorkItem
         select item
         from ProjectWorkItem item
         join fetch item.project project
-        left join fetch item.createdBy
+        join fetch item.createdBy
         where project.workspace.id = :workspaceId
             and project.archivedAt is null
             and (:status is null or item.status = :status)

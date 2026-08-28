@@ -55,8 +55,8 @@ public class LibraryItem {
     @Setter
     private String url;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "created_by")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by", nullable = false)
     @Setter
     private User createdBy;
 

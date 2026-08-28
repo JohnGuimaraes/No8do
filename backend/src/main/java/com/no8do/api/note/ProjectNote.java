@@ -34,8 +34,8 @@ public class ProjectNote {
     @Setter
     private Project project;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "created_by")
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by", nullable = false)
     @Setter
     private User createdBy;
 

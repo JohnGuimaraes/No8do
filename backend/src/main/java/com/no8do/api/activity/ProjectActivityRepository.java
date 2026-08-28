@@ -15,7 +15,7 @@ public interface ProjectActivityRepository extends JpaRepository<ProjectActivity
         select activity
         from ProjectActivity activity
         join fetch activity.project project
-        left join fetch activity.createdBy
+        join fetch activity.createdBy
         where project.workspace.id = :workspaceId
         order by activity.createdAt desc
         """)
