@@ -37,8 +37,8 @@ public class WorkspaceGithubLink {
     @JoinColumn(name = "github_connection_user_id", nullable = false)
     private UserGithubConnection githubConnection;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "linked_by", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "linked_by")
     private User linkedBy;
 
     @Column(name = "linked_at", nullable = false, updatable = false)

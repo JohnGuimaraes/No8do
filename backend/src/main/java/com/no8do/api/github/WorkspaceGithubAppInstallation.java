@@ -48,8 +48,8 @@ public class WorkspaceGithubAppInstallation {
     @Column(name = "account_type", nullable = false, length = 20)
     private GithubAppInstallationAccountType accountType;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "configured_by", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "configured_by")
     private User configuredBy;
 
     @Column(name = "configured_at", nullable = false, updatable = false)

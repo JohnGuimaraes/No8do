@@ -108,6 +108,13 @@ public class AuthService {
     }
 
     @Transactional
+    public void deleteCurrentUser(Authentication authentication) {
+        User user = currentUserEntity(authentication);
+        userRepository.delete(user);
+        userRepository.flush();
+    }
+
+    @Transactional
     public Map<String, String> requestPasswordReset(PasswordForgotRequest request) {
         if (!passwordResetEmailService.isConfigured()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Password reset is temporarily unavailable");
@@ -141,10 +148,15 @@ public class AuthService {
     }
 
     private AuthUserResponse currentUser(Authentication authentication) {
+        return AuthUserResponse.from(currentUserEntity(authentication));
+    }
+
+    private User currentUserEntity(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof No8doUserDetails userDetails)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
-        return AuthUserResponse.from(userDetails.user());
+        return userRepository.findById(userDetails.user().getId())
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
     }
 
     private void storeAuthentication(Authentication authentication, HttpServletRequest httpRequest) {

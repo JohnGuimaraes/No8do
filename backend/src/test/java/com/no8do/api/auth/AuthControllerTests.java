@@ -2,6 +2,7 @@ package com.no8do.api.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,6 +11,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
+import com.no8do.api.workspace.Workspace;
+import com.no8do.api.workspace.WorkspaceMember;
+import com.no8do.api.workspace.WorkspaceMemberRepository;
+import com.no8do.api.workspace.WorkspaceRepository;
+import com.no8do.api.workspace.WorkspaceRole;
+import com.no8do.api.project.Project;
+import com.no8do.api.project.ProjectRepository;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +44,15 @@ class AuthControllerTests {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private WorkspaceMemberRepository workspaceMemberRepository;
+
+    @Autowired
+    private ProjectRepository projectRepository;
 
     @Test
     void healthRemainsPublic() throws Exception {
@@ -143,6 +160,41 @@ class AuthControllerTests {
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteMeWithoutLoginIsUnauthorized() throws Exception {
+        mockMvc.perform(delete("/api/auth/me").with(csrf()))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void deleteMeRemovesCurrentUserInvalidatesSessionAndKeepsWorkspaceContent() throws Exception {
+        String email = uniqueEmail();
+        User user = userRepository.save(new User("Delete User", email, passwordEncoder.encode("senha-correta")));
+        Workspace workspace = workspaceRepository.save(new Workspace("Workspace de teste"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, user, WorkspaceRole.OWNER));
+        Project project = projectRepository.save(new Project(workspace, "Projeto preservado", user));
+
+        MvcResult login = mockMvc.perform(post("/api/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new LoginRequest(email, "senha-correta"))))
+            .andExpect(status().isOk())
+            .andReturn();
+        MockHttpSession session = (MockHttpSession) login.getRequest().getSession(false);
+
+        mockMvc.perform(delete("/api/auth/me").session(session).with(csrf()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("ok"));
+
+        assertThat(userRepository.existsById(user.getId())).isFalse();
+        assertThat(workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspace.getId(), user.getId())).isFalse();
+        Project persistedProject = projectRepository.findById(project.getId()).orElseThrow();
+        assertThat(persistedProject.getCreatedBy()).isNull();
+
+        mockMvc.perform(get("/api/auth/me").session(session))
             .andExpect(status().isUnauthorized());
     }
 
