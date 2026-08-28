@@ -67,11 +67,12 @@ public class AuthController {
     @DeleteMapping("/me")
     public Map<String, String> deleteMe(
             Authentication authentication,
-            HttpServletRequest request,
+            @Valid @RequestBody DeleteAccountRequest deleteRequest,
+            HttpServletRequest httpRequest,
             HttpServletResponse response
     ) {
-        authService.deleteCurrentUser(authentication);
-        logoutHandler.logout(request, response, authentication);
+        authService.deleteCurrentUser(authentication, deleteRequest);
+        logoutHandler.logout(httpRequest, response, authentication);
         return Map.of("status", "ok");
     }
 }

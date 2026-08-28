@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { apiRequest } from "@/lib/api";
+import { deleteAccount, type DeleteAccountInput } from "@/account/accountApi";
 
 export type AuthUser = {
   id: string;
@@ -35,6 +36,7 @@ type AuthContextValue = {
   registerWorkspaceInvite: (token: string, input: Omit<RegisterInput, "email">) => Promise<{ workspaceId: string }>;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: (input: DeleteAccountInput) => Promise<void>;
   loadCurrentUser: () => Promise<void>;
 };
 
@@ -92,6 +94,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("unauthenticated");
   }, []);
 
+  const removeAccount = useCallback(async (input: DeleteAccountInput) => {
+    await deleteAccount(input);
+    setUser(null);
+    setStatus("unauthenticated");
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -100,9 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       registerWorkspaceInvite,
       login,
       logout,
+      deleteAccount: removeAccount,
       loadCurrentUser,
     }),
-    [loadCurrentUser, login, logout, register, registerWorkspaceInvite, status, user],
+    [loadCurrentUser, login, logout, register, registerWorkspaceInvite, removeAccount, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
