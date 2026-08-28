@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -71,6 +72,8 @@ public class SecurityConfig {
                     "/api/auth/google/callback",
                     "/api/oauth2/authorization/google"
                 ).permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/workspace-invites/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/workspace-invites/*/register").permitAll()
                 .requestMatchers("/api/account/integrations/github/app/callback").permitAll()
                 .requestMatchers("/api/auth/logout", "/api/auth/me").authenticated()
                 .requestMatchers("/api/**").authenticated()

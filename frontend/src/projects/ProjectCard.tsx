@@ -16,6 +16,7 @@ type ProjectCardProps = {
   editRepositoryUrl: string;
   editStatus: ProjectStatus;
   completing: boolean;
+  canWrite: boolean;
   onStartEditing: (project: Project) => void;
   onCancelEditing: () => void;
   onSave: (project: Project) => void;
@@ -37,6 +38,7 @@ export function ProjectCard({
   editRepositoryUrl,
   editStatus,
   completing,
+  canWrite,
   onStartEditing,
   onCancelEditing,
   onSave,
@@ -53,7 +55,7 @@ export function ProjectCard({
       project,
       type: "project",
     },
-    disabled: editing,
+    disabled: editing || !canWrite,
   });
   const style = transform
     ? {
@@ -121,7 +123,7 @@ export function ProjectCard({
               <span className="kanban-card__updated">atualizado em {formatDate(project.updatedAt)}</span>
             </div>
             <div className="kanban-card__actions flex flex-wrap items-center justify-end gap-3">
-              <Button
+              {canWrite ? <Button
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -133,7 +135,7 @@ export function ProjectCard({
                 }}
               >
                 Editar
-              </Button>
+              </Button> : null}
               <Button
                 type="button"
                 variant="ghost"

@@ -11,6 +11,7 @@ import { HelpPage } from "@/help/HelpPage";
 import { getApiUrl } from "@/lib/api";
 import { WorkspacePanel } from "@/workspaces/WorkspacePanel";
 import { WorkspaceSettingsPage } from "@/workspaces/WorkspaceSettingsPage";
+import { WorkspaceInvitePage } from "@/workspaces/WorkspaceInvitePage";
 import { WorkspaceSwitcher } from "@/workspaces/WorkspaceSwitcher";
 import { createWorkspace, listWorkspaces, type Workspace } from "@/workspaces/workspaceApi";
 
@@ -27,6 +28,7 @@ type AppRoute =
   | { view: "preferences" }
   | { view: "help" }
   | { view: "password-reset" }
+  | { view: "invite"; token: string }
   | { view: "workspace-settings"; workspaceId: string };
 function readRoute(): AppRoute {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -37,6 +39,7 @@ function readRoute(): AppRoute {
   if (pathname === "/account/preferences") return { view: "preferences" };
   if (pathname === "/help") return { view: "help" };
   if (pathname === "/reset-password") return { view: "password-reset" };
+  if (pathname === "/invite") return { view: "invite", token: new URLSearchParams(window.location.search).get("token") ?? "" };
   const workspaceSettings = pathname.match(/^\/w\/([^/]+)\/settings$/);
   if (workspaceSettings) return { view: "workspace-settings", workspaceId: decodeURIComponent(workspaceSettings[1]) };
   const projectDetails = pathname.match(/^\/w\/([^/]+)\/projects\/([^/]+)$/);
@@ -182,10 +185,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (status === "unauthenticated" && !isAuthenticationRoute(route)) {
+    if (status === "unauthenticated" && !isAuthenticationRoute(route) && route.view !== "invite") {
       const search = new URLSearchParams(window.location.search);
       const googleError = search.get("authError");
       replaceNavigation(googleError ? `/login?authError=${encodeURIComponent(googleError)}` : "/login");
+    }
+    const inviteToken = new URLSearchParams(window.location.search).get("invite");
+    if (status === "authenticated" && route.view === "login" && inviteToken) {
+      replaceNavigation(`/invite?token=${encodeURIComponent(inviteToken)}`);
+      return;
     }
     if (status === "authenticated" && isAuthenticationRoute(route)) {
       replaceNavigation("/");
@@ -266,6 +274,9 @@ function App() {
 
   if (status === "loading") return <main className="auth-canvas flex min-h-screen items-center justify-center px-6 text-sm text-muted-foreground"><Circle weight="fill" className="mr-3 h-2 w-2 animate-pulse" />Carregando sessao...</main>;
   if (status === "unauthenticated") {
+    if (route.view === "invite") {
+      return <WorkspaceInvitePage token={route.token} onAccepted={(workspaceId) => replaceNavigation(workspacePath(workspaceId, "overview"))} onShowLogin={() => navigate(`/login?invite=${encodeURIComponent(route.token)}`)} />;
+    }
     if (route.view === "password-reset") {
       return <PasswordResetPage onShowLogin={() => navigate("/login")} onResetComplete={() => replaceNavigation("/login")} />;
     }
@@ -280,6 +291,10 @@ function App() {
       onShowForgotPassword={() => navigate("/forgot-password")}
       googleError={getGoogleAuthenticationError()}
     />;
+  }
+
+  if (route.view === "invite") {
+    return <WorkspaceInvitePage token={route.token} onAccepted={(workspaceId) => replaceNavigation(workspacePath(workspaceId, "overview"))} onShowLogin={() => navigate(`/login?invite=${encodeURIComponent(route.token)}`)} />;
   }
 
   return (

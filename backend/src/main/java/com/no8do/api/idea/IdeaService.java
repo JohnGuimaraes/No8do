@@ -62,7 +62,7 @@ public class IdeaService {
 
     @Transactional
     public IdeaResponse create(UUID workspaceId, UUID currentUserId, IdeaRequest request) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         Idea idea = new Idea(
             workspaceRepository.getReferenceById(workspaceId),
             normalizeRequiredTitle(request.title()),
@@ -75,7 +75,7 @@ public class IdeaService {
 
     @Transactional
     public IdeaResponse update(UUID workspaceId, UUID ideaId, UUID currentUserId, IdeaRequest request) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         Idea idea = ideaRepository.findByIdAndWorkspaceId(ideaId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Idea not found"));
         IdeaStatus status = normalizePatchStatus(request.status(), idea.getStatus());
@@ -120,7 +120,7 @@ public class IdeaService {
 
     @Transactional
     public IdeaConvertResponse convertToProject(UUID workspaceId, UUID ideaId, UUID currentUserId) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         Idea idea = ideaRepository.findByIdAndWorkspaceId(ideaId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Idea not found"));
 
@@ -175,7 +175,7 @@ public class IdeaService {
     }
 
     private Idea requireIdea(UUID workspaceId, UUID ideaId, UUID currentUserId) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         return ideaRepository.findByIdAndWorkspaceId(ideaId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Idea not found"));
     }

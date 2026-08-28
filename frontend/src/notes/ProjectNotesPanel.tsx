@@ -12,11 +12,12 @@ import {
 type ProjectNotesPanelProps = {
   workspaceId: string;
   projectId: string;
+  canWrite: boolean;
 };
 
 const MAX_NOTE_CONTENT_LENGTH = 10_000;
 
-export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelProps) {
+export function ProjectNotesPanel({ workspaceId, projectId, canWrite }: ProjectNotesPanelProps) {
   const [notes, setNotes] = useState<ProjectNote[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -104,10 +105,10 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
             Guarde observacoes, comandos, links e referencias deste projeto.
           </p>
         </div>
-        {!createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Adicionar nota</Button> : null}
+        {canWrite && !createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Adicionar nota</Button> : null}
       </div>
 
-      {createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
+      {canWrite && createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select className="h-9 rounded-md border border-input bg-card px-3 text-sm" value={type} onChange={(event) => setType(noteType(event.target.value))}><option value="NOTE">Anotação</option><option value="DECISION">Decisão</option><option value="CONTEXT">Contexto</option></select><textarea
           className="min-h-28 w-full min-w-0 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={content}
@@ -158,7 +159,7 @@ export function ProjectNotesPanel({ workspaceId, projectId }: ProjectNotesPanelP
                 </div>
                 <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
                   {note.content}
-                </p><div className="mt-3 flex gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => startEditing(note)}><PencilSimple className="h-4 w-4" />Editar</Button><Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(note)}><Trash className="h-4 w-4" />Excluir</Button></div>
+                </p>{canWrite ? <div className="mt-3 flex gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => startEditing(note)}><PencilSimple className="h-4 w-4" />Editar</Button><Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(note)}><Trash className="h-4 w-4" />Excluir</Button></div> : null}
               </li>
             ))}
           </ol>

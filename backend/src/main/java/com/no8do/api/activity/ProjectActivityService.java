@@ -66,7 +66,7 @@ public class ProjectActivityService {
             UUID currentUserId,
             CreateProjectActivityRequest request
     ) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectActivity activity = new ProjectActivity(
             projectRepository.getReferenceById(projectId),
             userRepository.getReferenceById(currentUserId),

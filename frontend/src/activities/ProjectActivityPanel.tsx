@@ -19,6 +19,7 @@ import {
 type ProjectActivityPanelProps = {
   workspaceId: string;
   projectId: string;
+  canWrite: boolean;
   activities?: ProjectActivity[];
   loading?: boolean;
   onActivitiesChange?: (activities: ProjectActivity[]) => void;
@@ -61,7 +62,7 @@ const ACTIVITY_TYPES: Array<{
   },
 ];
 
-export function ProjectActivityPanel({ workspaceId, projectId, activities: providedActivities, loading: providedLoading, onActivitiesChange }: ProjectActivityPanelProps) {
+export function ProjectActivityPanel({ workspaceId, projectId, canWrite, activities: providedActivities, loading: providedLoading, onActivitiesChange }: ProjectActivityPanelProps) {
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
   const [localLoading, setLocalLoading] = useState(providedActivities === undefined);
   const [creating, setCreating] = useState(false);
@@ -152,10 +153,10 @@ export function ProjectActivityPanel({ workspaceId, projectId, activities: provi
             Registre updates, decisões, bloqueios e próximos passos.
           </p>
         </div>
-        {!createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Registrar atividade</Button> : null}
+        {canWrite && !createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Registrar atividade</Button> : null}
       </div>
 
-      {createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
+      {canWrite && createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select
           className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={type}

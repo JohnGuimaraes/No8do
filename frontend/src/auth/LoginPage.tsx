@@ -105,9 +105,10 @@ type FieldProps = {
   value: string;
   autoComplete: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 };
 
-export function Field({ label, name, type, value, autoComplete, onChange }: FieldProps) {
+export function Field({ label, name, type, value, autoComplete, onChange, readOnly = false }: FieldProps) {
   return (
     <label className="auth-field flex flex-col gap-2 text-left text-sm font-medium text-foreground">
       {label}
@@ -118,6 +119,7 @@ export function Field({ label, name, type, value, autoComplete, onChange }: Fiel
         value={value}
         autoComplete={autoComplete}
         onChange={(event) => onChange(event.target.value)}
+        readOnly={readOnly}
       />
     </label>
   );

@@ -15,6 +15,7 @@ type ProjectStatusColumnProps = {
   editRepositoryUrl: string;
   editStatus: ProjectStatus;
   completingProjectId: string | null;
+  canWrite: boolean;
   onStartEditing: (project: Project) => void;
   onCancelEditing: () => void;
   onSave: (project: Project) => void;
@@ -38,6 +39,7 @@ export function ProjectStatusColumn({
   editRepositoryUrl,
   editStatus,
   completingProjectId,
+  canWrite,
   onStartEditing,
   onCancelEditing,
   onSave,
@@ -97,6 +99,7 @@ export function ProjectStatusColumn({
               editRepositoryUrl={editRepositoryUrl}
               editStatus={editStatus}
               completing={completingProjectId === project.id}
+              canWrite={canWrite}
               onStartEditing={onStartEditing}
               onCancelEditing={onCancelEditing}
               onSave={onSave}

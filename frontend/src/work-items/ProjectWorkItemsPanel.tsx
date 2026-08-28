@@ -16,6 +16,7 @@ import { getWorkItemDueDateLabel } from "@/work-items/workItemDate";
 type ProjectWorkItemsPanelProps = {
   workspaceId: string;
   projectId: string;
+  canWrite: boolean;
 };
 
 const WORK_ITEM_TYPES: Array<{ value: ProjectWorkItemType; label: string }> = [
@@ -33,7 +34,7 @@ const SECTIONS: Array<{ type: ProjectWorkItemType; title: string; emptyText: str
 const MAX_TITLE_LENGTH = 180;
 const MAX_DETAILS_LENGTH = 2_000;
 
-export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkItemsPanelProps) {
+export function ProjectWorkItemsPanel({ workspaceId, projectId, canWrite }: ProjectWorkItemsPanelProps) {
   const [items, setItems] = useState<ProjectWorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -149,8 +150,8 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
         </p>
       </div>
 
-      {!creatingOpen && !editing ? <Button type="button" size="sm" variant="outline" onClick={() => setCreatingOpen(true)}><Plus className="h-4 w-4" />Criar item</Button> : null}
-      {creatingOpen || editing ? <form className="mt-3 grid min-w-0 gap-2" onSubmit={handleSubmit}>
+      {canWrite && !creatingOpen && !editing ? <Button type="button" size="sm" variant="outline" onClick={() => setCreatingOpen(true)}><Plus className="h-4 w-4" />Criar item</Button> : null}
+      {canWrite && (creatingOpen || editing) ? <form className="mt-3 grid min-w-0 gap-2" onSubmit={handleSubmit}>
         <select
           className="h-9 w-full min-w-0 rounded-md border border-input bg-card px-3 text-sm outline-none ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           value={type}
@@ -204,6 +205,7 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
                 savingItemId={savingItemId}
                 onStatusChange={handleStatusChange}
                 onEdit={startEditing}
+                canWrite={canWrite}
               />
             ))}
 
@@ -215,6 +217,7 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId }: ProjectWorkIte
                 savingItemId={savingItemId}
                 onStatusChange={handleStatusChange}
                 onEdit={startEditing}
+                canWrite={canWrite}
               />
             ) : null}
           </>
@@ -231,6 +234,7 @@ function WorkItemSection({
   savingItemId,
   onStatusChange,
   onEdit,
+  canWrite,
 }: {
   title: string;
   emptyText: string;
@@ -238,6 +242,7 @@ function WorkItemSection({
   savingItemId: string | null;
   onStatusChange: (item: ProjectWorkItem, status: ProjectWorkItemStatus) => void;
   onEdit: (item: ProjectWorkItem) => void;
+  canWrite: boolean;
 }) {
   return (
     <section className="min-w-0">
@@ -255,6 +260,7 @@ function WorkItemSection({
               saving={savingItemId === item.id}
               onStatusChange={onStatusChange}
               onEdit={onEdit}
+              canWrite={canWrite}
             />
           ))}
         </ol>
@@ -268,11 +274,13 @@ function WorkItemCard({
   saving,
   onStatusChange,
   onEdit,
+  canWrite,
 }: {
   item: ProjectWorkItem;
   saving: boolean;
   onStatusChange: (item: ProjectWorkItem, status: ProjectWorkItemStatus) => void;
   onEdit: (item: ProjectWorkItem) => void;
+  canWrite: boolean;
 }) {
   const done = item.status === "DONE";
   const metadata = getWorkItemMetadata(item);
@@ -303,7 +311,7 @@ function WorkItemCard({
             {item.completedAt ? ` · ${item.type === "BLOCKER" ? "Resolvido" : "Concluido"} em ${formatDate(item.completedAt)}` : ""}
           </p>
         </div>
-        <div className="flex gap-1"><Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => onEdit(item)}><PencilSimple className="h-4 w-4" />Editar</Button><Button
+        {canWrite ? <div className="flex gap-1"><Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => onEdit(item)}><PencilSimple className="h-4 w-4" />Editar</Button><Button
           type="button"
           variant="outline"
           size="sm"
@@ -311,7 +319,7 @@ function WorkItemCard({
           onClick={() => onStatusChange(item, done ? "OPEN" : "DONE")}
         >
           {done ? "Reabrir" : "Concluir"}
-        </Button></div>
+        </Button></div> : null}
       </div>
     </li>
   );

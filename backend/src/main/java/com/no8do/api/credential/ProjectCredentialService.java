@@ -54,7 +54,7 @@ public class ProjectCredentialService {
             UUID currentUserId,
             CreateProjectCredentialRequest request
     ) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         String normalizedLabel = normalizeRequiredLabel(request.label());
         ProjectCredentialType normalizedType = normalizeRequiredType(request.type());
         String normalizedUsername = normalizeOptional(
@@ -86,7 +86,7 @@ public class ProjectCredentialService {
             UUID credentialId,
             UUID currentUserId
     ) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectCredential credential = projectCredentialRepository.findByIdAndProjectId(credentialId, projectId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Credential not found"));
         String secret = credentialCryptoService.decrypt(credential.getSecretCiphertext(), credential.getSecretIv());

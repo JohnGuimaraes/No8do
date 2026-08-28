@@ -11,6 +11,7 @@ import { ProjectGithubRepositoryPanel } from "@/project-technical-info/ProjectGi
 type ProjectTechnicalInfoPanelProps = {
   workspaceId: string;
   projectId: string;
+  canWrite: boolean;
 };
 
 const MAX_URL_LENGTH = 1000;
@@ -18,7 +19,7 @@ const MAX_STACK_LENGTH = 3000;
 const MAX_LOCAL_PATH_LENGTH = 2000;
 const MAX_RUN_COMMAND_LENGTH = 1000;
 
-export function ProjectTechnicalInfoPanel({ workspaceId, projectId }: ProjectTechnicalInfoPanelProps) {
+export function ProjectTechnicalInfoPanel({ workspaceId, projectId, canWrite }: ProjectTechnicalInfoPanelProps) {
   const [technicalInfo, setTechnicalInfo] = useState<ProjectTechnicalInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -144,7 +145,7 @@ export function ProjectTechnicalInfoPanel({ workspaceId, projectId }: ProjectTec
             Credenciais e segredos devem ser armazenados no Cofre.
           </p>
         </div>
-        {!editing ? (
+        {canWrite && !editing ? (
           <Button
             type="button"
             size="sm"
@@ -225,7 +226,7 @@ export function ProjectTechnicalInfoPanel({ workspaceId, projectId }: ProjectTec
       ) : null}
 
       {!loading && !error && technicalInfo ? (
-        <ProjectGithubRepositoryPanel workspaceId={workspaceId} projectId={projectId} />
+        <ProjectGithubRepositoryPanel workspaceId={workspaceId} projectId={projectId} canWrite={canWrite} />
       ) : null}
     </section>
   );

@@ -103,11 +103,13 @@ const NEW_TYPE_OPTIONS: ReadonlyArray<readonly [TypeChoice, string, typeof FileT
 
 export function LibraryPanel({
   workspaceId,
+  canWrite,
   selectedItemId,
   onItemsChange,
   onItemRestored,
 }: {
   workspaceId: string;
+  canWrite: boolean;
   selectedItemId?: string | null;
   onItemsChange?: (items: LibraryItem[]) => void;
   onItemRestored?: (item: LibraryItem) => void;
@@ -299,7 +301,7 @@ export function LibraryPanel({
           <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent" onClick={() => setArchivedMode((current) => !current)}>{archivedMode ? "Voltar ao Acervo" : "Arquivados"}</button>
           {filter !== "ALL" && !archivedMode ? <ViewModeToggle value={viewMode} onChange={setViewMode} /> : null}
-          {!createFormOpen && !archivedMode ? (
+          {canWrite && !createFormOpen && !archivedMode ? (
             <button
               type="button"
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
@@ -312,7 +314,7 @@ export function LibraryPanel({
           </div>
         </div>
 
-        {createFormOpen && !archivedMode ? <div className="max-w-2xl rounded-md border border-border bg-card p-4 shadow-sm">{createType ? <LibraryItemForm title={`Novo ${FORM_CONFIG[createType].label.toLowerCase()}`} form={form} config={FORM_CONFIG[createType]} saving={saving} submitLabel={FORM_CONFIG[createType].submitLabel} onSubmit={handleCreate} onChange={setForm} onCancel={handleCancelCreate} onChangeType={() => { setForm(EMPTY_FORM); setCreateType(null); setChoosingCodeSubtype(false); }} /> : choosingCodeSubtype ? <TypeChooser title="Qual tipo de código?" options={[["SNIPPET", "Snippet", Code], ["COMMAND", "Comando", Code]]} onChoose={(type) => { if (type === "CODE") return; setForm({ ...EMPTY_FORM, type }); setCreateType(type); setChoosingCodeSubtype(false); }} onCancel={handleCancelCreate} /> : <TypeChooser title="O que você quer adicionar?" options={NEW_TYPE_OPTIONS} onChoose={(type) => { if (type === "CODE") { setChoosingCodeSubtype(true); return; } setForm({ ...EMPTY_FORM, type }); setCreateType(type); }} onCancel={handleCancelCreate} />}</div> : null}
+        {canWrite && createFormOpen && !archivedMode ? <div className="max-w-2xl rounded-md border border-border bg-card p-4 shadow-sm">{createType ? <LibraryItemForm title={`Novo ${FORM_CONFIG[createType].label.toLowerCase()}`} form={form} config={FORM_CONFIG[createType]} saving={saving} submitLabel={FORM_CONFIG[createType].submitLabel} onSubmit={handleCreate} onChange={setForm} onCancel={handleCancelCreate} onChangeType={() => { setForm(EMPTY_FORM); setCreateType(null); setChoosingCodeSubtype(false); }} /> : choosingCodeSubtype ? <TypeChooser title="Qual tipo de código?" options={[["SNIPPET", "Snippet", Code], ["COMMAND", "Comando", Code]]} onChoose={(type) => { if (type === "CODE") return; setForm({ ...EMPTY_FORM, type }); setCreateType(type); setChoosingCodeSubtype(false); }} onCancel={handleCancelCreate} /> : <TypeChooser title="O que você quer adicionar?" options={NEW_TYPE_OPTIONS} onChoose={(type) => { if (type === "CODE") { setChoosingCodeSubtype(true); return; } setForm({ ...EMPTY_FORM, type }); setCreateType(type); }} onCancel={handleCancelCreate} />}</div> : null}
 
         {!archivedMode ? <label className="relative block max-w-xl"><MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><span className="sr-only">Buscar no Acervo</span><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/25" placeholder="Buscar no Acervo" /></label> : null}
 
@@ -347,14 +349,14 @@ export function LibraryPanel({
           <div className="rounded-md border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
             Carregando Acervo...
           </div>
-        ) : !archivedMode && filter === "ALL" && !searchTerm.trim() ? <AcervoHome items={items} recentItems={recentItems} workspaceId={workspaceId} onShowMore={setFilter} onOpenRepositories={() => { setFilter("CODE"); setCodeView("repositories"); }} onOpen={(item) => { setSelectedItem(item); setEditingItemId(null); }} onArchive={(item) => void handleArchive(item)} onDelete={setPendingDeletion} /> : !archivedMode && filter === "CODE" && codeView === "repositories" ? <GithubRepositoriesPanel workspaceId={workspaceId} /> : (
+        ) : !archivedMode && filter === "ALL" && !searchTerm.trim() ? <AcervoHome items={items} recentItems={recentItems} workspaceId={workspaceId} canWrite={canWrite} onShowMore={setFilter} onOpenRepositories={() => { setFilter("CODE"); setCodeView("repositories"); }} onOpen={(item) => { setSelectedItem(item); setEditingItemId(null); }} onArchive={(item) => void handleArchive(item)} onDelete={setPendingDeletion} /> : !archivedMode && filter === "CODE" && codeView === "repositories" ? <GithubRepositoriesPanel workspaceId={workspaceId} /> : (
           <>
           {filteredItems.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
               <p className="font-medium text-foreground">{archivedMode ? "Nenhum item arquivado." : filter === "ALL" ? "Nenhum conteúdo no Acervo." : `Nenhum conteúdo em ${FILTER_OPTIONS.find((option) => option.value === filter)?.label.toLowerCase()}.`}</p>
               {!archivedMode ? <p className="mt-1">Use Novo item para preservar conhecimento compartilhado.</p> : null}
             </div>
-          ) : archivedMode ? <ArchivedLibraryItems items={filteredItems} actionId={actionItemId} onRestore={(item) => void handleRestore(item)} onDelete={setPendingDeletion} /> : <div className="grid min-w-0 gap-10">{SECTION_TYPES.filter((type) => itemsByType[type].length > 0).map((type) => viewMode === "visual" ? <LibrarySection key={type} type={type} items={itemsByType[type]} onOpen={(item) => { setSelectedItem(item); setEditingItemId(null); }} onArchive={(item) => void handleArchive(item)} onDelete={setPendingDeletion} /> : <LibraryListSection key={type} type={type} items={itemsByType[type]} onOpen={(item) => { setSelectedItem(item); setEditingItemId(null); }} onArchive={(item) => void handleArchive(item)} onDelete={setPendingDeletion} />)}</div>}
+          ) : archivedMode ? <ArchivedLibraryItems items={filteredItems} canWrite={canWrite} actionId={actionItemId} onRestore={(item) => void handleRestore(item)} onDelete={setPendingDeletion} /> : <div className="grid min-w-0 gap-10">{SECTION_TYPES.filter((type) => itemsByType[type].length > 0).map((type) => viewMode === "visual" ? <LibrarySection key={type} type={type} items={itemsByType[type]} canWrite={canWrite} onOpen={(item) => { setSelectedItem(item); setEditingItemId(null); }} onArchive={(item) => void handleArchive(item)} onDelete={setPendingDeletion} /> : <LibraryListSection key={type} type={type} items={itemsByType[type]} canWrite={canWrite} onOpen={(item) => { setSelectedItem(item); setEditingItemId(null); }} onArchive={(item) => void handleArchive(item)} onDelete={setPendingDeletion} />)}</div>}
           </>
         )}
       </div>
@@ -375,7 +377,7 @@ export function LibraryPanel({
                 </h2>
               </div>
               <div className="flex shrink-0 gap-2">
-                {!archivedMode ? <button
+                {canWrite && !archivedMode ? <button
                   type="button"
                   className="rounded-md border border-border p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   onClick={() => startEditing(selectedItem)}
@@ -384,8 +386,7 @@ export function LibraryPanel({
                 >
                   <PencilSimple className="h-4 w-4" aria-hidden="true" />
                 </button> : null}
-                <button type="button" className="rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent" disabled={actionItemId === selectedItem.id} onClick={() => archivedMode ? void handleRestore(selectedItem) : void handleArchive(selectedItem)}>{actionItemId === selectedItem.id ? "Processando..." : archivedMode ? "Restaurar" : "Arquivar"}</button>
-                <button type="button" className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10" disabled={actionItemId === selectedItem.id} onClick={() => setPendingDeletion(selectedItem)} aria-label="Excluir item permanentemente" title="Excluir item permanentemente"><Trash className="h-4 w-4" aria-hidden="true" /></button>
+                {canWrite ? <><button type="button" className="rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent" disabled={actionItemId === selectedItem.id} onClick={() => archivedMode ? void handleRestore(selectedItem) : void handleArchive(selectedItem)}>{actionItemId === selectedItem.id ? "Processando..." : archivedMode ? "Restaurar" : "Arquivar"}</button><button type="button" className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10" disabled={actionItemId === selectedItem.id} onClick={() => setPendingDeletion(selectedItem)} aria-label="Excluir item permanentemente" title="Excluir item permanentemente"><Trash className="h-4 w-4" aria-hidden="true" /></button></> : null}
                 <button
                   type="button"
                   className="rounded-md border border-border p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -402,7 +403,7 @@ export function LibraryPanel({
             </div>
 
             <div className="acervo-item-dialog__body min-h-0 overflow-y-auto p-4 sm:p-5">
-              {editingItemId === selectedItem.id ? (
+              {canWrite && editingItemId === selectedItem.id ? (
                 <LibraryItemForm title={`Editar ${FORM_CONFIG[editForm.type].label.toLowerCase()}`} form={editForm} config={FORM_CONFIG[editForm.type]} saving={saving} submitLabel="Salvar" onSubmit={handleUpdate} onChange={setEditForm} onCancel={() => setEditingItemId(null)} />
               ) : (
                 <div className="grid gap-4">
@@ -518,7 +519,7 @@ function matchesAcervoSearch(item: LibraryItem, value: string) {
 
 function getRecentSummary(item: LibraryItem) { return item.description || item.content || item.url || "Conteúdo preservado no Acervo."; }
 
-function AcervoHome({ items, recentItems, workspaceId, onShowMore, onOpenRepositories, onOpen, onArchive, onDelete }: { items: LibraryItem[]; recentItems: LibraryItem[]; workspaceId: string; onShowMore: (filter: AcervoFilter) => void; onOpenRepositories: () => void; onOpen: (item: LibraryItem) => void; onArchive: (item: LibraryItem) => void; onDelete: (item: LibraryItem) => void }) {
+function AcervoHome({ items, recentItems, workspaceId, canWrite, onShowMore, onOpenRepositories, onOpen, onArchive, onDelete }: { items: LibraryItem[]; recentItems: LibraryItem[]; workspaceId: string; canWrite: boolean; onShowMore: (filter: AcervoFilter) => void; onOpenRepositories: () => void; onOpen: (item: LibraryItem) => void; onArchive: (item: LibraryItem) => void; onDelete: (item: LibraryItem) => void }) {
   const sections = useMemo(() => HOME_SECTIONS.map((section) => ({ ...section, items: items.filter((item) => matchesAcervoFilter(item, section.filter)) })).filter((section) => section.items.length > 0), [items]);
   const codeItems = useMemo(() => items.filter((item) => matchesAcervoFilter(item, "CODE")), [items]);
   const sectionGroups = groupHomeSections(sections);
@@ -531,16 +532,16 @@ function AcervoHome({ items, recentItems, workspaceId, onShowMore, onOpenReposit
       </div>
       {recentItems.length ? <div className="acervo-recent-composition"><div className="acervo-recent-hero" role="list"><div role="listitem"><button type="button" onClick={() => onOpen(recentItems[0])} className="acervo-recent-item acervo-recent-item--primary" data-acervo-type={recentItems[0].type}><span className="acervo-recent-item__type">{getTypeLabel(recentItems[0].type)}</span><span className="acervo-recent-item__title">{recentItems[0].title}</span><span className="acervo-recent-item__summary">{getRecentSummary(recentItems[0])}</span><span className="acervo-recent-item__meta">Atualizado {formatDate(recentItems[0].updatedAt)}</span></button></div><div className="acervo-recent-hero__secondary">{recentItems.slice(1).map((item) => <div key={item.id} role="listitem"><button type="button" onClick={() => onOpen(item)} className="acervo-recent-item" data-acervo-type={item.type}><span className="acervo-recent-item__type">{getTypeLabel(item.type)}</span><span className="acervo-recent-item__title">{item.title}</span><span className="acervo-recent-item__meta">Atualizado {formatDate(item.updatedAt)}</span></button></div>)}</div></div></div> : <p className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Ainda não há conteúdos no Acervo.</p>}
     </section>
-    <AcervoHomeSection filter="CODE" title="Código" items={codeItems} onShowMore={() => onShowMore("CODE")} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
+    <AcervoHomeSection filter="CODE" title="Código" items={codeItems} canWrite={canWrite} onShowMore={() => onShowMore("CODE")} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
     <AcervoGithubHighlights workspaceId={workspaceId} onOpenRepositories={onOpenRepositories} />
-    <div className="acervo-home__section-groups">{sectionGroups.map((group, index) => group.length === 1 ? <AcervoHomeSection key={group[0].filter} filter={group[0].filter} title={group[0].title} items={group[0].items} onShowMore={() => onShowMore(group[0].filter)} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} /> : <div key={`pair-${index}`} className="acervo-home__section-pair">{group.map((section) => <AcervoHomeSection key={section.filter} compact filter={section.filter} title={section.title} items={section.items} onShowMore={() => onShowMore(section.filter)} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />)}</div>)}</div>
+    <div className="acervo-home__section-groups">{sectionGroups.map((group, index) => group.length === 1 ? <AcervoHomeSection key={group[0].filter} filter={group[0].filter} title={group[0].title} items={group[0].items} canWrite={canWrite} onShowMore={() => onShowMore(group[0].filter)} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} /> : <div key={`pair-${index}`} className="acervo-home__section-pair">{group.map((section) => <AcervoHomeSection key={section.filter} compact filter={section.filter} title={section.title} items={section.items} canWrite={canWrite} onShowMore={() => onShowMore(section.filter)} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />)}</div>)}</div>
   </div>;
 }
 
-function AcervoHomeSection({ compact = false, filter, title, items, onShowMore, onOpen, onArchive, onDelete }: { compact?: boolean; filter: Exclude<AcervoFilter, "ALL">; title: string; items: LibraryItem[]; onShowMore: () => void; onOpen: (item: LibraryItem) => void; onArchive: (item: LibraryItem) => void; onDelete: (item: LibraryItem) => void }) {
+function AcervoHomeSection({ compact = false, filter, title, items, canWrite, onShowMore, onOpen, onArchive, onDelete }: { compact?: boolean; filter: Exclude<AcervoFilter, "ALL">; title: string; items: LibraryItem[]; canWrite: boolean; onShowMore: () => void; onOpen: (item: LibraryItem) => void; onArchive: (item: LibraryItem) => void; onDelete: (item: LibraryItem) => void }) {
   if (!items.length) return null;
   const visibleItems = items.slice(0, 4);
-  return <section className={`acervo-home-section${compact ? " acervo-home-section--compact" : ""}`} data-section={filter}><header className="acervo-home__section-heading acervo-home-section__header"><div><h3 className="text-lg font-semibold text-foreground">{title}</h3><p className="mt-1 text-xs text-muted-foreground">{items.length} {items.length === 1 ? "item" : "itens"} preservados</p></div>{items.length > visibleItems.length ? <button type="button" onClick={onShowMore} className="acervo-home-section__more">Mostrar mais</button> : null}</header><div className="acervo-home-section__grid">{visibleItems.map((item) => <LibraryItemCard key={item.id} item={item} onOpen={() => onOpen(item)} onArchive={() => onArchive(item)} onDelete={() => onDelete(item)} />)}</div></section>;
+  return <section className={`acervo-home-section${compact ? " acervo-home-section--compact" : ""}`} data-section={filter}><header className="acervo-home__section-heading acervo-home-section__header"><div><h3 className="text-lg font-semibold text-foreground">{title}</h3><p className="mt-1 text-xs text-muted-foreground">{items.length} {items.length === 1 ? "item" : "itens"} preservados</p></div>{items.length > visibleItems.length ? <button type="button" onClick={onShowMore} className="acervo-home-section__more">Mostrar mais</button> : null}</header><div className="acervo-home-section__grid">{visibleItems.map((item) => <LibraryItemCard key={item.id} item={item} canWrite={canWrite} onOpen={() => onOpen(item)} onArchive={() => onArchive(item)} onDelete={() => onDelete(item)} />)}</div></section>;
 }
 
 function groupHomeSections(sections: Array<{ filter: Exclude<AcervoFilter, "ALL">; title: string; items: LibraryItem[] }>) {
@@ -562,7 +563,7 @@ function AcervoGithubHighlights({ workspaceId, onOpenRepositories }: { workspace
   return <section className="acervo-home-section acervo-github-section" data-section="CODE"><header className="acervo-home__section-heading acervo-home-section__header acervo-home-section__header--github"><div><h3 className="text-lg font-semibold text-foreground">Repositórios GitHub</h3><p className="mt-1 text-xs text-muted-foreground">Ativos técnicos autorizados para o workspace.</p></div>{installationAvailable ? <button type="button" onClick={onOpenRepositories} className="acervo-home-section__more">Ver repositórios</button> : null}</header>{!installationAvailable ? <p className="text-sm text-muted-foreground">A GitHub App ainda não está configurada neste workspace.</p> : repositories.length ? <div className="acervo-github-section__grid">{repositories.map((repository) => <a key={repository.repositoryId} href={repository.htmlUrl} target="_blank" rel="noopener noreferrer" className="acervo-github-repository"><span className="acervo-github-repository__visibility">{repository.private ? "Privado" : "Público"}</span><span className="acervo-github-repository__title">{repository.fullName}</span><span className="acervo-github-repository__meta">{repository.language || "Sem linguagem definida"}{repository.archived ? " · Arquivado" : ""}</span>{repository.topics.length ? <span className="acervo-github-repository__topics">{repository.topics.slice(0, 2).map((topic) => <span key={topic}>{topic}</span>)}</span> : null}</a>)}</div> : <p className="text-sm text-muted-foreground">Nenhum repositório autorizado nesta instalação.</p>}</section>;
 }
 
-function ArchivedLibraryItems({ items, actionId, onRestore, onDelete }: { items: LibraryItem[]; actionId: string | null; onRestore: (item: LibraryItem) => void; onDelete: (item: LibraryItem) => void }) { return <ul className="divide-y divide-border rounded-xl border border-border bg-card">{items.map((item) => <li key={item.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><p className="break-words text-sm font-semibold text-foreground">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{getTypeLabel(item.type)} · Arquivado em {item.archivedAt ? formatDate(item.archivedAt) : "data indisponível"}</p>{item.description ? <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.description}</p> : null}</div><div className="flex flex-wrap gap-2"><button type="button" className="rounded-md border border-border px-3 py-2 text-sm font-medium" disabled={actionId === item.id} onClick={() => onRestore(item)}>{actionId === item.id ? "Restaurando..." : "Restaurar"}</button><button type="button" className="rounded-md bg-destructive px-3 py-2 text-sm font-medium text-destructive-foreground" disabled={actionId === item.id} onClick={() => onDelete(item)}>Excluir permanentemente</button></div></li>)}</ul>; }
+function ArchivedLibraryItems({ items, canWrite, actionId, onRestore, onDelete }: { items: LibraryItem[]; canWrite: boolean; actionId: string | null; onRestore: (item: LibraryItem) => void; onDelete: (item: LibraryItem) => void }) { return <ul className="divide-y divide-border rounded-xl border border-border bg-card">{items.map((item) => <li key={item.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><p className="break-words text-sm font-semibold text-foreground">{item.title}</p><p className="mt-1 text-xs text-muted-foreground">{getTypeLabel(item.type)} · Arquivado em {item.archivedAt ? formatDate(item.archivedAt) : "data indisponível"}</p>{item.description ? <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.description}</p> : null}</div>{canWrite ? <div className="flex flex-wrap gap-2"><button type="button" className="rounded-md border border-border px-3 py-2 text-sm font-medium" disabled={actionId === item.id} onClick={() => onRestore(item)}>{actionId === item.id ? "Restaurando..." : "Restaurar"}</button><button type="button" className="rounded-md bg-destructive px-3 py-2 text-sm font-medium text-destructive-foreground" disabled={actionId === item.id} onClick={() => onDelete(item)}>Excluir permanentemente</button></div> : null}</li>)}</ul>; }
 
 function normalizeInput(input: LibraryItemInput): LibraryItemInput {
   return {

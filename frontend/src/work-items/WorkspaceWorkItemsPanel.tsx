@@ -14,6 +14,7 @@ import { getWorkItemDueDateLabel } from "@/work-items/workItemDate";
 type WorkspaceWorkItemsPanelProps = {
   workspaceId: string;
   onOpenProject: (projectId: string) => void;
+  canWrite: boolean;
 };
 
 const OPEN_SECTIONS: Array<{ type: ProjectWorkItemType; title: string; emptyText: string }> = [
@@ -22,7 +23,7 @@ const OPEN_SECTIONS: Array<{ type: ProjectWorkItemType; title: string; emptyText
   { type: "BLOCKER", title: "Bloqueios", emptyText: "Nenhum bloqueio aberto." },
 ];
 
-export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: WorkspaceWorkItemsPanelProps) {
+export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject, canWrite }: WorkspaceWorkItemsPanelProps) {
   const [openItems, setOpenItems] = useState<WorkspaceWorkItem[]>([]);
   const [doneItems, setDoneItems] = useState<WorkspaceWorkItem[]>([]);
   const [showDone, setShowDone] = useState(false);
@@ -141,13 +142,14 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
               savingItemId={savingItemId}
               onOpenProject={onOpenProject}
               onStatusChange={handleStatusChange}
+              canWrite={canWrite}
             />
           ))}
         </div>
       ) : null}
 
       {!loading && !error && viewMode === "list" ? (
-        <WorkItemList items={showDone ? [...openItems, ...doneItems] : openItems} savingItemId={savingItemId} onOpenProject={onOpenProject} onStatusChange={handleStatusChange} />
+        <WorkItemList items={showDone ? [...openItems, ...doneItems] : openItems} savingItemId={savingItemId} onOpenProject={onOpenProject} onStatusChange={handleStatusChange} canWrite={canWrite} />
       ) : null}
 
       {!loading && !error && showDone && viewMode === "visual" ? (
@@ -158,6 +160,7 @@ export function WorkspaceWorkItemsPanel({ workspaceId, onOpenProject }: Workspac
           savingItemId={savingItemId}
           onOpenProject={onOpenProject}
           onStatusChange={handleStatusChange}
+          canWrite={canWrite}
         />
       ) : null}
     </section>
@@ -171,6 +174,7 @@ function WorkItemGroup({
   savingItemId,
   onOpenProject,
   onStatusChange,
+  canWrite,
 }: {
   title: string;
   emptyText: string;
@@ -178,6 +182,7 @@ function WorkItemGroup({
   savingItemId: string | null;
   onOpenProject: (projectId: string) => void;
   onStatusChange: (item: WorkspaceWorkItem, status: ProjectWorkItemStatus) => void;
+  canWrite: boolean;
 }) {
   const projectGroups = groupItemsByProject(items);
 
@@ -209,6 +214,7 @@ function WorkItemGroup({
                     saving={savingItemId === item.id}
                     onOpenProject={onOpenProject}
                     onStatusChange={onStatusChange}
+                    canWrite={canWrite}
                   />
                 ))}
               </ol>
@@ -225,17 +231,19 @@ function WorkItemList({
   savingItemId,
   onOpenProject,
   onStatusChange,
+  canWrite,
 }: {
   items: WorkspaceWorkItem[];
   savingItemId: string | null;
   onOpenProject: (projectId: string) => void;
   onStatusChange: (item: WorkspaceWorkItem, status: ProjectWorkItemStatus) => void;
+  canWrite: boolean;
 }) {
   const sortedItems = sortWorkspaceItems(items);
   return <ul className="divide-y divide-border rounded-xl border border-border bg-card">{sortedItems.map((item) => {
     const metadata = getWorkItemMetadata(item);
     const done = item.status === "DONE";
-    return <li key={item.id} className="grid min-w-0 gap-2 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:px-4"><span className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium ${metadata.badgeClassName}`}><metadata.Icon className="h-3.5 w-3.5" aria-hidden="true" />{metadata.label}</span><div className="grid min-w-0 gap-1"><span className={`break-words text-sm font-semibold ${done ? "text-muted-foreground line-through" : "text-card-foreground"}`}>{item.title}</span><button type="button" className="w-fit max-w-full truncate text-left text-xs font-semibold text-foreground/80 hover:text-primary hover:underline" onClick={() => onOpenProject(item.projectId)}>Projeto: {item.projectName}</button><span className="line-clamp-1 text-xs text-muted-foreground">{item.details || "Sem detalhes adicionais."}</span><span className="text-[11px] text-muted-foreground">Atualizado {formatDate(item.updatedAt)}</span></div><Button type="button" variant="outline" size="sm" disabled={savingItemId === item.id} onClick={() => onStatusChange(item, done ? "OPEN" : "DONE")}>{done ? "Reabrir" : "Concluir"}</Button></li>;
+    return <li key={item.id} className="grid min-w-0 gap-2 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:px-4"><span className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium ${metadata.badgeClassName}`}><metadata.Icon className="h-3.5 w-3.5" aria-hidden="true" />{metadata.label}</span><div className="grid min-w-0 gap-1"><span className={`break-words text-sm font-semibold ${done ? "text-muted-foreground line-through" : "text-card-foreground"}`}>{item.title}</span><button type="button" className="w-fit max-w-full truncate text-left text-xs font-semibold text-foreground/80 hover:text-primary hover:underline" onClick={() => onOpenProject(item.projectId)}>Projeto: {item.projectName}</button><span className="line-clamp-1 text-xs text-muted-foreground">{item.details || "Sem detalhes adicionais."}</span><span className="text-[11px] text-muted-foreground">Atualizado {formatDate(item.updatedAt)}</span></div>{canWrite ? <Button type="button" variant="outline" size="sm" disabled={savingItemId === item.id} onClick={() => onStatusChange(item, done ? "OPEN" : "DONE")}>{done ? "Reabrir" : "Concluir"}</Button> : null}</li>;
   })}</ul>;
 }
 
@@ -244,11 +252,13 @@ function WorkItemCard({
   saving,
   onOpenProject,
   onStatusChange,
+  canWrite,
 }: {
   item: WorkspaceWorkItem;
   saving: boolean;
   onOpenProject: (projectId: string) => void;
   onStatusChange: (item: WorkspaceWorkItem, status: ProjectWorkItemStatus) => void;
+  canWrite: boolean;
 }) {
   const done = item.status === "DONE";
   const metadata = getWorkItemMetadata(item);
@@ -283,7 +293,7 @@ function WorkItemCard({
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span>Autor: {item.createdByName}</span>
-          <Button
+          {canWrite ? <Button
             type="button"
             variant="outline"
             size="sm"
@@ -291,7 +301,7 @@ function WorkItemCard({
             onClick={() => onStatusChange(item, done ? "OPEN" : "DONE")}
           >
             {done ? "Reabrir" : "Concluir"}
-          </Button>
+          </Button> : null}
         </div>
       </div>
     </li>

@@ -14,11 +14,12 @@ import {
 type ProjectGithubRepositoryPanelProps = {
   workspaceId: string;
   projectId: string;
+  canWrite: boolean;
 };
 
 const CATALOG_PAGE_SIZE = 50;
 
-export function ProjectGithubRepositoryPanel({ workspaceId, projectId }: ProjectGithubRepositoryPanelProps) {
+export function ProjectGithubRepositoryPanel({ workspaceId, projectId, canWrite }: ProjectGithubRepositoryPanelProps) {
   const [association, setAssociation] = useState<ProjectGithubRepository | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,7 +132,7 @@ export function ProjectGithubRepositoryPanel({ workspaceId, projectId }: Project
               : "Use um repositório autorizado pela GitHub App deste workspace."}
           </p>
         </div>
-        {!loading && association?.state !== "ASSOCIATED" ? (
+        {canWrite && !loading && association?.state !== "ASSOCIATED" ? (
           <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setSelectorOpen((open) => !open)}>
             <LinkSimple className="h-4 w-4" />
             Associar repositório
@@ -149,13 +150,14 @@ export function ProjectGithubRepositoryPanel({ workspaceId, projectId }: Project
       {!loading && association?.state === "ASSOCIATED" && association.repository ? (
         <AssociatedRepository
           repository={association.repository}
-          disabled={saving}
+          disabled={saving || !canWrite}
+          canWrite={canWrite}
           onReplace={() => setSelectorOpen((open) => !open)}
           onDissociate={() => setDissociatePending(true)}
         />
       ) : null}
 
-      {!loading && association?.state === "INACCESSIBLE" ? (
+      {canWrite && !loading && association?.state === "INACCESSIBLE" ? (
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => setSelectorOpen((open) => !open)}>
             <ArrowsClockwise className="h-4 w-4" />
@@ -234,9 +236,10 @@ export function ProjectGithubRepositoryPanel({ workspaceId, projectId }: Project
   );
 }
 
-function AssociatedRepository({ repository, disabled, onReplace, onDissociate }: {
+function AssociatedRepository({ repository, disabled, canWrite, onReplace, onDissociate }: {
   repository: GithubAppRepository;
   disabled: boolean;
+  canWrite: boolean;
   onReplace: () => void;
   onDissociate: () => void;
 }) {
@@ -257,14 +260,14 @@ function AssociatedRepository({ repository, disabled, onReplace, onDissociate }:
           <ArrowSquareOut className="h-4 w-4" />
           Abrir no GitHub
         </a>
-        <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={onReplace}>
+        {canWrite ? <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={onReplace}>
           <ArrowsClockwise className="h-4 w-4" />
           Trocar repositório
-        </Button>
-        <Button type="button" size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={disabled} onClick={onDissociate}>
+        </Button> : null}
+        {canWrite ? <Button type="button" size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={disabled} onClick={onDissociate}>
           <Trash className="h-4 w-4" />
           Desassociar
-        </Button>
+        </Button> : null}
       </div>
     </div>
   );

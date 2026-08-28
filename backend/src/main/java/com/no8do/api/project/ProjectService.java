@@ -71,7 +71,7 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse uploadCover(UUID workspaceId, UUID projectId, UUID currentUserId, MultipartFile file) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         Project project = projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
         FileStorageService.StoredFile stored = fileStorageService.storeProjectCover(file);
@@ -95,7 +95,7 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse deleteCover(UUID workspaceId, UUID projectId, UUID currentUserId) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         Project project = projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
         String previousKey = project.getCoverImageKey();
@@ -134,7 +134,7 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse create(UUID workspaceId, UUID currentUserId, CreateProjectRequest request) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         Project project = new Project(
             workspaceRepository.getReferenceById(workspaceId),
             normalizeRequiredName(request.name()),
@@ -153,7 +153,7 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse update(UUID workspaceId, UUID projectId, UUID currentUserId, UpdateProjectRequest request) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         Project project = projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
 
@@ -286,7 +286,7 @@ public class ProjectService {
     }
 
     private Project requireProject(UUID workspaceId, UUID projectId, UUID currentUserId) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         return projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
     }

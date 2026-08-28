@@ -41,6 +41,16 @@ public class WorkspaceController {
             .toList();
     }
 
+    @GetMapping("/{workspaceId}/members/manage")
+    public List<WorkspaceMemberManagementResponse> managedMembers(
+            @PathVariable UUID workspaceId,
+            @AuthenticationPrincipal No8doUserDetails currentUser
+    ) {
+        workspaceAuthorizationService.requireWorkspaceRole(workspaceId, currentUser.user().getId(), WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        return workspaceMemberRepository.findByWorkspaceIdOrderByUserNameAsc(workspaceId).stream()
+            .map(WorkspaceMemberManagementResponse::from).toList();
+    }
+
     @GetMapping
     public List<WorkspaceResponse> list(@AuthenticationPrincipal No8doUserDetails currentUser) {
         return workspaceService.listForUser(currentUser.user().getId());

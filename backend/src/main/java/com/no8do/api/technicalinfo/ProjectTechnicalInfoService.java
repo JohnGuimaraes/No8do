@@ -65,6 +65,7 @@ public class ProjectTechnicalInfoService {
             UUID currentUserId,
             ProjectTechnicalInfoRequest request
     ) {
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         validateRepositoryUrlLength(request.repositoryUrl());
         Project project = projectService.updateRepositoryUrl(
             workspaceId,

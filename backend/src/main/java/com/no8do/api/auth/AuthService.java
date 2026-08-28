@@ -97,6 +97,12 @@ public class AuthService {
         }
     }
 
+    public AuthUserResponse establishSession(User user, HttpServletRequest httpRequest) {
+        Authentication authentication = new UsernamePasswordAuthenticationToken(new No8doUserDetails(user), null, List.of());
+        storeAuthentication(authentication, httpRequest);
+        return AuthUserResponse.from(user);
+    }
+
     public AuthUserResponse me(Authentication authentication) {
         return currentUser(authentication);
     }

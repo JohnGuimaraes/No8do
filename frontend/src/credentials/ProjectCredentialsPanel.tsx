@@ -6,6 +6,7 @@ import { createProjectCredential, listProjectCredentials, revealProjectCredentia
 type ProjectCredentialsPanelProps = {
   workspaceId: string;
   projectId: string;
+  canWrite: boolean;
   revealedCredentials: Record<string, string>;
   onRevealedCredentialsChange: (credentials: Record<string, string>) => void;
 };
@@ -19,7 +20,7 @@ const MAX_USERNAME_LENGTH = 255;
 const MAX_SECRET_LENGTH = 20_000;
 const MAX_NOTES_LENGTH = 500;
 
-export function ProjectCredentialsPanel({ workspaceId, projectId, revealedCredentials, onRevealedCredentialsChange }: ProjectCredentialsPanelProps) {
+export function ProjectCredentialsPanel({ workspaceId, projectId, canWrite, revealedCredentials, onRevealedCredentialsChange }: ProjectCredentialsPanelProps) {
   const [credentials, setCredentials] = useState<ProjectCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -57,6 +58,7 @@ export function ProjectCredentialsPanel({ workspaceId, projectId, revealedCreden
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canWrite) return;
     const normalizedLabel = label.trim();
     const normalizedUsername = username.trim();
     const normalizedNotes = notes.trim();
@@ -77,6 +79,7 @@ export function ProjectCredentialsPanel({ workspaceId, projectId, revealedCreden
   }
 
   async function reveal(credentialId: string) {
+    if (!canWrite) return;
     if (revealedCredentials[credentialId]) return;
     setRevealingId(credentialId); setError(null);
     try { const response = await revealProjectCredential(workspaceId, projectId, credentialId); onRevealedCredentialsChange({ ...revealedCredentials, [response.id]: response.secret }); }
@@ -85,6 +88,7 @@ export function ProjectCredentialsPanel({ workspaceId, projectId, revealedCreden
   }
 
   async function copyCredential(credentialId: string) {
+    if (!canWrite) return;
     let value = revealedCredentials[credentialId];
     if (!value) {
       setRevealingId(credentialId); setError(null);
@@ -98,6 +102,10 @@ export function ProjectCredentialsPanel({ workspaceId, projectId, revealedCreden
       if (copyFeedbackTimer.current) window.clearTimeout(copyFeedbackTimer.current);
       copyFeedbackTimer.current = window.setTimeout(() => setCopiedCredentialId(null), 1000);
     } catch { setError("Não foi possível copiar."); }
+  }
+
+  if (!canWrite) {
+    return <div className="min-w-0"><header className="mb-6"><p className="flex items-center gap-2 text-sm font-semibold text-foreground"><Key className="h-4 w-4 text-primary" />Cofre</p><p className="mt-1 text-sm text-muted-foreground">Credenciais operacionais do projeto, disponíveis quando você precisar.</p></header><section className="mt-7 min-w-0">{loading ? <p className="text-sm text-muted-foreground">Carregando cofre...</p> : null}{error ? <VaultMessage error={error} /> : null}{!loading && !error && credentials.length === 0 ? <div className="py-8 text-center"><p className="text-sm font-medium text-muted-foreground">Sem credenciais ainda</p></div> : null}{!loading && !error && credentials.length > 0 ? <ol className="grid min-w-0 gap-4 lg:grid-cols-2">{credentials.map((credential) => <li key={credential.id} className="min-w-0 rounded-lg border border-border/80 bg-card p-4"><div className="min-w-0"><p className="break-words text-sm font-semibold text-card-foreground">{credential.label}</p><p className="mt-1 text-xs text-muted-foreground">{getCredentialTypeLabel(credential.type)}</p></div>{credential.username ? <CredentialValue label="Usuário">{credential.username}</CredentialValue> : null}<CredentialValue label={getSecretLabel(credential.type)}><span className="tracking-[0.18em] text-muted-foreground">••••••••••</span></CredentialValue>{credential.notes ? <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{credential.notes}</p> : null}</li>)}</ol> : null}</section></div>;
   }
 
   return <div className="min-w-0"><header className="mb-6 flex flex-wrap items-start justify-between gap-3"><div><p className="flex items-center gap-2 text-sm font-semibold text-foreground"><Key className="h-4 w-4 text-primary" />Cofre</p><p className="mt-1 text-sm text-muted-foreground">Credenciais operacionais do projeto, disponíveis quando você precisar.</p></div>{!createFormOpen ? <Button type="button" size="sm" onClick={() => setCreateFormOpen(true)}><Plus className="h-4 w-4" />Adicionar credencial</Button> : null}</header>{createFormOpen ? <form className="grid min-w-0 gap-3 border-b border-border/70 pb-7" onSubmit={handleSubmit}><div className="grid gap-3 sm:grid-cols-2"><Field label="Nome"><input className={inputClassName} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={MAX_LABEL_LENGTH} placeholder="Ex.: GitHub Produção" required /></Field><Field label="Tipo"><select className={inputClassName} value={type} onChange={(event) => setType(event.target.value as ProjectCredentialType)}>{CREDENTIAL_TYPES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div><Field label="Usuário / identificador"><input className={inputClassName} value={username} onChange={(event) => setUsername(event.target.value)} maxLength={MAX_USERNAME_LENGTH} placeholder="nome@empresa.com" /></Field><Field label="Senha / segredo"><div className="flex gap-2"><input className={inputClassName} value={secret} onChange={(event) => setSecret(event.target.value)} maxLength={MAX_SECRET_LENGTH} type={showFormSecret ? "text" : "password"} placeholder="Informe o valor" autoComplete="off" required /><Button type="button" variant="outline" size="sm" onClick={() => setShowFormSecret((current) => !current)}>{showFormSecret ? "Ocultar" : "Mostrar"}</Button></div></Field><Field label="Observação"><textarea className="min-h-20 w-full min-w-0 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={MAX_NOTES_LENGTH} placeholder="Observação curta opcional" /></Field><p className="text-xs text-muted-foreground">A observação não deve conter senhas, tokens ou chaves.</p>{formError ? <p className="text-sm text-destructive">{formError}</p> : null}<div className="flex flex-wrap justify-stretch gap-2 sm:justify-end"><Button type="button" variant="ghost" onClick={() => { resetForm(); setCreateFormOpen(false); }} disabled={creating}>Cancelar</Button><Button type="submit" className="w-full sm:w-auto" disabled={creating}><Plus className="h-4 w-4" />{creating ? "Salvando..." : "Salvar credencial"}</Button></div></form> : null}<section className="mt-7 min-w-0">{loading ? <p className="text-sm text-muted-foreground">Carregando cofre...</p> : null}{error ? <VaultMessage error={error} /> : null}{!loading && !error && credentials.length === 0 ? <div className="py-8 text-center"><p className="text-sm font-medium text-muted-foreground">Sem credenciais ainda</p><p className="mt-1 text-xs text-muted-foreground">Adicione senhas, tokens ou chaves somente quando forem necessários ao projeto.</p></div> : null}{!loading && !error && credentials.length > 0 ? <ol className="grid min-w-0 gap-4 lg:grid-cols-2">{credentials.map((credential) => { const revealedSecret = revealedCredentials[credential.id]; const revealed = Boolean(revealedSecret); return <li key={credential.id} className="min-w-0 rounded-lg border border-border/80 bg-card p-4"><div className="flex min-w-0 flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="break-words text-sm font-semibold text-card-foreground">{credential.label}</p><p className="mt-1 text-xs text-muted-foreground">{getCredentialTypeLabel(credential.type)}</p></div></div>{credential.username ? <CredentialValue label="Usuário">{credential.username}</CredentialValue> : null}<CredentialValue label={getSecretLabel(credential.type)}>{revealed ? <span className="break-all font-mono text-sm text-card-foreground">{revealedSecret}</span> : <span className="tracking-[0.18em] text-muted-foreground">••••••••••</span>}</CredentialValue>{credential.notes ? <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{credential.notes}</p> : null}<div className="mt-4 flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={() => (revealed ? hideCredential(credential.id) : void reveal(credential.id))} disabled={revealingId === credential.id}>{revealed ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}{revealed ? "Ocultar" : revealingId === credential.id ? "Mostrando..." : "Mostrar"}</Button><Button type="button" variant="ghost" size="sm" onClick={() => void copyCredential(credential.id)} disabled={revealingId === credential.id}><Copy className="h-4 w-4" />{copiedCredentialId === credential.id ? "Copiado" : "Copiar"}</Button></div></li>; })}</ol> : null}</section></div>;

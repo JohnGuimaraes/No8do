@@ -35,8 +35,23 @@ public class WorkspaceAuthorizationService {
         return member;
     }
 
+    public WorkspaceMember requireWorkspaceWrite(UUID workspaceId, UUID userId) {
+        WorkspaceMember member = requireWorkspaceMember(workspaceId, userId);
+        if (member.getRole() == WorkspaceRole.VIEWER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Workspace is read-only");
+        }
+        return member;
+    }
+
     public void requireProjectAccess(UUID projectId, UUID workspaceId, UUID userId) {
         requireWorkspaceMember(workspaceId, userId);
+        if (!projectRepository.existsByIdAndWorkspaceId(projectId, workspaceId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
+        }
+    }
+
+    public void requireProjectWriteAccess(UUID projectId, UUID workspaceId, UUID userId) {
+        requireWorkspaceWrite(workspaceId, userId);
         if (!projectRepository.existsByIdAndWorkspaceId(projectId, workspaceId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
         }

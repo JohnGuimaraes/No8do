@@ -60,7 +60,7 @@ public class ProjectGithubRepositoryService {
         if (repositoryId <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Repository id is invalid");
         }
-        Project project = requireProject(workspaceId, projectId, currentUserId);
+        Project project = requireProjectForWrite(workspaceId, projectId, currentUserId);
         GithubAppRepositoryResponse repository = authorizedRepository(project, repositoryId);
         ProjectGithubRepository association = projectGithubRepositoryRepository.findById(projectId).orElse(null);
 
@@ -77,7 +77,7 @@ public class ProjectGithubRepositoryService {
 
     @Transactional
     public void dissociate(UUID workspaceId, UUID projectId, UUID currentUserId) {
-        Project project = requireProject(workspaceId, projectId, currentUserId);
+        Project project = requireProjectForWrite(workspaceId, projectId, currentUserId);
         projectGithubRepositoryRepository.findById(projectId).ifPresent(association -> {
             projectGithubRepositoryRepository.delete(association);
             registerActivity(project, currentUserId, "Repositório GitHub desassociado.");
@@ -103,6 +103,12 @@ public class ProjectGithubRepositoryService {
 
     private Project requireProject(UUID workspaceId, UUID projectId, UUID currentUserId) {
         workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        return projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+    }
+
+    private Project requireProjectForWrite(UUID workspaceId, UUID projectId, UUID currentUserId) {
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         return projectRepository.findByIdAndWorkspaceId(projectId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
     }

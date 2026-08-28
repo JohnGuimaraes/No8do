@@ -76,7 +76,7 @@ public class ProjectWorkItemService {
             UUID currentUserId,
             CreateProjectWorkItemRequest request
     ) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectWorkItem item = new ProjectWorkItem(
             projectRepository.getReferenceById(projectId),
             normalizeRequiredType(request.type()),
@@ -91,7 +91,7 @@ public class ProjectWorkItemService {
     }
 
     @Transactional public ProjectWorkItemResponse update(UUID workspaceId, UUID projectId, UUID workItemId, UUID currentUserId, UpdateProjectWorkItemRequest request) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectWorkItem item = projectWorkItemRepository.findByIdAndProjectId(workItemId, projectId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Work item not found"));
         ProjectWorkItemType type=normalizeRequiredType(request.type()); String title=normalizeRequiredTitle(request.title()); String details=normalizeOptionalDetails(request.details()); User assignee=resolveAssignee(workspaceId, request.assigneeUserId()); LocalDate dueDate=request.dueDate();
         if(item.getType()==type && Objects.equals(item.getTitle(),title) && Objects.equals(item.getDetails(),details) && Objects.equals(item.getAssignee()==null?null:item.getAssignee().getId(),request.assigneeUserId()) && Objects.equals(item.getDueDate(),dueDate)) return ProjectWorkItemResponse.from(item);
@@ -108,7 +108,7 @@ public class ProjectWorkItemService {
             UUID currentUserId,
             UpdateProjectWorkItemStatusRequest request
     ) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectWorkItem item = projectWorkItemRepository.findByIdAndProjectId(workItemId, projectId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Work item not found"));
         ProjectWorkItemStatus status = normalizeRequiredStatus(request.status());

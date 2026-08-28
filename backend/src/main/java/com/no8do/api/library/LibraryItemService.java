@@ -57,7 +57,7 @@ public class LibraryItemService {
 
     @Transactional
     public LibraryItemResponse create(UUID workspaceId, UUID currentUserId, LibraryItemRequest request) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         LibraryItem item = new LibraryItem(
             workspaceRepository.getReferenceById(workspaceId),
             normalizeType(request.type()),
@@ -70,7 +70,7 @@ public class LibraryItemService {
 
     @Transactional
     public LibraryItemResponse update(UUID workspaceId, UUID itemId, UUID currentUserId, LibraryItemRequest request) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         LibraryItem item = libraryItemRepository.findByIdAndWorkspaceId(itemId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library item not found"));
         item.setType(normalizeType(request.type()));
@@ -105,7 +105,7 @@ public class LibraryItemService {
     }
 
     private LibraryItem requireItem(UUID workspaceId, UUID itemId, UUID currentUserId) {
-        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         return libraryItemRepository.findByIdAndWorkspaceId(itemId, workspaceId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Library item not found"));
     }

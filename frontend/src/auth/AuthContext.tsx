@@ -32,6 +32,7 @@ type AuthContextValue = {
   user: AuthUser | null;
   status: AuthStatus;
   register: (input: RegisterInput) => Promise<void>;
+  registerWorkspaceInvite: (token: string, input: Omit<RegisterInput, "email">) => Promise<{ workspaceId: string }>;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
   loadCurrentUser: () => Promise<void>;
@@ -67,6 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
+  const registerWorkspaceInvite = useCallback(async (token: string, input: Omit<RegisterInput, "email">) => {
+    const response = await apiRequest<{ user: AuthUser; invitation: { workspaceId: string } }>(`/api/workspace-invites/${encodeURIComponent(token)}/register`, { method: "POST", body: input });
+    setUser(response.user);
+    setStatus("authenticated");
+    return response.invitation;
+  }, []);
+
   const login = useCallback(async (input: LoginInput) => {
     const currentUser = await apiRequest<AuthUser>("/api/auth/login", {
       method: "POST",
@@ -89,11 +97,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       status,
       register,
+      registerWorkspaceInvite,
       login,
       logout,
       loadCurrentUser,
     }),
-    [loadCurrentUser, login, logout, register, status, user],
+    [loadCurrentUser, login, logout, register, registerWorkspaceInvite, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

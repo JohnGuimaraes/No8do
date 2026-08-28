@@ -97,6 +97,7 @@ type ProjectsPanelProps = {
 };
 
 export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onNavigateSection, onOpenProject }: ProjectsPanelProps) {
+  const canWrite = workspace.role !== "VIEWER";
   const [projects, setProjects] = useState<Project[]>([]);
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -729,6 +730,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
               onCurrentStateChange={setCurrentState}
               onRepositoryUrlChange={setRepositoryUrl}
               onStatusChange={setStatus}
+              canWrite={canWrite}
               onOpenCreateForm={() => setCreateFormOpen(true)}
               onCancelCreate={handleCancelCreate}
               onSubmit={handleCreate}
@@ -746,17 +748,18 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
           ) : null}
 
           {activeSection === "projects" ? (
-            <CompletedProjectsSection projects={completedProjects} archivedProjects={archivedProjects} archivedOpen={archivedProjectsOpen} actionId={projectActionId} recentlyCompletedProjectId={recentlyCompletedProjectId} onOpenDetails={openProjectFromDashboard} onOpenArchived={() => void openArchivedProjects()} onCloseArchived={() => setArchivedProjectsOpen(false)} onRestore={(project) => void handleRestoreProject(project)} onDelete={setProjectPendingDeletion} name={name} description={description} currentState={currentState} repositoryUrl={repositoryUrl} creating={creating} createFormOpen={createFormOpen} formError={formError} onOpenCreateForm={() => { setStatus("DONE"); setCreateFormOpen(true); }} onCancelCreate={handleCancelCreate} onSubmit={handleCreate} onNameChange={setName} onDescriptionChange={setDescription} onCurrentStateChange={setCurrentState} onRepositoryUrlChange={setRepositoryUrl} />
+            <CompletedProjectsSection projects={completedProjects} archivedProjects={archivedProjects} archivedOpen={archivedProjectsOpen} actionId={projectActionId} recentlyCompletedProjectId={recentlyCompletedProjectId} canWrite={canWrite} onOpenDetails={openProjectFromDashboard} onOpenArchived={() => void openArchivedProjects()} onCloseArchived={() => setArchivedProjectsOpen(false)} onRestore={(project) => void handleRestoreProject(project)} onDelete={setProjectPendingDeletion} name={name} description={description} currentState={currentState} repositoryUrl={repositoryUrl} creating={creating} createFormOpen={createFormOpen} formError={formError} onOpenCreateForm={() => { setStatus("DONE"); setCreateFormOpen(true); }} onCancelCreate={handleCancelCreate} onSubmit={handleCreate} onNameChange={setName} onDescriptionChange={setDescription} onCurrentStateChange={setCurrentState} onRepositoryUrlChange={setRepositoryUrl} />
           ) : null}
 
           {activeSection === "work-items" ? (
-            <WorkspaceWorkItemsPanel workspaceId={workspace.id} onOpenProject={openProjectFromWorkItems} />
+            <WorkspaceWorkItemsPanel workspaceId={workspace.id} onOpenProject={openProjectFromWorkItems} canWrite={canWrite} />
           ) : null}
 
           {activeSection === "library" ? (
             <LibraryPanel
               workspaceId={workspace.id}
               selectedItemId={selectedLibraryItemId}
+              canWrite={canWrite}
               onItemsChange={handleLibraryItemsChange}
               onItemRestored={(item) => setLibraryItems((current) => [item, ...current.filter((value) => value.id !== item.id)])}
             />
@@ -766,6 +769,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
             <IdeasPanel
               workspaceId={workspace.id}
               projects={projects}
+              canWrite={canWrite}
               onProjectCreated={handleIdeaConverted}
               onOpenProject={openProjectFromDashboard}
               selectedIdeaId={selectedIdeaId}
@@ -779,6 +783,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
       {selectedProject ? (
         <ProjectDetailsPanel
           project={selectedProject}
+          canWrite={canWrite}
           onClose={() => onNavigateSection(activeSection)}
           onProjectUpdated={applyProjectUpdate}
           onArchive={(project) => void handleArchiveProject(project)}
@@ -952,6 +957,7 @@ function SearchResultGroup({
 }
 
 type DevelopmentSectionProps = {
+  canWrite: boolean;
   name: string;
   description: string;
   currentState: string;
@@ -990,6 +996,7 @@ type DevelopmentSectionProps = {
 };
 
 function DevelopmentSection({
+  canWrite,
   name,
   description,
   currentState,
@@ -1063,7 +1070,7 @@ function DevelopmentSection({
           <h3 className="text-base font-semibold text-foreground">Desenvolvimento</h3>
           <p className="mt-1 text-sm text-muted-foreground">Acompanhe o fluxo dos projetos ate a conclusao.</p>
         </div>
-        {!createFormOpen ? (
+        {canWrite && !createFormOpen ? (
           <Button type="button" onClick={onOpenCreateForm}>
             <Plus className="h-4 w-4" />
             Novo projeto
@@ -1071,7 +1078,7 @@ function DevelopmentSection({
         ) : null}
       </div>
 
-      {createFormOpen ? (
+      {canWrite && createFormOpen ? (
         <ProjectCreateForm
           name={name}
           description={description}
@@ -1090,7 +1097,7 @@ function DevelopmentSection({
         />
       ) : null}
 
-      <DndContext sensors={sensors} onDragStart={(_event: DragStartEvent) => setDragging(true)} onDragCancel={() => setDragging(false)} onDragEnd={handleBoardDragEnd}>
+      <DndContext sensors={canWrite ? sensors : []} onDragStart={(_event: DragStartEvent) => setDragging(true)} onDragCancel={() => setDragging(false)} onDragEnd={canWrite ? handleBoardDragEnd : undefined}>
         {projects.length === 0 ? (
           <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Nenhum projeto em desenvolvimento.</p>
@@ -1113,6 +1120,7 @@ function DevelopmentSection({
                   editRepositoryUrl={editRepositoryUrl}
                   editStatus={editStatus}
                   completingProjectId={completingProjectId}
+                  canWrite={canWrite}
                   onStartEditing={onStartEditing}
                   onCancelEditing={onCancelEditing}
                   onSave={(project) => onSave(project)}
@@ -1124,7 +1132,7 @@ function DevelopmentSection({
                   onOpenDetails={onOpenDetails}
                 />
               ))}
-              <CompleteProjectDropTarget feedback={completionFeedback} />
+              {canWrite ? <CompleteProjectDropTarget feedback={completionFeedback} /> : null}
             </div>
           </div>
         )}
@@ -1175,6 +1183,7 @@ function CompletedProjectsSection({
   archivedOpen,
   actionId,
   recentlyCompletedProjectId,
+  canWrite,
   onOpenDetails,
   onOpenArchived,
   onCloseArchived,
@@ -1200,6 +1209,7 @@ function CompletedProjectsSection({
   archivedOpen: boolean;
   actionId: string | null;
   recentlyCompletedProjectId: string | null;
+  canWrite: boolean;
   onOpenDetails: (project: Project) => void;
   onOpenArchived: () => void;
   onCloseArchived: () => void;
@@ -1222,8 +1232,8 @@ function CompletedProjectsSection({
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>("visual");
   return <div className="grid min-w-0 gap-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-lg font-medium text-foreground">Projetos finalizados</h3><p className="mt-1 text-sm text-muted-foreground">Registre projetos concluídos ou entregas já existentes sem passar pelo fluxo de desenvolvimento.</p></div><div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" onClick={archivedOpen ? onCloseArchived : onOpenArchived}>{archivedOpen ? "Fechar arquivados" : "Arquivados"}</Button><ViewModeToggle value={viewMode} onChange={setViewMode} />{!createFormOpen ? <Button type="button" onClick={onOpenCreateForm}><Plus className="h-4 w-4" />Adicionar projeto finalizado</Button> : null}</div></div>
-    {createFormOpen ? <ProjectCreateForm name={name} description={description} currentState={currentState} repositoryUrl={repositoryUrl} status="DONE" creating={creating} error={formError} onNameChange={onNameChange} onDescriptionChange={onDescriptionChange} onCurrentStateChange={onCurrentStateChange} onRepositoryUrlChange={onRepositoryUrlChange} onStatusChange={() => undefined} onSubmit={onSubmit} onCancel={onCancelCreate} /> : null}
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="text-lg font-medium text-foreground">Projetos finalizados</h3><p className="mt-1 text-sm text-muted-foreground">Registre projetos concluídos ou entregas já existentes sem passar pelo fluxo de desenvolvimento.</p></div><div className="flex flex-wrap items-center gap-2">{canWrite ? <Button type="button" variant="outline" onClick={archivedOpen ? onCloseArchived : onOpenArchived}>{archivedOpen ? "Fechar arquivados" : "Arquivados"}</Button> : null}<ViewModeToggle value={viewMode} onChange={setViewMode} />{canWrite && !createFormOpen ? <Button type="button" onClick={onOpenCreateForm}><Plus className="h-4 w-4" />Adicionar projeto finalizado</Button> : null}</div></div>
+    {canWrite && createFormOpen ? <ProjectCreateForm name={name} description={description} currentState={currentState} repositoryUrl={repositoryUrl} status="DONE" creating={creating} error={formError} onNameChange={onNameChange} onDescriptionChange={onDescriptionChange} onCurrentStateChange={onCurrentStateChange} onRepositoryUrlChange={onRepositoryUrlChange} onStatusChange={() => undefined} onSubmit={onSubmit} onCancel={onCancelCreate} /> : null}
     {archivedOpen ? <ArchivedProjectsList projects={archivedProjects} actionId={actionId} onRestore={onRestore} onDelete={onDelete} /> : projects.length === 0 ? (
       <div className="rounded-md border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
         <p className="font-medium text-foreground">Nenhum projeto concluido ainda.</p>

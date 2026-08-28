@@ -54,7 +54,7 @@ public class ProjectNoteService {
             UUID currentUserId,
             CreateProjectNoteRequest request
     ) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectNote note = new ProjectNote(
             projectRepository.getReferenceById(projectId),
             userRepository.getReferenceById(currentUserId),
@@ -72,7 +72,7 @@ public class ProjectNoteService {
 
     @Transactional
     public ProjectNoteResponse update(UUID workspaceId, UUID projectId, UUID noteId, UUID currentUserId, UpdateProjectNoteRequest request) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectNote note = find(projectId, noteId);
         String content = normalizeRequiredContent(request.content());
         ProjectNoteType type = request.type() == null ? ProjectNoteType.NOTE : request.type();
@@ -85,7 +85,7 @@ public class ProjectNoteService {
 
     @Transactional
     public void delete(UUID workspaceId, UUID projectId, UUID noteId, UUID currentUserId) {
-        workspaceAuthorizationService.requireProjectAccess(projectId, workspaceId, currentUserId);
+        workspaceAuthorizationService.requireProjectWriteAccess(projectId, workspaceId, currentUserId);
         ProjectNote note = find(projectId, noteId);
         projectNoteRepository.delete(note);
         projectActivityRepository.save(new ProjectActivity(note.getProject(), userRepository.getReferenceById(currentUserId), ProjectActivityType.UPDATE, "Nota removida."));

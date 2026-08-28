@@ -91,6 +91,24 @@ class WorkspaceAuthorizationServiceTests {
     }
 
     @Test
+    void viewerCanReadButCannotMutateWorkspaceOrProject() {
+        TestData data = createMember(WorkspaceRole.VIEWER);
+        Project project = projectRepository.save(new Project(data.workspace(), "Projeto somente leitura", data.user()));
+
+        authorizationService.requireWorkspaceMember(data.workspace().getId(), data.user().getId());
+        authorizationService.requireProjectAccess(project.getId(), data.workspace().getId(), data.user().getId());
+
+        assertThatThrownBy(() -> authorizationService.requireWorkspaceWrite(data.workspace().getId(), data.user().getId()))
+            .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
+                assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN)
+            );
+        assertThatThrownBy(() -> authorizationService.requireProjectWriteAccess(project.getId(), data.workspace().getId(), data.user().getId()))
+            .isInstanceOfSatisfying(ResponseStatusException.class, ex ->
+                assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN)
+            );
+    }
+
+    @Test
     void projectIsFoundOnlyInsideExpectedWorkspace() {
         TestData allowed = createMember(WorkspaceRole.MEMBER);
         TestData otherMember = createMember(WorkspaceRole.MEMBER);
