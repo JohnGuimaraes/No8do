@@ -195,9 +195,12 @@ export function PreferencesPage({ onReturnToWorkspace }: AccountPageProps) {
   return (
     <section className="mx-auto grid w-full max-w-4xl gap-8">
       <PageHeader icon={SlidersHorizontal} eyebrow="Conta" title="Preferências" description="Escolha como o No8do acompanha a aparência do seu dispositivo." onReturnToWorkspace={onReturnToWorkspace} />
-      <section className="rounded-xl border border-border bg-card p-5 shadow-[0_18px_52px_-42px_hsl(var(--foreground))] sm:p-6">
-        <div className="max-w-2xl"><p className="text-xs font-medium uppercase tracking-[.12em] text-primary">Aparência</p><h2 className="mt-1 text-xl font-semibold tracking-tight text-card-foreground">Tema</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">A preferência é salva somente neste navegador.</p></div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Tema do aplicativo">
+      <section className="rounded-lg border border-border bg-card p-4 shadow-[0_14px_42px_-38px_hsl(var(--foreground))] sm:p-5">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div><p className="text-xs font-medium uppercase tracking-[.12em] text-primary">Aparência</p><h2 className="mt-1 text-lg font-semibold tracking-tight text-card-foreground">Tema</h2></div>
+          <p className="text-sm text-muted-foreground">Salvo neste navegador.</p>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Tema do aplicativo">
           <ThemeOption icon={Desktop} title="Sistema" description="Acompanha o dispositivo" selected={theme === "system"} onSelect={() => selectTheme("system")} />
           <ThemeOption icon={Sun} title="Claro" description="Base off-white" selected={theme === "light"} onSelect={() => selectTheme("light")} />
           <ThemeOption icon={Moon} title="Escuro" description="Grafite técnico" selected={theme === "dark"} onSelect={() => selectTheme("dark")} />
@@ -208,5 +211,5 @@ export function PreferencesPage({ onReturnToWorkspace }: AccountPageProps) {
 }
 
 function ThemeOption({ icon: Icon, title, description, selected, onSelect }: { icon: typeof Sun; title: string; description: string; selected: boolean; onSelect: () => void }) {
-  return <button type="button" role="radio" aria-checked={selected} className={`theme-option ${selected ? "theme-option--selected" : ""}`} onClick={onSelect}><Icon className="h-5 w-5 text-primary" /><span><span className="block text-sm font-semibold">{title}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{description}</span></span></button>;
+  return <button type="button" role="radio" aria-checked={selected} className={`theme-option ${selected ? "theme-option--selected" : ""}`} onClick={onSelect}><Icon className="h-4 w-4 shrink-0 text-primary" /><span className="min-w-0"><span className="block text-sm font-semibold">{title}</span><span className="mt-0.5 block text-xs leading-4 text-muted-foreground">{description}</span></span></button>;
 }
