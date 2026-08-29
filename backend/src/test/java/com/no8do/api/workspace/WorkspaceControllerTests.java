@@ -23,6 +23,7 @@ import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -30,8 +31,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -61,6 +65,9 @@ class WorkspaceControllerTests {
 
     @Autowired
     private LibraryItemRepository libraryItemRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     void endpointWithoutLoginIsBlocked() throws Exception {
@@ -235,6 +242,36 @@ class WorkspaceControllerTests {
             .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(outsider))))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void membersEndpointsLoadUsersWithoutTestPersistenceContext() throws Exception {
+        User owner = createUser();
+        User member = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace sem contexto persistente", WorkspaceRole.OWNER);
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId())
+                .with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[?(@.userId == '%s')].name".formatted(owner.getId())).value(owner.getName()))
+            .andExpect(jsonPath("$[?(@.userId == '%s')].email".formatted(owner.getId())).value(owner.getEmail()))
+            .andExpect(jsonPath("$[?(@.userId == '%s')].role".formatted(owner.getId())).value(WorkspaceRole.OWNER.name()));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/public", workspace.getId())
+                .with(user(new No8doUserDetails(member))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].email").doesNotExist())
+            .andExpect(jsonPath("$[0].role").doesNotExist());
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            workspaceMemberRepository.deleteByWorkspaceId(workspace.getId());
+            workspaceRepository.deleteById(workspace.getId());
+            userRepository.deleteAllById(List.of(owner.getId(), member.getId()));
+        });
     }
 
     @Test

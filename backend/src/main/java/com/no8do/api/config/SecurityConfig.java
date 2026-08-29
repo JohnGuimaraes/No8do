@@ -3,6 +3,7 @@ package com.no8do.api.config;
 import com.no8do.api.auth.GoogleOAuth2FailureHandler;
 import com.no8do.api.auth.GoogleOAuth2SuccessHandler;
 import com.no8do.api.auth.TransientOAuth2AuthorizedClientRepository;
+import jakarta.servlet.DispatcherType;
 import java.util.List;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,6 +63,7 @@ public class SecurityConfig {
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
             )
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers("/api/health", "/api/csrf").permitAll()
                 .requestMatchers(
                     "/api/auth/register",
