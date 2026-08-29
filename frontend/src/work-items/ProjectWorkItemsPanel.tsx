@@ -10,7 +10,7 @@ import {
   type ProjectWorkItemStatus,
   type ProjectWorkItemType,
 } from "@/work-items/workItemApi";
-import { listWorkspaceMembers, type WorkspaceMember } from "@/workspaces/workspaceApi";
+import { listWorkspacePublicMembers, type WorkspaceMember } from "@/workspaces/workspaceApi";
 import { getWorkItemDueDateLabel } from "@/work-items/workItemDate";
 
 type ProjectWorkItemsPanelProps = {
@@ -80,7 +80,7 @@ export function ProjectWorkItemsPanel({ workspaceId, projectId, canWrite }: Proj
     };
   }, [workspaceId, projectId]);
   useEffect(() => { setCreatingOpen(false); setEditing(null); setTitle(""); setDetails(""); setAssigneeUserId(""); setDueDate(""); }, [projectId]);
-  useEffect(() => { void listWorkspaceMembers(workspaceId).then(setMembers).catch(() => setMembers([])); }, [workspaceId]);
+  useEffect(() => { void listWorkspacePublicMembers(workspaceId).then(setMembers).catch(() => setMembers([])); }, [workspaceId]);
 
   const doneItems = useMemo(() => items.filter((item) => item.status === "DONE"), [items]);
 

@@ -7,6 +7,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -196,13 +197,13 @@ class WorkspaceControllerTests {
         workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
         Workspace otherWorkspace = createWorkspaceFor(outsider, "Outro", WorkspaceRole.OWNER);
 
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(member))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/public", workspace.getId()).with(user(new No8doUserDetails(member))))
             .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(2)))
             .andExpect(jsonPath("$[0].userId").exists()).andExpect(jsonPath("$[0].name").exists())
             .andExpect(jsonPath("$[0].email").doesNotExist()).andExpect(jsonPath("$[0].role").doesNotExist());
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(outsider))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/public", workspace.getId()).with(user(new No8doUserDetails(outsider))))
             .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", otherWorkspace.getId()).with(user(new No8doUserDetails(member))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/public", otherWorkspace.getId()).with(user(new No8doUserDetails(member))))
             .andExpect(status().isForbidden());
     }
 
@@ -218,21 +219,21 @@ class WorkspaceControllerTests {
         workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
         workspaceMemberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
 
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()))
             .andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(owner))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(owner))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(4)))
             .andExpect(jsonPath("$[?(@.userId == '%s')].email".formatted(owner.getId())).value(owner.getEmail()))
             .andExpect(jsonPath("$[?(@.userId == '%s')].role".formatted(owner.getId())).value(WorkspaceRole.OWNER.name()));
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(admin))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(admin))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$", hasSize(4)));
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(member))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(member))))
             .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(viewer))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(viewer))))
             .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(outsider))))
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members", workspace.getId()).with(user(new No8doUserDetails(outsider))))
             .andExpect(status().isForbidden());
     }
 
@@ -257,6 +258,33 @@ class WorkspaceControllerTests {
 
         assertThat(workspaceRepository.findById(workspace.getId())).isEmpty();
         assertThat(workspaceMemberRepository.findByWorkspaceIdAndUserId(workspace.getId(), owner.getId())).isEmpty();
+    }
+
+    @Test
+    void managersCanChangeAndRemoveOnlyAllowedMembers() throws Exception {
+        User owner = createUser(); User admin = createUser(); User member = createUser(); User viewer = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace de membros", WorkspaceRole.OWNER);
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, admin, WorkspaceRole.ADMIN));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
+
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/members/{userId}", workspace.getId(), member.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"ADMIN\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("ADMIN"));
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/members/{userId}", workspace.getId(), owner.getId())
+                .with(user(new No8doUserDetails(admin))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"VIEWER\"}"))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/members/{userId}", workspace.getId(), member.getId())
+                .with(user(new No8doUserDetails(admin))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"OWNER\"}"))
+            .andExpect(status().isBadRequest());
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/members/{userId}", workspace.getId(), viewer.getId())
+                .with(user(new No8doUserDetails(admin))).with(csrf()))
+            .andExpect(status().isOk());
+        assertThat(workspaceMemberRepository.findByWorkspaceIdAndUserId(workspace.getId(), viewer.getId())).isEmpty();
+        assertThat(userRepository.existsById(viewer.getId())).isTrue();
     }
 
     @Test
