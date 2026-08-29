@@ -36,7 +36,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   const data = text ? JSON.parse(text) : undefined;
 
   if (!response.ok) {
-    const message = data?.error ?? "Nao foi possivel concluir a requisicao.";
+    const message = data?.error ?? (response.status === 403 ? "Você não tem permissão para gerenciar membros deste workspace." : "Nao foi possivel concluir a requisicao.");
     throw new Error(message);
   }
 

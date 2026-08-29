@@ -207,6 +207,36 @@ class WorkspaceControllerTests {
     }
 
     @Test
+    void onlyWorkspaceManagersCanUseMembersManagementEndpoint() throws Exception {
+        User owner = createUser();
+        User admin = createUser();
+        User member = createUser();
+        User viewer = createUser();
+        User outsider = createUser();
+        Workspace workspace = createWorkspaceFor(owner, "Workspace gerenciavel", WorkspaceRole.OWNER);
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, admin, WorkspaceRole.ADMIN));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(4)))
+            .andExpect(jsonPath("$[?(@.userId == '%s')].email".formatted(owner.getId())).value(owner.getEmail()))
+            .andExpect(jsonPath("$[?(@.userId == '%s')].role".formatted(owner.getId())).value(WorkspaceRole.OWNER.name()));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(admin))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(4)));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(member))))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(viewer))))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/members/manage", workspace.getId()).with(user(new No8doUserDetails(outsider))))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
     void onlyOwnerCanDeleteWorkspaceWithItsExactName() throws Exception {
         User owner = createUser();
         User admin = createUser();
