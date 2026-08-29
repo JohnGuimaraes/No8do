@@ -14,6 +14,13 @@ type CsrfResponse = {
   token: string;
 };
 
+export class ApiRequestError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 let csrfToken: CsrfResponse | null = null;
 
 async function getCsrfToken() {
@@ -37,7 +44,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
   if (!response.ok) {
     const message = data?.error ?? (response.status === 403 ? "Você não tem permissão para gerenciar membros deste workspace." : "Nao foi possivel concluir a requisicao.");
-    throw new Error(message);
+    throw new ApiRequestError(response.status, message);
   }
 
   return data as T;
