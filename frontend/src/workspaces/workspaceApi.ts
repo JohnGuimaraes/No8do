@@ -10,9 +10,11 @@ export type Workspace = {
   updatedAt: string;
 };
 export type WorkspaceMember = { userId: string; name: string };
-export function listWorkspaceMembers(workspaceId: string) { return apiRequest<WorkspaceMember[]>(`/api/workspaces/${workspaceId}/members`); }
+export function listWorkspacePublicMembers(workspaceId: string) { return apiRequest<WorkspaceMember[]>(`/api/workspaces/${workspaceId}/members/public`); }
 export type WorkspaceMemberManagement = WorkspaceMember & { email: string; role: WorkspaceRole };
-export function listWorkspaceMembersForManagement(workspaceId: string) { return apiRequest<WorkspaceMemberManagement[]>(`/api/workspaces/${workspaceId}/members/manage`); }
+export function listWorkspaceMembers(workspaceId: string) { return apiRequest<WorkspaceMemberManagement[]>(`/api/workspaces/${workspaceId}/members`); }
+export function updateWorkspaceMember(workspaceId: string, userId: string, role: Exclude<WorkspaceRole, "OWNER">) { return apiRequest<WorkspaceMemberManagement>(`/api/workspaces/${workspaceId}/members/${userId}`, { method: "PATCH", body: { role } }); }
+export function removeWorkspaceMember(workspaceId: string, userId: string) { return apiRequest<void>(`/api/workspaces/${workspaceId}/members/${userId}`, { method: "DELETE" }); }
 
 export type WorkspaceInviteRole = "ADMIN" | "VIEWER";
 export type WorkspaceInvite = { id: string; email: string; role: WorkspaceInviteRole; expiresAt: string; acceptedAt: string | null; revokedAt: string | null; createdAt: string; inviteUrl: string | null };

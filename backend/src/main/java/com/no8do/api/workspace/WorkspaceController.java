@@ -8,6 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,8 +31,8 @@ public class WorkspaceController {
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
     }
-    @GetMapping("/{workspaceId}/members")
-    public List<WorkspaceMemberResponse> members(
+    @GetMapping("/{workspaceId}/members/public")
+    public List<WorkspaceMemberResponse> publicMembers(
             @PathVariable UUID workspaceId,
             @AuthenticationPrincipal No8doUserDetails currentUser
     ) {
@@ -42,14 +43,40 @@ public class WorkspaceController {
             .toList();
     }
 
-    @GetMapping("/{workspaceId}/members/manage")
-    public List<WorkspaceMemberManagementResponse> managedMembers(
+    @GetMapping("/{workspaceId}/members")
+    public List<WorkspaceMemberManagementResponse> members(
             @PathVariable UUID workspaceId,
             @AuthenticationPrincipal No8doUserDetails currentUser
     ) {
         workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUser.user().getId());
         return workspaceMemberRepository.findByWorkspaceIdOrderByUserNameAsc(workspaceId).stream()
             .map(WorkspaceMemberManagementResponse::from).toList();
+    }
+
+    @PatchMapping("/{workspaceId}/members/{userId}")
+    public WorkspaceMemberManagementResponse updateMember(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID userId,
+            @AuthenticationPrincipal No8doUserDetails currentUser,
+            @Valid @RequestBody UpdateWorkspaceMemberRequest request
+    ) {
+        WorkspaceMember actor = workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUser.user().getId());
+        WorkspaceMember target = workspaceAuthorizationService.requireWorkspaceMember(workspaceId, userId);
+        workspaceAuthorizationService.requireCanManageMember(actor, target, request.role());
+        target.setRole(request.role());
+        return WorkspaceMemberManagementResponse.from(workspaceMemberRepository.save(target));
+    }
+
+    @DeleteMapping("/{workspaceId}/members/{userId}")
+    public void removeMember(
+            @PathVariable UUID workspaceId,
+            @PathVariable UUID userId,
+            @AuthenticationPrincipal No8doUserDetails currentUser
+    ) {
+        WorkspaceMember actor = workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUser.user().getId());
+        WorkspaceMember target = workspaceAuthorizationService.requireWorkspaceMember(workspaceId, userId);
+        workspaceAuthorizationService.requireCanManageMember(actor, target, WorkspaceRole.VIEWER);
+        workspaceMemberRepository.delete(target);
     }
 
     @GetMapping

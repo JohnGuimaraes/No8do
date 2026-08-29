@@ -39,6 +39,28 @@ public class WorkspaceAuthorizationService {
         return requireWorkspaceRole(workspaceId, userId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
     }
 
+    public WorkspaceMember requireWorkspaceOwner(UUID workspaceId, UUID userId) {
+        return requireWorkspaceRole(workspaceId, userId, WorkspaceRole.OWNER);
+    }
+
+    public void requireCanManageMember(WorkspaceMember actor, WorkspaceMember target, WorkspaceRole desiredRole) {
+        if (actor.getUser().getId().equals(target.getUser().getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot manage your own workspace membership");
+        }
+        if (desiredRole == WorkspaceRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OWNER cannot be assigned here");
+        }
+        if (actor.getRole() == WorkspaceRole.OWNER) {
+            if (target.getRole() == WorkspaceRole.OWNER) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "OWNER membership cannot be changed here");
+            }
+            return;
+        }
+        if (target.getRole() == WorkspaceRole.OWNER || target.getRole() == WorkspaceRole.ADMIN || desiredRole == WorkspaceRole.ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admins can manage only members and viewers");
+        }
+    }
+
     public WorkspaceMember requireWorkspaceWrite(UUID workspaceId, UUID userId) {
         WorkspaceMember member = requireWorkspaceMember(workspaceId, userId);
         if (member.getRole() == WorkspaceRole.VIEWER) {

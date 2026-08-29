@@ -3,7 +3,6 @@ package com.no8do.api.github;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workspace.WorkspaceAuthorizationService;
 import com.no8do.api.workspace.WorkspaceRepository;
-import com.no8do.api.workspace.WorkspaceRole;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
@@ -101,6 +100,6 @@ public class WorkspaceGithubAppInstallationFlowService {
     }
 
     private void requireManager(UUID workspaceId, UUID currentUserId) {
-        workspaceAuthorizationService.requireWorkspaceRole(workspaceId, currentUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUserId);
     }
 }
