@@ -47,7 +47,7 @@ public class WorkspaceController {
             @PathVariable UUID workspaceId,
             @AuthenticationPrincipal No8doUserDetails currentUser
     ) {
-        workspaceAuthorizationService.requireWorkspaceRole(workspaceId, currentUser.user().getId(), WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUser.user().getId());
         return workspaceMemberRepository.findByWorkspaceIdOrderByUserNameAsc(workspaceId).stream()
             .map(WorkspaceMemberManagementResponse::from).toList();
     }

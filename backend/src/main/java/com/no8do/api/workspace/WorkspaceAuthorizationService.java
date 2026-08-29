@@ -35,6 +35,10 @@ public class WorkspaceAuthorizationService {
         return member;
     }
 
+    public WorkspaceMember requireWorkspaceManager(UUID workspaceId, UUID userId) {
+        return requireWorkspaceRole(workspaceId, userId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+    }
+
     public WorkspaceMember requireWorkspaceWrite(UUID workspaceId, UUID userId) {
         WorkspaceMember member = requireWorkspaceMember(workspaceId, userId);
         if (member.getRole() == WorkspaceRole.VIEWER) {

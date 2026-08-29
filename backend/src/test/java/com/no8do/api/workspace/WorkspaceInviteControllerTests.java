@@ -3,6 +3,7 @@ package com.no8do.api.workspace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -58,6 +59,41 @@ class WorkspaceInviteControllerTests {
         createInvite(workspace, member, "blocked@example.com", "VIEWER").andExpect(status().isForbidden());
         createInvite(workspace, outsider, "blocked@example.com", "VIEWER").andExpect(status().isForbidden());
         createInvite(workspace, owner, "blocked@example.com", "OWNER").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void onlyWorkspaceManagersCanListAndRevokeInvites() throws Exception {
+        User owner = createUser("owner");
+        User admin = createUser("admin");
+        User viewer = createUser("viewer");
+        User member = createUser("member");
+        User outsider = createUser("outsider");
+        Workspace workspace = workspace(owner, WorkspaceRole.OWNER);
+        memberRepository.save(new WorkspaceMember(workspace, admin, WorkspaceRole.ADMIN));
+        memberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
+        memberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        WorkspaceInvite invite = inviteRepository.save(new WorkspaceInvite(
+            workspace,
+            "pending-" + UUID.randomUUID() + "@example.com",
+            WorkspaceInviteRole.VIEWER,
+            hash("pending-" + UUID.randomUUID()),
+            owner,
+            Instant.now().plusSeconds(3600)
+        ));
+
+        listInvites(workspace, owner).andExpect(status().isOk()).andExpect(jsonPath("$[0].email").value(invite.getEmail()));
+        listInvites(workspace, admin).andExpect(status().isOk());
+        listInvites(workspace, viewer).andExpect(status().isForbidden());
+        listInvites(workspace, member).andExpect(status().isForbidden());
+        listInvites(workspace, outsider).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/invites", workspace.getId()))
+            .andExpect(status().isUnauthorized());
+
+        revokeInvite(workspace, viewer, invite).andExpect(status().isForbidden());
+        revokeInvite(workspace, member, invite).andExpect(status().isForbidden());
+        revokeInvite(workspace, outsider, invite).andExpect(status().isForbidden());
+        revokeInvite(workspace, owner, invite).andExpect(status().isNoContent());
+        assertThat(inviteRepository.findById(invite.getId()).orElseThrow().getRevokedAt()).isNotNull();
     }
 
     @Test
@@ -119,6 +155,17 @@ class WorkspaceInviteControllerTests {
         return mockMvc.perform(post("/api/workspaces/{workspaceId}/invites", workspace.getId())
             .with(user(new No8doUserDetails(user))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(Map.of("email", email, "role", role))));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions listInvites(Workspace workspace, User user) throws Exception {
+        return mockMvc.perform(get("/api/workspaces/{workspaceId}/invites", workspace.getId())
+            .with(user(new No8doUserDetails(user))));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions revokeInvite(Workspace workspace, User user, WorkspaceInvite invite) throws Exception {
+        return mockMvc.perform(delete("/api/workspaces/{workspaceId}/invites/{inviteId}", workspace.getId(), invite.getId())
+            .with(user(new No8doUserDetails(user)))
+            .with(csrf()));
     }
 
     private String createToken(Workspace workspace, User user, String email, String role) throws Exception {

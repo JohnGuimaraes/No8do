@@ -3,7 +3,6 @@ package com.no8do.api.github;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workspace.WorkspaceAuthorizationService;
 import com.no8do.api.workspace.WorkspaceRepository;
-import com.no8do.api.workspace.WorkspaceRole;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -87,6 +86,6 @@ public class WorkspaceGithubAppInstallationService {
     }
 
     private void requireManager(UUID workspaceId, UUID currentUserId) {
-        workspaceAuthorizationService.requireWorkspaceRole(workspaceId, currentUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUserId);
     }
 }

@@ -51,7 +51,7 @@ public class WorkspaceInviteService {
 
     @Transactional
     public WorkspaceInviteResponse create(UUID workspaceId, UUID currentUserId, CreateWorkspaceInviteRequest request) {
-        authorizationService.requireWorkspaceRole(workspaceId, currentUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        authorizationService.requireWorkspaceManager(workspaceId, currentUserId);
         String email = normalizeEmail(request.email());
         byte[] bytes = new byte[32];
         secureRandom.nextBytes(bytes);
@@ -65,14 +65,14 @@ public class WorkspaceInviteService {
 
     @Transactional(readOnly = true)
     public List<WorkspaceInviteResponse> list(UUID workspaceId, UUID currentUserId) {
-        authorizationService.requireWorkspaceRole(workspaceId, currentUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        authorizationService.requireWorkspaceManager(workspaceId, currentUserId);
         return inviteRepository.findByWorkspaceIdOrderByCreatedAtDesc(workspaceId).stream()
             .map(invite -> WorkspaceInviteResponse.from(invite, null)).toList();
     }
 
     @Transactional
     public void revoke(UUID workspaceId, UUID inviteId, UUID currentUserId) {
-        authorizationService.requireWorkspaceRole(workspaceId, currentUserId, WorkspaceRole.OWNER, WorkspaceRole.ADMIN);
+        authorizationService.requireWorkspaceManager(workspaceId, currentUserId);
         WorkspaceInvite invite = inviteRepository.findById(inviteId)
             .filter(value -> value.getWorkspace().getId().equals(workspaceId))
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Invite not found"));
