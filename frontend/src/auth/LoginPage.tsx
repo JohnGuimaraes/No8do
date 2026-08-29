@@ -78,17 +78,17 @@ export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = 
         {connectingGoogle ? "Conectando com Google..." : "Continuar com Google"}
       </Button>
 
-      <div className="flex flex-col items-start gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
-          className="auth-secondary-action text-sm font-medium underline-offset-4"
+          className="auth-secondary-action rounded-sm text-sm font-semibold underline-offset-4"
           onClick={onShowForgotPassword}
         >
           Esqueci minha senha
         </button>
         <button
           type="button"
-          className="auth-secondary-action text-sm font-medium underline-offset-4"
+          className="auth-secondary-action rounded-sm text-sm font-semibold underline-offset-4"
           onClick={onShowRegister}
         >
           Criar uma conta
