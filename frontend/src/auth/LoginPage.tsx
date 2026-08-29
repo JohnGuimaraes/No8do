@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useState } from "react";
-import { ArrowRight, GoogleLogo } from "@phosphor-icons/react";
+import { ArrowRight, Eye, EyeSlash, GoogleLogo } from "@phosphor-icons/react";
 import no8doIcon from "@/assets/logo/no8do-icone.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthContext";
@@ -57,6 +57,7 @@ export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = 
           value={password}
           onChange={setPassword}
           autoComplete="current-password"
+          showPasswordToggle
         />
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -106,21 +107,36 @@ type FieldProps = {
   autoComplete: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
+  showPasswordToggle?: boolean;
 };
 
-export function Field({ label, name, type, value, autoComplete, onChange, readOnly = false }: FieldProps) {
+export function Field({ label, name, type, value, autoComplete, onChange, readOnly = false, showPasswordToggle = false }: FieldProps) {
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const canTogglePassword = showPasswordToggle && type === "password";
+
   return (
     <label className="auth-field flex flex-col gap-2 text-left text-sm font-medium text-foreground">
       {label}
-      <input
-        className="auth-field__input h-10 rounded-md border border-input px-3 text-sm outline-none transition-[border-color,box-shadow,background-color] placeholder:text-muted-foreground focus-visible:outline-none"
-        name={name}
-        type={type}
-        value={value}
-        autoComplete={autoComplete}
-        onChange={(event) => onChange(event.target.value)}
-        readOnly={readOnly}
-      />
+      <div className="relative">
+        <input
+          className={`auth-field__input h-10 w-full rounded-md border border-input px-3 text-sm outline-none transition-[border-color,box-shadow,background-color] placeholder:text-muted-foreground focus-visible:outline-none${canTogglePassword ? " pr-10" : ""}`}
+          name={name}
+          type={canTogglePassword && passwordVisible ? "text" : type}
+          value={value}
+          autoComplete={autoComplete}
+          onChange={(event) => onChange(event.target.value)}
+          readOnly={readOnly}
+        />
+        {canTogglePassword ? <button
+          type="button"
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label={passwordVisible ? "Ocultar senha" : "Exibir senha"}
+          aria-pressed={passwordVisible}
+          onClick={() => setPasswordVisible((visible) => !visible)}
+        >
+          {passwordVisible ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button> : null}
+      </div>
     </label>
   );
 }
