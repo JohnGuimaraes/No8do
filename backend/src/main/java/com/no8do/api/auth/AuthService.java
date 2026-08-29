@@ -2,6 +2,8 @@ package com.no8do.api.auth;
 
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
+import com.no8do.api.workspace.WorkspaceMemberRepository;
+import com.no8do.api.workspace.WorkspaceRole;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +35,7 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
     private final UserRepository userRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final PasswordResetEmailService passwordResetEmailService;
     private final GoogleOAuthConfiguration googleOAuthConfiguration;
@@ -44,6 +47,7 @@ public class AuthService {
             AuthenticationManager authenticationManager,
             PasswordEncoder passwordEncoder,
             UserRepository userRepository,
+            WorkspaceMemberRepository workspaceMemberRepository,
             PasswordResetTokenRepository passwordResetTokenRepository,
             PasswordResetEmailService passwordResetEmailService,
             GoogleOAuthConfiguration googleOAuthConfiguration,
@@ -53,6 +57,7 @@ public class AuthService {
         this.authenticationManager = authenticationManager;
         this.passwordEncoder = passwordEncoder;
         this.userRepository = userRepository;
+        this.workspaceMemberRepository = workspaceMemberRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.passwordResetEmailService = passwordResetEmailService;
         this.googleOAuthConfiguration = googleOAuthConfiguration;
@@ -108,6 +113,17 @@ public class AuthService {
     }
 
     @Transactional
+    public void deleteCurrentUser(Authentication authentication, DeleteAccountRequest request) {
+        User user = currentUserEntity(authentication);
+        validateAccountDeletionConfirmation(user, request);
+        if (workspaceMemberRepository.existsByUserIdAndRole(user.getId(), WorkspaceRole.OWNER)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Delete owned workspaces before deleting your account");
+        }
+        userRepository.delete(user);
+        userRepository.flush();
+    }
+
+    @Transactional
     public Map<String, String> requestPasswordReset(PasswordForgotRequest request) {
         if (!passwordResetEmailService.isConfigured()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Password reset is temporarily unavailable");
@@ -141,10 +157,28 @@ public class AuthService {
     }
 
     private AuthUserResponse currentUser(Authentication authentication) {
+        return AuthUserResponse.from(currentUserEntity(authentication));
+    }
+
+    private User currentUserEntity(Authentication authentication) {
         if (authentication == null || !(authentication.getPrincipal() instanceof No8doUserDetails userDetails)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
         }
-        return AuthUserResponse.from(userDetails.user());
+        return userRepository.findById(userDetails.user().getId())
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required"));
+    }
+
+    private void validateAccountDeletionConfirmation(User user, DeleteAccountRequest request) {
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account deletion confirmation is required");
+        }
+        String confirmationEmail = normalizeEmail(request.confirmationEmail());
+        if (!user.getEmail().equals(confirmationEmail)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account deletion email does not match");
+        }
+        if (!"EXCLUIR".equals(request.confirmationText())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Account deletion confirmation text does not match");
+        }
     }
 
     private void storeAuthentication(Authentication authentication, HttpServletRequest httpRequest) {

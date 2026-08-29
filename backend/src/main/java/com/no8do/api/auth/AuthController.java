@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -61,5 +62,17 @@ public class AuthController {
     @GetMapping("/me")
     public AuthUserResponse me(Authentication authentication) {
         return authService.me(authentication);
+    }
+
+    @DeleteMapping("/me")
+    public Map<String, String> deleteMe(
+            Authentication authentication,
+            @Valid @RequestBody DeleteAccountRequest deleteRequest,
+            HttpServletRequest httpRequest,
+            HttpServletResponse response
+    ) {
+        authService.deleteCurrentUser(authentication, deleteRequest);
+        logoutHandler.logout(httpRequest, response, authentication);
+        return Map.of("status", "ok");
     }
 }

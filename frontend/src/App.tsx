@@ -131,7 +131,7 @@ function useBackendHealth() {
 }
 
 function App() {
-  const { status, user, logout } = useAuth();
+  const { status, user, logout, deleteAccount } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -307,7 +307,7 @@ function App() {
         <div className="flex items-center gap-1 sm:gap-2"><span className={`hidden items-center gap-1.5 text-xs text-muted-foreground md:inline-flex ${backendStatus === "online" ? "text-emerald-700" : ""}`}><Circle weight="fill" className="h-2 w-2" />{backendStatus === "online" ? "Conectado" : backendStatus === "checking" ? "Verificando" : "Offline"}</span><Button type="button" variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => navigate("/help")}><Question className="h-4 w-4" />Ajuda</Button><div className="relative"><Button type="button" variant="ghost" size="sm" className="gap-1.5" onClick={() => setAccountMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={accountMenuOpen} aria-label="Menu da conta"><UserCircle className="h-5 w-5" /><span className="hidden max-w-32 truncate sm:inline">{user?.name ?? "Conta"}</span><CaretDown className="h-3.5 w-3.5" /></Button>{accountMenuOpen ? <div className="account-menu" role="menu" aria-label="Menu da conta"><button type="button" role="menuitem" className="account-menu__item" onClick={() => { navigate("/account/profile"); setAccountMenuOpen(false); }}><UserCircle className="h-4 w-4" />Perfil</button><button type="button" role="menuitem" className="account-menu__item" onClick={() => { navigate("/account/preferences"); setAccountMenuOpen(false); }}><SlidersHorizontal className="h-4 w-4" />Preferências</button><button type="button" role="menuitem" className="account-menu__item sm:hidden" onClick={() => { navigate("/help"); setAccountMenuOpen(false); }}><Question className="h-4 w-4" />Ajuda</button><div className="my-1 border-t border-border/70" /><button type="button" role="menuitem" className="account-menu__item" onClick={() => void handleLogout()} disabled={loggingOut}><SignOut className="h-4 w-4" />{loggingOut ? "Saindo..." : "Sair"}</button></div> : null}</div></div>
       </div></header>
       <section className="app-frame">
-        {route.view === "profile" ? <ProfilePage user={user} onReturnToWorkspace={returnToWorkspace} onLogout={() => void handleLogout()} loggingOut={loggingOut} /> : null}
+        {route.view === "profile" ? <ProfilePage user={user} onReturnToWorkspace={returnToWorkspace} onLogout={() => void handleLogout()} onDeleteAccount={async (input) => { await deleteAccount(input); setWorkspaces([]); setActiveWorkspaceId(null); replaceNavigation("/login"); }} loggingOut={loggingOut} /> : null}
         {route.view === "preferences" ? <PreferencesPage user={user} onReturnToWorkspace={returnToWorkspace} /> : null}
         {route.view === "help" ? <HelpPage onReturnToWorkspace={returnToWorkspace} /> : null}
         {route.view === "workspace-settings" && routedWorkspace ? <WorkspaceSettingsPage workspace={routedWorkspace} onReturnToWorkspace={returnToWorkspace} onWorkspaceDeleted={(workspaceId) => {

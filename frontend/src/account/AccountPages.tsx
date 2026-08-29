@@ -1,5 +1,5 @@
-import { useEffect, useState, type MouseEvent } from "react";
-import { ArrowLeft, Desktop, GithubLogo, IdentificationCard, LockKey, Moon, SignOut, SlidersHorizontal, Sun, UserCircle } from "@phosphor-icons/react";
+import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
+import { ArrowLeft, Desktop, GithubLogo, IdentificationCard, LockKey, Moon, SignOut, SlidersHorizontal, Sun, Trash, UserCircle, WarningCircle } from "@phosphor-icons/react";
 import { type AuthUser } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { disconnectUserGithub, getUserGithubConnection, type UserGithubConnection } from "@/account/githubApi";
@@ -43,12 +43,16 @@ function PageHeader({ icon: Icon, eyebrow, title, description, onReturnToWorkspa
   );
 }
 
-export function ProfilePage({ user, onReturnToWorkspace, onLogout, loggingOut }: AccountPageProps & { onLogout: () => void; loggingOut: boolean }) {
+export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccount, loggingOut }: AccountPageProps & { onLogout: () => void; onDeleteAccount: (input: { confirmationEmail: string; confirmationText: string }) => Promise<void>; loggingOut: boolean }) {
   const initial = user?.name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "N";
   const [githubConnection, setGithubConnection] = useState<UserGithubConnection | null>(null);
   const [githubError, setGithubError] = useState<string | null>(null);
   const [githubSuccess, setGithubSuccess] = useState<string | null>(null);
   const [disconnectingGithub, setDisconnectingGithub] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState("");
+  const [confirmationText, setConfirmationText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -85,6 +89,24 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, loggingOut }:
     }
   }
 
+  async function handleDeleteAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    setDeleteError(null);
+    try {
+      await onDeleteAccount({ confirmationEmail, confirmationText });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Não foi possível excluir a conta.";
+      setDeleteError(message === "Delete owned workspaces before deleting your account" ? "Exclua seus próprios workspaces antes de excluir sua conta." : message);
+    } finally {
+      setDeletingAccount(false);
+    }
+  }
+
+  const emailMatches = confirmationEmail.trim().toLocaleLowerCase("pt-BR") === (user?.email ?? "").toLocaleLowerCase("pt-BR");
+  const deleteDisabled = deletingAccount || !emailMatches || confirmationText !== "EXCLUIR";
+
   return (
     <section className="mx-auto grid w-full max-w-4xl gap-8">
       <PageHeader icon={IdentificationCard} eyebrow="Conta" title="Perfil" description="Sua identidade e acesso ao workspace No8do." onReturnToWorkspace={onReturnToWorkspace} />
@@ -120,6 +142,28 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, loggingOut }:
           <div className="min-w-0"><h3 className="text-base font-semibold text-card-foreground">{githubConnection?.connected ? githubConnection.login : "GitHub não conectado"}</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">{githubConnection?.connected ? "Sua conta pode ser vinculada aos workspaces em que você administra." : "Conecte sua conta uma única vez para usá-la em workspaces autorizados."}</p>{githubError ? <p className="mt-2 text-sm text-destructive" role="alert">{githubError}</p> : null}{githubSuccess ? <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300" role="status">{githubSuccess}</p> : null}</div>
           <div className="flex w-fit items-center gap-2">{githubConnection?.connected ? <Button type="button" variant="ghost" size="sm" onClick={(event) => void handleDisconnectGithub(event)} disabled={disconnectingGithub}>{disconnectingGithub ? "Desconectando..." : "Desconectar"}</Button> : githubConnection ? <Button type="button" size="sm" onClick={() => window.location.assign(getApiUrl("/api/account/integrations/github/connect"))}>Conectar GitHub</Button> : null}</div>
         </article>
+      </section>
+
+      <section className="grid gap-4 border-t border-border/75 pt-6" aria-labelledby="profile-danger-title">
+        <header><p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[.12em] text-destructive"><WarningCircle className="h-4 w-4" />Zona de perigo</p><h2 id="profile-danger-title" className="mt-1 text-xl font-semibold tracking-tight text-foreground">Excluir minha conta</h2></header>
+        <form className="grid gap-4 rounded-xl border border-destructive/25 bg-card p-5 shadow-[0_18px_52px_-42px_hsl(var(--foreground))] sm:p-6" onSubmit={(event) => void handleDeleteAccount(event)}>
+          <p className="text-sm leading-6 text-muted-foreground">Esta ação remove sua conta, seus vínculos pessoais e seu acesso aos workspaces. Conteúdos compartilhados permanecem no workspace com autoria histórica removida.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-2 text-sm font-medium text-card-foreground">
+              E-mail da conta
+              <input className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" value={confirmationEmail} onChange={(event) => setConfirmationEmail(event.target.value)} autoComplete="email" disabled={deletingAccount} />
+            </label>
+            <label className="grid gap-2 text-sm font-medium text-card-foreground">
+              Confirmação
+              <input className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" value={confirmationText} onChange={(event) => setConfirmationText(event.target.value)} autoComplete="off" disabled={deletingAccount} />
+            </label>
+          </div>
+          {deleteError ? <p className="text-sm text-destructive" role="alert">{deleteError}</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">Digite seu e-mail e EXCLUIR para confirmar.</p>
+            <Button type="submit" className="border-destructive/35 bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={deleteDisabled}><Trash className="h-4 w-4" />{deletingAccount ? "Excluindo..." : "Excluir minha conta"}</Button>
+          </div>
+        </form>
       </section>
 
       <section className="flex flex-wrap items-center justify-between gap-4 border-t border-border/75 pt-6"><p className="text-sm text-muted-foreground">Encerre esta sessão neste dispositivo.</p><Button type="button" variant="outline" className="border-destructive/35 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={onLogout} disabled={loggingOut}><SignOut className="h-4 w-4" />{loggingOut ? "Saindo..." : "Sair"}</Button></section>
