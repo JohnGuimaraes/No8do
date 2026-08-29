@@ -56,8 +56,8 @@ public class ProjectWorkItem {
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "assignee_user_id") @Setter private User assignee;
     @Column(name = "due_date") @Setter private LocalDate dueDate;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "created_by", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
     @Setter
     private User createdBy;
 

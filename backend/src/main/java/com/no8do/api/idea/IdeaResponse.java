@@ -28,8 +28,8 @@ public record IdeaResponse(
             idea.getStatus(),
             idea.getConvertedProject() == null ? null : idea.getConvertedProject().getId(),
             idea.getConvertedProject() == null ? null : idea.getConvertedProject().getName(),
-            idea.getCreatedBy().getId(),
-            idea.getCreatedBy().getName(),
+            idea.getCreatedBy() == null ? null : idea.getCreatedBy().getId(),
+            idea.getCreatedBy() == null ? "Usuário excluído" : idea.getCreatedBy().getName(),
             idea.getCreatedAt(),
             idea.getUpdatedAt()
         );
