@@ -46,6 +46,12 @@ public class WorkspaceGithubAppInstallationService {
     }
 
     @Transactional
+    public void disconnect(UUID workspaceId, UUID currentUserId) {
+        requireManager(workspaceId, currentUserId);
+        installationRepository.deleteByWorkspaceId(workspaceId);
+    }
+
+    @Transactional
     public WorkspaceGithubAppInstallationResponse registerVerifiedInstallation(
             UUID workspaceId,
             UUID currentUserId,

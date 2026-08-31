@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
 import { ArrowLeft, Desktop, GithubLogo, IdentificationCard, LockKey, Moon, SignOut, SlidersHorizontal, Sun, Trash, UserCircle, WarningCircle } from "@phosphor-icons/react";
-import { type AuthUser } from "@/auth/AuthContext";
+import { type AuthUser, useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { disconnectUserGithub, getUserGithubConnection, type UserGithubConnection } from "@/account/githubApi";
 import { getApiUrl } from "@/lib/api";
@@ -44,7 +44,12 @@ function PageHeader({ icon: Icon, eyebrow, title, description, onReturnToWorkspa
 }
 
 export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccount, loggingOut }: AccountPageProps & { onLogout: () => void; onDeleteAccount: (input: { confirmationEmail: string; confirmationText: string }) => Promise<void>; loggingOut: boolean }) {
+  const { updateProfile } = useAuth();
   const initial = user?.name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "N";
+  const [name, setName] = useState(user?.name ?? "");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
   const [githubConnection, setGithubConnection] = useState<UserGithubConnection | null>(null);
   const [githubError, setGithubError] = useState<string | null>(null);
   const [githubSuccess, setGithubSuccess] = useState<string | null>(null);
@@ -71,6 +76,10 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
     window.history.replaceState({}, "", window.location.pathname);
     if (result === "error") setGithubError("Não foi possível concluir a conexão com o GitHub.");
   }, []);
+
+  useEffect(() => {
+    setName(user?.name ?? "");
+  }, [user?.name]);
 
   async function handleDisconnectGithub(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -104,8 +113,26 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
     }
   }
 
+  async function handleUpdateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedName = name.trim();
+    if (savingProfile || !normalizedName || normalizedName === user?.name) return;
+    setSavingProfile(true);
+    setProfileError(null);
+    setProfileSuccess(null);
+    try {
+      await updateProfile({ name: normalizedName });
+      setProfileSuccess("Nome atualizado com sucesso.");
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : "Não foi possível atualizar seu nome.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
   const emailMatches = confirmationEmail.trim().toLocaleLowerCase("pt-BR") === (user?.email ?? "").toLocaleLowerCase("pt-BR");
   const deleteDisabled = deletingAccount || !emailMatches || confirmationText !== "EXCLUIR";
+  const profileSaveDisabled = savingProfile || !name.trim() || name.trim() === user?.name;
 
   return (
     <section className="mx-auto grid w-full max-w-4xl gap-8">
@@ -122,7 +149,7 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
       <section className="grid gap-4" aria-labelledby="profile-account-title">
         <header><p className="text-xs font-medium uppercase tracking-[.12em] text-primary">Identidade</p><h2 id="profile-account-title" className="mt-1 text-xl font-semibold tracking-tight text-foreground">Conta</h2></header>
         <div className="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
-          <div className="bg-card p-5"><p className="text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">Nome</p><p className="mt-2 break-words text-base font-semibold text-card-foreground">{user?.name ?? "Usuário"}</p></div>
+          <form className="bg-card p-5" onSubmit={(event) => void handleUpdateProfile(event)}><label className="grid gap-2 text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">Nome<input className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" disabled={savingProfile} maxLength={160} /></label>{profileError ? <p className="mt-2 text-sm normal-case tracking-normal text-destructive" role="alert">{profileError}</p> : null}{profileSuccess ? <p className="mt-2 text-sm normal-case tracking-normal text-emerald-700 dark:text-emerald-300" role="status">{profileSuccess}</p> : null}<Button type="submit" size="sm" className="mt-3" disabled={profileSaveDisabled}>{savingProfile ? "Salvando..." : "Salvar alterações"}</Button></form>
           <div className="bg-card p-5"><p className="text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">E-mail</p><p className="mt-2 break-all text-base font-semibold text-card-foreground">{user?.email ?? "E-mail não disponível"}</p></div>
         </div>
       </section>

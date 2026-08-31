@@ -78,6 +78,13 @@ public class GithubConnectionController {
         return appInstallationService.get(workspaceId, currentUser.user().getId());
     }
 
+    @DeleteMapping("/api/workspaces/{workspaceId}/integrations/github/app-installation")
+    public ResponseEntity<Void> disconnectWorkspaceAppInstallation(@PathVariable UUID workspaceId,
+            @AuthenticationPrincipal No8doUserDetails currentUser) {
+        appInstallationService.disconnect(workspaceId, currentUser.user().getId());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/api/workspaces/{workspaceId}/integrations/github/app")
     public WorkspaceGithubAppStatusResponse getWorkspaceAppStatus(@PathVariable UUID workspaceId,
             @AuthenticationPrincipal No8doUserDetails currentUser) {

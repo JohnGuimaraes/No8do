@@ -5,6 +5,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -119,6 +120,47 @@ class AuthControllerTests {
     void meWithoutLoginIsUnauthorized() throws Exception {
         mockMvc.perform(get("/api/auth/me"))
             .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void updateMeChangesOnlyTheAuthenticatedUsersNormalizedName() throws Exception {
+        User user = userRepository.save(new User("Nome anterior", uniqueEmail(), passwordEncoder.encode("senha-correta")));
+        String email = user.getEmail();
+        MockHttpSession session = loginSession(user, "senha-correta");
+
+        mockMvc.perform(patch("/api/auth/me")
+                .session(session)
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"  Novo nome  \"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(user.getId().toString()))
+            .andExpect(jsonPath("$.name").value("Novo nome"))
+            .andExpect(jsonPath("$.email").value(email));
+
+        User persisted = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(persisted.getName()).isEqualTo("Novo nome");
+        assertThat(persisted.getEmail()).isEqualTo(email);
+        assertThat(persisted.getPasswordHash()).isEqualTo(user.getPasswordHash());
+    }
+
+    @Test
+    void updateMeRejectsUnauthenticatedOrBlankNames() throws Exception {
+        mockMvc.perform(patch("/api/auth/me")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Novo nome\"}"))
+            .andExpect(status().isUnauthorized());
+
+        User user = userRepository.save(new User("Nome atual", uniqueEmail(), passwordEncoder.encode("senha-correta")));
+        MockHttpSession session = loginSession(user, "senha-correta");
+        mockMvc.perform(patch("/api/auth/me")
+                .session(session)
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"   \"}"))
+            .andExpect(status().isBadRequest());
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getName()).isEqualTo("Nome atual");
     }
 
     @Test

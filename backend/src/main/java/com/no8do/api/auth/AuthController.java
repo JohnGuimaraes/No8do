@@ -8,6 +8,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -62,6 +63,11 @@ public class AuthController {
     @GetMapping("/me")
     public AuthUserResponse me(Authentication authentication) {
         return authService.me(authentication);
+    }
+
+    @PatchMapping("/me")
+    public AuthUserResponse updateMe(Authentication authentication, @Valid @RequestBody UpdateProfileRequest request) {
+        return authService.updateCurrentUser(authentication, request);
     }
 
     @DeleteMapping("/me")
