@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
-import { ArrowLeft, Desktop, GithubLogo, IdentificationCard, LockKey, Moon, SignOut, SlidersHorizontal, Sun, Trash, UserCircle, WarningCircle } from "@phosphor-icons/react";
+import { ArrowLeft, Desktop, GithubLogo, IdentificationCard, LockKey, Moon, PencilSimple, SignOut, SlidersHorizontal, Sun, Trash, UserCircle, WarningCircle, X } from "@phosphor-icons/react";
 import { type AuthUser, useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { disconnectUserGithub, getUserGithubConnection, type UserGithubConnection } from "@/account/githubApi";
@@ -47,6 +47,7 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
   const { updateProfile } = useAuth();
   const initial = user?.name.trim().charAt(0).toLocaleUpperCase("pt-BR") || "N";
   const [name, setName] = useState(user?.name ?? "");
+  const [editingName, setEditingName] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
@@ -123,6 +124,7 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
     try {
       await updateProfile({ name: normalizedName });
       setProfileSuccess("Nome atualizado com sucesso.");
+      setEditingName(false);
     } catch (error) {
       setProfileError(error instanceof Error ? error.message : "Não foi possível atualizar seu nome.");
     } finally {
@@ -134,24 +136,25 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
   const deleteDisabled = deletingAccount || !emailMatches || confirmationText !== "EXCLUIR";
   const profileSaveDisabled = savingProfile || !name.trim() || name.trim() === user?.name;
 
+  function cancelNameEdit() {
+    setName(user?.name ?? "");
+    setProfileError(null);
+    setProfileSuccess(null);
+    setEditingName(false);
+  }
+
   return (
     <section className="mx-auto grid w-full max-w-4xl gap-8">
       <PageHeader icon={IdentificationCard} eyebrow="Conta" title="Perfil" description="Sua identidade e acesso ao workspace No8do." onReturnToWorkspace={onReturnToWorkspace} />
 
-      <section className="relative overflow-hidden rounded-xl border border-border bg-card p-5 shadow-[0_24px_70px_-48px_hsl(var(--foreground))] sm:p-7">
-        <div className="absolute right-0 top-0 h-32 w-32 border-b border-l border-sky-500/15 bg-[linear-gradient(135deg,transparent_48%,rgba(14,165,233,0.08)_49%,transparent_50%)] dark:border-cyan-400/20 dark:bg-[linear-gradient(135deg,transparent_48%,rgba(34,211,238,0.1)_49%,transparent_50%)]" aria-hidden="true" />
-        <div className="relative flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center">
-          <div className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-cyan-600/25 bg-[linear-gradient(145deg,rgba(224,242,254,0.95),rgba(236,253,245,0.9))] text-3xl font-semibold text-sky-800 shadow-[0_18px_34px_-26px_rgba(3,105,161,0.75)] dark:border-cyan-400/35 dark:bg-[linear-gradient(145deg,rgba(21,57,75,0.95),rgba(24,54,57,0.9))] dark:text-cyan-100 dark:shadow-[0_18px_34px_-26px_rgba(34,211,238,0.35)]">{initial}</div>
-          <div className="min-w-0"><p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[.12em] text-muted-foreground"><UserCircle className="h-4 w-4 text-primary" />Conta No8do</p><h2 className="mt-2 break-words text-2xl font-semibold tracking-tight text-card-foreground">{user?.name ?? "Usuário"}</h2><p className="mt-1 break-all text-sm text-muted-foreground">{user?.email ?? "E-mail não disponível"}</p></div>
-        </div>
+      <section className="flex min-w-0 flex-col gap-4 border-b border-border pb-7 sm:flex-row sm:items-center">
+        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border border-primary/20 bg-primary/10 text-2xl font-semibold text-primary">{initial}</div>
+        <div className="min-w-0"><p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[.12em] text-muted-foreground"><UserCircle className="h-4 w-4 text-primary" />Conta No8do</p><h2 className="mt-1 break-words text-2xl font-semibold tracking-tight text-foreground">{user?.name ?? "Usuário"}</h2><p className="mt-1 break-all text-sm text-muted-foreground">{user?.email ?? "E-mail não disponível"}</p></div>
       </section>
 
       <section className="grid gap-4" aria-labelledby="profile-account-title">
         <header><p className="text-xs font-medium uppercase tracking-[.12em] text-primary">Identidade</p><h2 id="profile-account-title" className="mt-1 text-xl font-semibold tracking-tight text-foreground">Conta</h2></header>
-        <div className="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
-          <form className="bg-card p-5" onSubmit={(event) => void handleUpdateProfile(event)}><label className="grid gap-2 text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">Nome<input className="min-h-10 rounded-md border border-input bg-background px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" disabled={savingProfile} maxLength={160} /></label>{profileError ? <p className="mt-2 text-sm normal-case tracking-normal text-destructive" role="alert">{profileError}</p> : null}{profileSuccess ? <p className="mt-2 text-sm normal-case tracking-normal text-emerald-700 dark:text-emerald-300" role="status">{profileSuccess}</p> : null}<Button type="submit" size="sm" className="mt-3" disabled={profileSaveDisabled}>{savingProfile ? "Salvando..." : "Salvar alterações"}</Button></form>
-          <div className="bg-card p-5"><p className="text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">E-mail</p><p className="mt-2 break-all text-base font-semibold text-card-foreground">{user?.email ?? "E-mail não disponível"}</p></div>
-        </div>
+        <div className="divide-y divide-border border-y border-border"><div className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-center"><div><p className="text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">Nome</p>{editingName ? <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(event) => void handleUpdateProfile(event)}><input className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" disabled={savingProfile} maxLength={160} autoFocus /><Button type="submit" size="sm" disabled={profileSaveDisabled}>{savingProfile ? "Salvando..." : "Salvar"}</Button><Button type="button" variant="ghost" size="icon" onClick={cancelNameEdit} disabled={savingProfile} aria-label="Cancelar edição do nome"><X className="h-4 w-4" /></Button></form> : <div className="mt-1 flex items-center gap-1"><p className="break-words text-base font-semibold text-foreground">{user?.name ?? "Usuário"}</p><Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setProfileSuccess(null); setProfileError(null); setEditingName(true); }} aria-label="Editar nome"><PencilSimple className="h-4 w-4" /></Button></div>}{profileError ? <p className="mt-2 text-sm text-destructive" role="alert">{profileError}</p> : null}{profileSuccess ? <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300" role="status">{profileSuccess}</p> : null}</div><div><p className="text-xs font-medium uppercase tracking-[.1em] text-muted-foreground">E-mail</p><p className="mt-1 break-all text-base font-semibold text-foreground">{user?.email ?? "E-mail não disponível"}</p></div></div></div>
       </section>
 
       <section className="grid gap-4" aria-labelledby="profile-security-title">
