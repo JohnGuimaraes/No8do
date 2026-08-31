@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { NotePencil, Plus, PencilSimple, Trash } from "@phosphor-icons/react";
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { Button } from "@/components/ui/button";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import {
   createProjectNote,
   listProjectNotes,
@@ -109,14 +111,7 @@ export function ProjectNotesPanel({ workspaceId, projectId, canWrite }: ProjectN
       </div>
 
       {canWrite && createFormOpen ? <form className="grid min-w-0 gap-2" onSubmit={handleSubmit}>
-        <select className="h-9 rounded-md border border-input bg-card px-3 text-sm" value={type} onChange={(event) => setType(noteType(event.target.value))}><option value="NOTE">Anotação</option><option value="DECISION">Decisão</option><option value="CONTEXT">Contexto</option></select><textarea
-          className="min-h-28 w-full min-w-0 resize-y rounded-md border border-input bg-card px-3 py-2 text-sm outline-none ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-          maxLength={MAX_NOTE_CONTENT_LENGTH}
-          placeholder="Escreva uma observacao, comando, instrucao, link ou referencia tecnica."
-          aria-label="Conteudo da anotacao"
-        />
+        <select className="h-9 rounded-md border border-input bg-card px-3 text-sm" value={type} onChange={(event) => setType(noteType(event.target.value))}><option value="NOTE">Anotação</option><option value="DECISION">Decisão</option><option value="CONTEXT">Contexto</option></select><MarkdownEditor value={content} onChange={setContent} maxLength={MAX_NOTE_CONTENT_LENGTH} placeholder="Escreva uma observação em Markdown." ariaLabel="Conteúdo da anotação" />
         <p className="text-right text-[11px] text-muted-foreground">
           {content.length}/{MAX_NOTE_CONTENT_LENGTH}
         </p>
@@ -157,9 +152,7 @@ export function ProjectNotesPanel({ workspaceId, projectId, canWrite }: ProjectN
                     {formatDate(note.createdAt)}
                   </time>
                 </div>
-                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-card-foreground">
-                  {note.content}
-                </p>{canWrite ? <div className="mt-3 flex gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => startEditing(note)}><PencilSimple className="h-4 w-4" />Editar</Button><Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(note)}><Trash className="h-4 w-4" />Excluir</Button></div> : null}
+                <MarkdownRenderer content={note.content} className="text-card-foreground" />{canWrite ? <div className="mt-3 flex gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => startEditing(note)}><PencilSimple className="h-4 w-4" />Editar</Button><Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(note)}><Trash className="h-4 w-4" />Excluir</Button></div> : null}
               </li>
             ))}
           </ol>

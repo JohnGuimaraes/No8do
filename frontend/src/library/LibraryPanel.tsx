@@ -3,6 +3,8 @@ import { BookOpen, Code, FileText, Fingerprint, FlowArrow, GearSix, HardDrives, 
 import { ConfirmationDialog } from "@/components/ConfirmationDialog";
 import { ToastNotification } from "@/components/ToastNotification";
 import { ViewModeToggle, type ViewMode } from "@/components/ViewModeToggle";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { LibraryListSection } from "@/library/LibraryListSection";
 import { LibraryItemCard } from "@/library/LibraryItemCard";
 import { LibrarySection } from "@/library/LibrarySection";
@@ -430,7 +432,7 @@ export function LibraryPanel({
                         <code>{selectedItem.content}</code>
                       </pre>
                     ) : (
-                      <p className="whitespace-pre-wrap text-sm text-foreground">{selectedItem.content}</p>
+                    selectedItem.type === "NOTE" ? <MarkdownRenderer content={selectedItem.content} /> : <p className="whitespace-pre-wrap text-sm text-foreground">{selectedItem.content}</p>
                     )
                   ) : null}
                   <dl className="grid gap-2 border-t border-border pt-4 text-xs text-muted-foreground sm:grid-cols-2">
@@ -471,7 +473,7 @@ function SemanticField({ field, config, value, onChange }: { field: FormField; c
   const required = config.required.includes(field);
   const label = getFieldLabel(config.label, field);
   const common = { value, onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(event.target.value), required, "aria-required": required, maxLength: field === "title" ? 180 : field === "content" ? 20000 : 2000, placeholder: config.placeholders[field] };
-  return <label className="grid gap-1.5 text-sm font-medium text-foreground"><span>{label}{required ? " *" : ""}</span>{field === "title" || field === "url" ? <input {...common} autoFocus={field === "title"} type={field === "url" ? "url" : "text"} className="rounded-md border border-input bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25" /> : <textarea {...common} className={`rounded-md border border-input bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 ${field === "content" ? "min-h-32" : "min-h-20"}`} />}</label>;
+  return <label className="grid gap-1.5 text-sm font-medium text-foreground"><span>{label}{required ? " *" : ""}</span>{field === "title" || field === "url" ? <input {...common} autoFocus={field === "title"} type={field === "url" ? "url" : "text"} className="rounded-md border border-input bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25" /> : field === "content" && config.label === "Nota" ? <MarkdownEditor value={value} onChange={onChange} maxLength={20000} placeholder={config.placeholders[field] ?? "Escreva em Markdown."} ariaLabel={label} /> : <textarea {...common} className={`rounded-md border border-input bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/25 ${field === "content" ? "min-h-32" : "min-h-20"}`} />}</label>;
 }
 
 function getFieldLabel(typeLabel: string, field: FormField) {
