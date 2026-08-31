@@ -1,6 +1,9 @@
 package com.no8do.api.github;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -61,6 +64,56 @@ class WorkspaceGithubAppStatusControllerTests {
         mockMvc.perform(get("/api/workspaces/{workspaceId}/integrations/github/app", workspace.getId())
                 .with(user(new No8doUserDetails(outsider))))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void onlyWorkspaceManagersCanDisconnectTheGithubAppInstallation() throws Exception {
+        User owner = createUser();
+        User admin = createUser();
+        User member = createUser();
+        User viewer = createUser();
+        User outsider = createUser();
+        Workspace workspace = workspaceRepository.save(new Workspace("Workspace " + UUID.randomUUID()));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, admin, WorkspaceRole.ADMIN));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
+
+        disconnectAndAssertPreserved(workspace, owner);
+        disconnectAndAssertPreserved(workspace, admin);
+
+        installationRepository.save(new WorkspaceGithubAppInstallation(workspace, owner,
+            new GithubAppInstallationMetadata(43L, 8L, "no8do-org", GithubAppInstallationAccountType.ORGANIZATION)));
+        assertDisconnectForbidden(workspace, member);
+        assertDisconnectForbidden(workspace, viewer);
+        assertDisconnectForbidden(workspace, outsider);
+    }
+
+    private void disconnectAndAssertPreserved(Workspace workspace, User actor) throws Exception {
+        installationRepository.save(new WorkspaceGithubAppInstallation(workspace, actor,
+            new GithubAppInstallationMetadata(42L, 7L, "no8do-org", GithubAppInstallationAccountType.ORGANIZATION)));
+
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/integrations/github/app-installation", workspace.getId())
+                .with(user(new No8doUserDetails(actor)))
+                .with(csrf()))
+            .andExpect(status().isNoContent());
+
+        assertThat(installationRepository.existsById(workspace.getId())).isFalse();
+        assertThat(workspaceRepository.existsById(workspace.getId())).isTrue();
+        assertThat(userRepository.existsById(actor.getId())).isTrue();
+
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/integrations/github/app-installation", workspace.getId())
+                .with(user(new No8doUserDetails(actor)))
+                .with(csrf()))
+            .andExpect(status().isNoContent());
+    }
+
+    private void assertDisconnectForbidden(Workspace workspace, User actor) throws Exception {
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/integrations/github/app-installation", workspace.getId())
+                .with(user(new No8doUserDetails(actor)))
+                .with(csrf()))
+            .andExpect(status().isForbidden());
+        assertThat(installationRepository.existsById(workspace.getId())).isTrue();
     }
 
     private void assertSafeStatus(Workspace workspace, User user) throws Exception {

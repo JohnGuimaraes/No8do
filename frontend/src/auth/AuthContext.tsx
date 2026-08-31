@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { apiRequest } from "@/lib/api";
-import { deleteAccount, type DeleteAccountInput } from "@/account/accountApi";
+import { deleteAccount, updateProfile, type DeleteAccountInput } from "@/account/accountApi";
 
 export type AuthUser = {
   id: string;
@@ -37,6 +37,7 @@ type AuthContextValue = {
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: (input: DeleteAccountInput) => Promise<void>;
+  updateProfile: (input: { name: string }) => Promise<void>;
   loadCurrentUser: () => Promise<void>;
 };
 
@@ -100,6 +101,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("unauthenticated");
   }, []);
 
+  const updateCurrentProfile = useCallback(async (input: { name: string }) => {
+    const currentUser = await updateProfile(input);
+    setUser(currentUser);
+    setStatus("authenticated");
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -109,9 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       deleteAccount: removeAccount,
+      updateProfile: updateCurrentProfile,
       loadCurrentUser,
     }),
-    [loadCurrentUser, login, logout, register, registerWorkspaceInvite, removeAccount, status, user],
+    [loadCurrentUser, login, logout, register, registerWorkspaceInvite, removeAccount, status, updateCurrentProfile, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -113,6 +113,13 @@ public class AuthService {
     }
 
     @Transactional
+    public AuthUserResponse updateCurrentUser(Authentication authentication, UpdateProfileRequest request) {
+        User user = currentUserEntity(authentication);
+        user.setName(request.name());
+        return AuthUserResponse.from(user);
+    }
+
+    @Transactional
     public void deleteCurrentUser(Authentication authentication, DeleteAccountRequest request) {
         User user = currentUserEntity(authentication);
         validateAccountDeletionConfirmation(user, request);

@@ -85,6 +85,10 @@ export function getWorkspaceGithubAppInstallation(workspaceId: string) {
   return apiRequest<WorkspaceGithubAppInstallation>(`/api/workspaces/${workspaceId}/integrations/github/app-installation`);
 }
 
+export function disconnectWorkspaceGithubAppInstallation(workspaceId: string) {
+  return apiRequest<void>(`/api/workspaces/${workspaceId}/integrations/github/app-installation`, { method: "DELETE" });
+}
+
 export function getWorkspaceGithubAppStatus(workspaceId: string) {
   return apiRequest<WorkspaceGithubAppStatus>(`/api/workspaces/${workspaceId}/integrations/github/app`);
 }
