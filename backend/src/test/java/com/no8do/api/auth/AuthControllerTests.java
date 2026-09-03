@@ -256,7 +256,20 @@ class AuthControllerTests {
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isUnauthorized());
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error").value("Invalid credentials"));
+    }
+
+    @Test
+    void loginWithUnknownEmailReturnsTheSameGenericAuthenticationError() throws Exception {
+        LoginRequest request = new LoginRequest(uniqueEmail(), "senha-errada");
+
+        mockMvc.perform(post("/api/auth/login")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error").value("Invalid credentials"));
     }
 
     @Test

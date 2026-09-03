@@ -151,6 +151,20 @@ class WorkspaceInviteControllerTests {
         assertThat(inviteRepository.findByTokenHash(hash(token)).orElseThrow().getAcceptedAt()).isNotNull();
     }
 
+    @Test
+    void inviteRegistrationStillReturnsConflictForAnExistingAccount() throws Exception {
+        User owner = createUser("owner");
+        Workspace workspace = workspace(owner, WorkspaceRole.OWNER);
+        User existingUser = createUser("existing");
+        String token = createToken(workspace, owner, existingUser.getEmail(), "VIEWER");
+
+        mockMvc.perform(post("/api/workspace-invites/{token}/register", token).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("name", "Existing User", "password", "password123"))))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value("Account already exists. Sign in to accept the invitation."));
+    }
+
     private org.springframework.test.web.servlet.ResultActions createInvite(Workspace workspace, User user, String email, String role) throws Exception {
         return mockMvc.perform(post("/api/workspaces/{workspaceId}/invites", workspace.getId())
             .with(user(new No8doUserDetails(user))).with(csrf()).contentType(MediaType.APPLICATION_JSON)

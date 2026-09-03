@@ -4,7 +4,7 @@ import no8doIcon from "@/assets/logo/no8do-icone.png";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthContext";
 import { WorkspaceNodeGraphic } from "@/components/visual/WorkspaceNodeGraphic";
-import { getApiUrl } from "@/lib/api";
+import { ApiRequestError, getApiUrl } from "@/lib/api";
 
 type LoginPageProps = {
   onShowRegister: () => void;
@@ -28,7 +28,9 @@ export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = 
     try {
       await login({ email, password });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel entrar.");
+      setError(err instanceof ApiRequestError && err.status === 401
+        ? "E-mail ou senha inválidos."
+        : err instanceof Error ? err.message : "Nao foi possivel entrar.");
     } finally {
       setSubmitting(false);
     }
