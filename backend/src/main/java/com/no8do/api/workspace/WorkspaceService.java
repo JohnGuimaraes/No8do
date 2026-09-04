@@ -12,6 +12,7 @@ import com.no8do.api.note.ProjectNoteRepository;
 import com.no8do.api.project.FileStorageService;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
+import com.no8do.api.replay.ReplayRepository;
 import com.no8do.api.technicalinfo.ProjectTechnicalInfoRepository;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workitem.ProjectWorkItemRepository;
@@ -45,6 +46,7 @@ public class WorkspaceService {
     private final WorkspaceGithubLinkRepository workspaceGithubLinkRepository;
     private final WorkspaceGithubAppInstallationRepository workspaceGithubAppInstallationRepository;
     private final WorkspaceGithubAppInstallStateRepository workspaceGithubAppInstallStateRepository;
+    private final ReplayRepository replayRepository;
     private final FileStorageService fileStorageService;
 
     public WorkspaceService(
@@ -65,6 +67,7 @@ public class WorkspaceService {
             WorkspaceGithubLinkRepository workspaceGithubLinkRepository,
             WorkspaceGithubAppInstallationRepository workspaceGithubAppInstallationRepository,
             WorkspaceGithubAppInstallStateRepository workspaceGithubAppInstallStateRepository,
+            ReplayRepository replayRepository,
             FileStorageService fileStorageService
     ) {
         this.userRepository = userRepository;
@@ -84,6 +87,7 @@ public class WorkspaceService {
         this.workspaceGithubLinkRepository = workspaceGithubLinkRepository;
         this.workspaceGithubAppInstallationRepository = workspaceGithubAppInstallationRepository;
         this.workspaceGithubAppInstallStateRepository = workspaceGithubAppInstallStateRepository;
+        this.replayRepository = replayRepository;
         this.fileStorageService = fileStorageService;
     }
 
@@ -127,6 +131,7 @@ public class WorkspaceService {
         workspaceGithubLinkRepository.deleteByWorkspaceId(workspaceId);
         ideaRepository.deleteByWorkspaceId(workspaceId);
         libraryItemRepository.deleteByWorkspaceId(workspaceId);
+        replayRepository.deleteByWorkspaceId(workspaceId);
         workspaceInviteRepository.deleteByWorkspaceId(workspaceId);
 
         for (Project project : projects) {
