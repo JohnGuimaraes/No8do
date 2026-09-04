@@ -18,6 +18,7 @@ import { WorkspaceDashboard } from "@/dashboard/WorkspaceDashboard";
 import { IdeasPanel } from "@/ideas/IdeasPanel";
 import { listIdeas, type Idea, type IdeaStatus, type IdeaType } from "@/ideas/ideaApi";
 import { LibraryPanel } from "@/library/LibraryPanel";
+import { ReplaysPanel } from "@/replays/ReplaysPanel";
 import { listLibraryItems, type LibraryItem, type LibraryItemType } from "@/library/libraryApi";
 import {
   archiveProject,
@@ -44,7 +45,7 @@ import { type Workspace } from "@/workspaces/workspaceApi";
 import { ProjectMedia } from "@/components/visual/ProjectMedia";
 import no8doLogo from "@/assets/logo/no8do-logo.png";
 
-export type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas";
+export type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas" | "replays";
 type SearchDomain = "project" | "library" | "idea";
 type SearchResult = {
   id: string;
@@ -66,6 +67,7 @@ const WORKSPACE_SECTIONS: Array<{ id: WorkspaceSection; label: string; descripti
     label: "Acervo",
     description: "Conhecimento, referências e ativos compartilhados do workspace.",
   },
+  { id: "replays", label: "Replays", description: "Soluções e conhecimento técnico reutilizável deste workspace." },
   {
     id: "ideas",
     label: "Ideias",
@@ -777,6 +779,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
               onIdeaRestored={(idea) => setIdeas((current) => [idea, ...current.filter((item) => item.id !== idea.id)])}
             />
           ) : null}
+          {activeSection === "replays" ? <ReplaysPanel workspaceId={workspace.id} canWrite={canWrite} /> : null}
         </>
       )}
 

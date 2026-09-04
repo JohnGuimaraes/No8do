@@ -4,6 +4,7 @@ import { type AuthUser, useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { disconnectUserGithub, getUserGithubConnection, type UserGithubConnection } from "@/account/githubApi";
 import { getApiUrl } from "@/lib/api";
+import { PersonalApiTokensPanel } from "@/account/PersonalApiTokensPanel";
 
 type AccountPageProps = {
   user: AuthUser | null;
@@ -173,6 +174,8 @@ export function ProfilePage({ user, onReturnToWorkspace, onLogout, onDeleteAccou
           <div className="flex w-fit items-center gap-2">{githubConnection?.connected ? <Button type="button" variant="ghost" size="sm" onClick={(event) => void handleDisconnectGithub(event)} disabled={disconnectingGithub}>{disconnectingGithub ? "Desconectando..." : "Desconectar"}</Button> : githubConnection ? <Button type="button" size="sm" onClick={() => window.location.assign(getApiUrl("/api/account/integrations/github/connect"))}>Conectar GitHub</Button> : null}</div>
         </article>
       </section>
+
+      <PersonalApiTokensPanel />
 
       <section className="grid gap-4 border-t border-border/75 pt-6" aria-labelledby="profile-danger-title">
         <header><p className="flex items-center gap-2 text-xs font-medium uppercase tracking-[.12em] text-destructive"><WarningCircle className="h-4 w-4" />Zona de perigo</p><h2 id="profile-danger-title" className="mt-1 text-xl font-semibold tracking-tight text-foreground">Excluir minha conta</h2></header>

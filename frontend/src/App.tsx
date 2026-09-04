@@ -15,7 +15,7 @@ import { WorkspaceInvitePage } from "@/workspaces/WorkspaceInvitePage";
 import { WorkspaceSwitcher } from "@/workspaces/WorkspaceSwitcher";
 import { createWorkspace, listWorkspaces, type Workspace } from "@/workspaces/workspaceApi";
 
-type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas";
+type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas" | "replays";
 
 type HealthStatus = "checking" | "online" | "offline";
 type AppRoute =
@@ -51,7 +51,7 @@ function readRoute(): AppRoute {
       section: readWorkspaceSection(new URLSearchParams(window.location.search).get("from")),
     };
   }
-  const workspaceRoute = pathname.match(/^\/w\/([^/]+)(?:\/(acervo|ideias|desenvolvimento|pendencias|finalizados))?$/);
+  const workspaceRoute = pathname.match(/^\/w\/([^/]+)(?:\/(acervo|ideias|desenvolvimento|pendencias|finalizados|replays))?$/);
   if (workspaceRoute) {
     return {
       view: "workspace",
@@ -69,6 +69,7 @@ function readWorkspaceSection(value: string | null | undefined): WorkspaceSectio
     case "desenvolvimento": return "development";
     case "pendencias": return "work-items";
     case "finalizados": return "projects";
+    case "replays": return "replays";
     default: return "overview";
   }
 }
@@ -81,6 +82,7 @@ function workspacePath(workspaceId: string, section: WorkspaceSection) {
     development: "/desenvolvimento",
     "work-items": "/pendencias",
     projects: "/finalizados",
+    replays: "/replays",
   }[section];
   return `/w/${encodeURIComponent(workspaceId)}${segment}`;
 }
