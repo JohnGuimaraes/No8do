@@ -1,0 +1,5 @@
+package com.no8do.api.replay;
+
+public enum ReplayType {
+    FIX, PATTERN, RECIPE, SNIPPET, DECISION, PROCEDURE, CHECKLIST, TROUBLESHOOTING, PROMPT, REFERENCE
+}
