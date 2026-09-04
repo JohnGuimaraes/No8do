@@ -63,3 +63,38 @@ Frontend:
 cd frontend
 npm run typecheck
 npm run build
+
+## Uso controlado do navegador
+
+O navegador local controlado via `mcp__cua_repl` / `unified-computer-use` deve ser usado somente quando realmente necessário para validar comportamento visual ou interação que não possa ser confirmada com segurança por código, testes, logs, API ou terminal.
+
+Prioridade de validação:
+
+1. inspeção de código;
+2. testes automatizados;
+3. logs, terminal ou chamadas HTTP;
+4. DOM ou Playwright pontual;
+5. CUA visual;
+6. screenshots somente quando ajudarem a diagnosticar algo específico.
+
+Antes de usar o navegador, avaliar: "Isso realmente exige interação visual?" Se a resposta for não, não usar navegador.
+
+Não usar navegador apenas para confirmar algo já comprovado por typecheck, build, testes automatizados, resposta da API, inspeção do código, logs ou DOM determinístico.
+
+Quando o navegador for necessário:
+
+- Reutilizar o Chrome atual conectado e a aba atual sempre que possível.
+- Não abrir outro navegador, usar outro perfil ou abrir novas abas sem necessidade.
+- Executar somente o fluxo mínimo necessário e parar assim que a hipótese estiver validada.
+- Evitar exploração visual ampla, screenshots repetitivas e navegação por telas sem relação direta com a tarefa.
+
+Uso recomendado:
+
+- CUA visual: layout, modais, foco, formulários, drag and drop, navegação real e comportamentos que dependem da experiência do usuário.
+- Playwright ou DOM: presença de elementos, atributos, textos, estados e validações determinísticas da interface.
+- CDP ou DevTools: console, network, requests, erros de browser e diagnóstico técnico específico.
+- Terminal, testes ou API: backend, autorização, persistência, banco, MCP, CSRF, versionamento, regras de negócio e respostas HTTP.
+
+O navegador não deve ser usado como ferramenta padrão de validação. Ao final de uma tarefa que utilizou navegador, relatar brevemente que foi usado, por que era necessário e qual verificação mínima foi realizada.
+
+Esta regra reduz consumo de tokens e torna o fluxo de desenvolvimento mais eficiente, sem impedir testes visuais quando realmente necessários.
