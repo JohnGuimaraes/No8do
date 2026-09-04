@@ -3,7 +3,9 @@ package com.no8do.api.auth;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,10 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final PersonalApiTokenService personalApiTokenService;
     private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, PersonalApiTokenService personalApiTokenService) {
         this.authService = authService;
+        this.personalApiTokenService = personalApiTokenService;
     }
 
     @PostMapping("/register")
@@ -43,6 +47,21 @@ public class AuthController {
     @PostMapping("/password/reset")
     public Map<String, String> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
         return authService.resetPassword(request);
+    }
+
+    @PostMapping("/api-tokens")
+    public CreatedPersonalApiTokenResponse createApiToken(Authentication authentication, @Valid @RequestBody CreatePersonalApiTokenRequest request) {
+        return personalApiTokenService.create(currentUserId(authentication), request);
+    }
+
+    @GetMapping("/api-tokens")
+    public List<PersonalApiTokenResponse> listApiTokens(Authentication authentication) {
+        return personalApiTokenService.list(currentUserId(authentication));
+    }
+
+    @DeleteMapping("/api-tokens/{tokenId}")
+    public void revokeApiToken(Authentication authentication, @org.springframework.web.bind.annotation.PathVariable UUID tokenId) {
+        personalApiTokenService.revoke(currentUserId(authentication), tokenId);
     }
 
     @GetMapping("/google")
@@ -80,5 +99,9 @@ public class AuthController {
         authService.deleteCurrentUser(authentication, deleteRequest);
         logoutHandler.logout(httpRequest, response, authentication);
         return Map.of("status", "ok");
+    }
+
+    private UUID currentUserId(Authentication authentication) {
+        return ((No8doUserDetails) authentication.getPrincipal()).user().getId();
     }
 }

@@ -26,6 +26,9 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/pnpm-debug.log*
 frontend/coverage/
+mcp/node_modules/
+mcp/dist/
+mcp/*.tsbuildinfo
 
 ## ===== Backend (Java / Maven / Spring Boot) =====
 backend/target/

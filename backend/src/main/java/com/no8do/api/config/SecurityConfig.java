@@ -2,6 +2,8 @@ package com.no8do.api.config;
 
 import com.no8do.api.auth.GoogleOAuth2FailureHandler;
 import com.no8do.api.auth.GoogleOAuth2SuccessHandler;
+import com.no8do.api.auth.PersonalApiTokenAuthenticationFilter;
+import com.no8do.api.auth.PersonalApiTokenService;
 import com.no8do.api.auth.TransientOAuth2AuthorizedClientRepository;
 import jakarta.servlet.DispatcherType;
 import java.util.List;
@@ -21,6 +23,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -35,6 +38,7 @@ public class SecurityConfig {
     private final GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler;
     private final GoogleOAuth2FailureHandler googleOAuth2FailureHandler;
     private final TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository;
+    private final PersonalApiTokenAuthenticationFilter personalApiTokenAuthenticationFilter;
 
     public SecurityConfig(
             @Value("${no8do.cors.allowed-origin:}") String corsAllowedOrigin,
@@ -42,7 +46,8 @@ public class SecurityConfig {
             ObjectProvider<ClientRegistrationRepository> clientRegistrationRepository,
             GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler,
             GoogleOAuth2FailureHandler googleOAuth2FailureHandler,
-            TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository
+            TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository,
+            PersonalApiTokenAuthenticationFilter personalApiTokenAuthenticationFilter
     ) {
         this.corsAllowedOrigin = corsAllowedOrigin;
         this.secureCookies = secureCookies;
@@ -50,13 +55,15 @@ public class SecurityConfig {
         this.googleOAuth2SuccessHandler = googleOAuth2SuccessHandler;
         this.googleOAuth2FailureHandler = googleOAuth2FailureHandler;
         this.transientOAuth2AuthorizedClientRepository = transientOAuth2AuthorizedClientRepository;
+        this.personalApiTokenAuthenticationFilter = personalApiTokenAuthenticationFilter;
     }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository()))
+            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository())
+                .ignoringRequestMatchers(request -> Boolean.TRUE.equals(request.getAttribute(PersonalApiTokenService.CSRF_BYPASS_ATTRIBUTE))))
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
             .exceptionHandling(exceptions -> exceptions
@@ -81,6 +88,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll()
             );
+        http.addFilterBefore(personalApiTokenAuthenticationFilter, CsrfFilter.class);
 
         if (clientRegistrationRepository.getIfAvailable() != null) {
             http.oauth2Login(oauth2 -> oauth2

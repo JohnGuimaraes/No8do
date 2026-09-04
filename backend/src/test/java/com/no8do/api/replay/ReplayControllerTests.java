@@ -11,6 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.auth.CreatePersonalApiTokenRequest;
+import com.no8do.api.auth.CreatedPersonalApiTokenResponse;
+import com.no8do.api.auth.PersonalApiTokenService;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.User;
@@ -42,6 +45,7 @@ class ReplayControllerTests {
     @Autowired private UserRepository userRepository;
     @Autowired private WorkspaceRepository workspaceRepository;
     @Autowired private WorkspaceMemberRepository workspaceMemberRepository;
+    @Autowired private PersonalApiTokenService personalApiTokenService;
 
     @Test
     void ownerAdminAndMemberCanCreateWhileViewerAndOutsiderCannot() throws Exception {
@@ -210,6 +214,42 @@ class ReplayControllerTests {
                 .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"title\":\"Replay\",\"type\":\"INVALID\"}"))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void csrfRemainsRequiredForSessionButValidBearerBypassesItAfterAuthentication() throws Exception {
+        Workspace workspace = workspace();
+        User member = member(workspace, WorkspaceRole.MEMBER);
+        CreatedPersonalApiTokenResponse token = personalApiTokenService.create(member.getId(), new CreatePersonalApiTokenRequest("MCP"));
+        String body = objectMapper.writeValueAsString(createRequest("Com bearer", null, null));
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .with(user(new No8doUserDetails(member))).contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .header("Authorization", "Bearer " + token.value()).contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .header("Authorization", "Bearer invalid").contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isUnauthorized());
+        personalApiTokenService.revoke(member.getId(), token.token().id());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .header("Authorization", "Bearer " + token.value()).contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void bearerPreservesWorkspaceRoles() throws Exception {
+        Workspace workspace = workspace();
+        User viewer = member(workspace, WorkspaceRole.VIEWER);
+        User outsider = createUser();
+        Replay replay = replay(workspace, viewer, "Leitura");
+        String viewerToken = personalApiTokenService.create(viewer.getId(), new CreatePersonalApiTokenRequest("Viewer")).value();
+        String outsiderToken = personalApiTokenService.create(outsider.getId(), new CreatePersonalApiTokenRequest("Outsider")).value();
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId()).param("q", "Leitura").header("Authorization", "Bearer " + viewerToken)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays", workspace.getId()).header("Authorization", "Bearer " + viewerToken).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(createRequest("Negado", null, null)))).andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId()).header("Authorization", "Bearer " + viewerToken).contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(updateRequest("Negado", null)))).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", workspace.getId()).header("Authorization", "Bearer " + outsiderToken)).andExpect(status().isForbidden());
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder create(
