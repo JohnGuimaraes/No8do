@@ -41,6 +41,7 @@ class ReplayControllerTests {
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private ReplayRepository replayRepository;
+    @Autowired private ReplayUsageRepository replayUsageRepository;
     @Autowired private ProjectRepository projectRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private WorkspaceRepository workspaceRepository;
@@ -143,7 +144,8 @@ class ReplayControllerTests {
                 .with(user(new No8doUserDetails(owner))))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value(replay.getId().toString()))
-            .andExpect(jsonPath("$.workspaceId").value(workspace.getId().toString()));
+            .andExpect(jsonPath("$.workspaceId").value(workspace.getId().toString()))
+            .andExpect(jsonPath("$.recentUsages").doesNotExist());
     }
 
     @Test
@@ -252,6 +254,68 @@ class ReplayControllerTests {
         mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", workspace.getId()).header("Authorization", "Bearer " + outsiderToken)).andExpect(status().isForbidden());
     }
 
+    @Test
+    void registerUsageStoresImmutableHistoryAndUpdatesReplayMetrics() throws Exception {
+        Workspace workspace = workspace();
+        User member = member(workspace, WorkspaceRole.MEMBER);
+        Project project = project(workspace, member);
+        Replay replay = replay(workspace, member, "Replay aplicado");
+
+        mockMvc.perform(registerUsage(workspace, member, replay.getId(),
+                new RegisterReplayUsageRequest(project.getId(), null, ReplayUsageResult.SUCCESS, ReplayUsageSource.MANUAL, "Aplicado pela UI")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.replayId").value(replay.getId().toString()))
+            .andExpect(jsonPath("$.replayVersion").value(1))
+            .andExpect(jsonPath("$.result").value("SUCCESS"))
+            .andExpect(jsonPath("$.source").value("MANUAL"))
+            .andExpect(jsonPath("$.projectId").value(project.getId().toString()))
+            .andExpect(jsonPath("$.context").value("Aplicado pela UI"));
+
+        mockMvc.perform(registerUsage(workspace, member, replay.getId(),
+                new RegisterReplayUsageRequest(null, 1, ReplayUsageResult.FAILURE, ReplayUsageSource.MCP, "Falhou depois")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.source").value("MCP"));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(member))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.usageCount").value(2))
+            .andExpect(jsonPath("$.successCount").value(1))
+            .andExpect(jsonPath("$.failureCount").value(1))
+            .andExpect(jsonPath("$.lastUsedAt").exists())
+            .andExpect(jsonPath("$.recentUsages").doesNotExist());
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/usages", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(member))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[0].result").value("FAILURE"))
+            .andExpect(jsonPath("$[0].source").value("MCP"))
+            .andExpect(jsonPath("$[1].result").value("SUCCESS"))
+            .andExpect(jsonPath("$[1].source").value("MANUAL"));
+
+        org.assertj.core.api.Assertions.assertThat(replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replay.getId())).hasSize(2);
+    }
+
+    @Test
+    void registerUsageRequiresWriteAccessAndWorkspaceScopedProject() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        User viewer = member(workspace, WorkspaceRole.VIEWER);
+        User outsider = createUser();
+        Replay replay = replay(workspace, owner, "Replay");
+        Workspace otherWorkspace = workspace();
+        User otherOwner = member(otherWorkspace, WorkspaceRole.OWNER);
+        Project otherProject = project(otherWorkspace, otherOwner);
+
+        RegisterReplayUsageRequest request = new RegisterReplayUsageRequest(null, null, ReplayUsageResult.UNKNOWN, ReplayUsageSource.MCP, null);
+        mockMvc.perform(registerUsage(workspace, viewer, replay.getId(), request)).andExpect(status().isForbidden());
+        mockMvc.perform(registerUsage(workspace, outsider, replay.getId(), request)).andExpect(status().isForbidden());
+        mockMvc.perform(registerUsage(workspace, owner, replay.getId(),
+                new RegisterReplayUsageRequest(otherProject.getId(), null, ReplayUsageResult.SUCCESS, ReplayUsageSource.MCP, null)))
+            .andExpect(status().isNotFound());
+    }
+
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder create(
             Workspace workspace, User actor, CreateReplayRequest request
     ) throws Exception {
@@ -264,6 +328,14 @@ class ReplayControllerTests {
             Workspace workspace, User actor, UUID replayId, UpdateReplayRequest request
     ) throws Exception {
         return patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replayId)
+            .with(user(new No8doUserDetails(actor))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request));
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder registerUsage(
+            Workspace workspace, User actor, UUID replayId, RegisterReplayUsageRequest request
+    ) throws Exception {
+        return post("/api/workspaces/{workspaceId}/replays/{replayId}/usages", workspace.getId(), replayId)
             .with(user(new No8doUserDetails(actor))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request));
     }
