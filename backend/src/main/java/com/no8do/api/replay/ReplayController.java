@@ -52,4 +52,16 @@ public class ReplayController {
             @AuthenticationPrincipal No8doUserDetails currentUser, @RequestBody UpdateReplayRequest request) {
         return replayService.update(workspaceId, replayId, currentUser.user().getId(), request);
     }
+
+    @PostMapping("/{replayId}/usages")
+    public ReplayUsageResponse registerUsage(@PathVariable UUID workspaceId, @PathVariable UUID replayId,
+            @AuthenticationPrincipal No8doUserDetails currentUser, @Valid @RequestBody RegisterReplayUsageRequest request) {
+        return replayService.registerUsage(workspaceId, replayId, currentUser.user().getId(), request);
+    }
+
+    @GetMapping("/{replayId}/usages")
+    public List<ReplayUsageResponse> listUsages(@PathVariable UUID workspaceId, @PathVariable UUID replayId,
+            @AuthenticationPrincipal No8doUserDetails currentUser) {
+        return replayService.listUsages(workspaceId, replayId, currentUser.user().getId());
+    }
 }

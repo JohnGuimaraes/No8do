@@ -80,6 +80,18 @@ public class Replay {
     @Column(nullable = false)
     private int version;
 
+    @Column(name = "usage_count", nullable = false)
+    private int usageCount;
+
+    @Column(name = "success_count", nullable = false)
+    private int successCount;
+
+    @Column(name = "failure_count", nullable = false)
+    private int failureCount;
+
+    @Column(name = "last_used_at")
+    private Instant lastUsedAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;

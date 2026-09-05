@@ -21,6 +21,7 @@ public class ReplayService {
     private static final int MAX_TITLE_LENGTH = 180;
 
     private final ReplayRepository replayRepository;
+    private final ReplayUsageRepository replayUsageRepository;
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
@@ -28,12 +29,14 @@ public class ReplayService {
 
     public ReplayService(
             ReplayRepository replayRepository,
+            ReplayUsageRepository replayUsageRepository,
             ProjectRepository projectRepository,
             UserRepository userRepository,
             WorkspaceRepository workspaceRepository,
             WorkspaceAuthorizationService workspaceAuthorizationService
     ) {
         this.replayRepository = replayRepository;
+        this.replayUsageRepository = replayUsageRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.workspaceRepository = workspaceRepository;
@@ -117,6 +120,36 @@ public class ReplayService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Replay search query is required");
         }
         return replayRepository.searchByWorkspaceId(workspaceId, query.trim()).stream().map(ReplayResponse::from).toList();
+    }
+
+    @Transactional
+    public ReplayUsageResponse registerUsage(UUID workspaceId, UUID replayId, UUID currentUserId, RegisterReplayUsageRequest request) {
+        workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
+        Replay replay = find(workspaceId, replayId);
+        Project project = resolveProject(workspaceId, request.projectId());
+        int replayVersion = request.replayVersion() == null ? replay.getVersion() : request.replayVersion();
+        ReplayUsage usage = new ReplayUsage(
+            replay,
+            project,
+            userRepository.getReferenceById(currentUserId),
+            replayVersion,
+            request.result(),
+            request.source(),
+            normalizeOptionalText(request.context())
+        );
+        replayUsageRepository.saveAndFlush(usage);
+        ReplayUsageResponse response = ReplayUsageResponse.from(usage);
+        int successIncrement = request.result() == ReplayUsageResult.SUCCESS ? 1 : 0;
+        int failureIncrement = request.result() == ReplayUsageResult.FAILURE ? 1 : 0;
+        replayRepository.incrementUsageMetrics(workspaceId, replayId, successIncrement, failureIncrement, usage.getUsedAt());
+        return response;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReplayUsageResponse> listUsages(UUID workspaceId, UUID replayId, UUID currentUserId) {
+        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        find(workspaceId, replayId);
+        return replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replayId).stream().map(ReplayUsageResponse::from).toList();
     }
 
     private Replay find(UUID workspaceId, UUID replayId) {

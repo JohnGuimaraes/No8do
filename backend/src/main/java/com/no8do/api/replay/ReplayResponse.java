@@ -19,6 +19,10 @@ public record ReplayResponse(
         List<String> stack,
         ReplayStatus status,
         int version,
+        int usageCount,
+        int successCount,
+        int failureCount,
+        Instant lastUsedAt,
         UUID createdBy,
         String createdByName,
         Instant createdAt,
@@ -33,6 +37,7 @@ public record ReplayResponse(
             replay.getTitle(), replay.getType(), replay.getProblem(), replay.getSolution(), replay.getContext(),
             List.copyOf(Arrays.asList(replay.getTags())), List.copyOf(Arrays.asList(replay.getStack())),
             replay.getStatus(), replay.getVersion(),
+            replay.getUsageCount(), replay.getSuccessCount(), replay.getFailureCount(), replay.getLastUsedAt(),
             replay.getCreatedBy() == null ? null : replay.getCreatedBy().getId(),
             replay.getCreatedBy() == null ? "Usuário excluído" : replay.getCreatedBy().getName(),
             replay.getCreatedAt(), replay.getUpdatedAt()
