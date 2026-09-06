@@ -23,6 +23,7 @@ public class ReplayService {
 
     private final ReplayRepository replayRepository;
     private final ReplayUsageRepository replayUsageRepository;
+    private final ReplayVersionRepository replayVersionRepository;
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
@@ -31,6 +32,7 @@ public class ReplayService {
     public ReplayService(
             ReplayRepository replayRepository,
             ReplayUsageRepository replayUsageRepository,
+            ReplayVersionRepository replayVersionRepository,
             ProjectRepository projectRepository,
             UserRepository userRepository,
             WorkspaceRepository workspaceRepository,
@@ -38,6 +40,7 @@ public class ReplayService {
     ) {
         this.replayRepository = replayRepository;
         this.replayUsageRepository = replayUsageRepository;
+        this.replayVersionRepository = replayVersionRepository;
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.workspaceRepository = workspaceRepository;
@@ -72,7 +75,9 @@ public class ReplayService {
         replay.setTags(normalizeTerms(request.tags()));
         replay.setStack(normalizeTerms(request.stack()));
         replay.setStatus(request.status() == null ? ReplayStatus.DRAFT : request.status());
-        return ReplayResponse.from(replayRepository.save(replay));
+        Replay saved = replayRepository.saveAndFlush(replay);
+        replayVersionRepository.save(new ReplayVersion(saved, userRepository.getReferenceById(currentUserId)));
+        return ReplayResponse.from(saved);
     }
 
     @Transactional
@@ -111,7 +116,9 @@ public class ReplayService {
         replay.setStatus(status);
         replay.setProject(project);
         replay.incrementVersion();
-        return ReplayResponse.from(replayRepository.saveAndFlush(replay));
+        Replay saved = replayRepository.saveAndFlush(replay);
+        replayVersionRepository.save(new ReplayVersion(saved, userRepository.getReferenceById(currentUserId)));
+        return ReplayResponse.from(saved);
     }
 
     @Transactional(readOnly = true)
@@ -169,6 +176,12 @@ public class ReplayService {
         find(workspaceId, replayId);
         return replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replayId).stream().map(ReplayUsageResponse::from).toList();
     }
+
+    @Transactional(readOnly = true)
+    public List<ReplayVersionResponse> listVersions(UUID workspaceId, UUID replayId, UUID currentUserId) { workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId); find(workspaceId, replayId); return replayVersionRepository.findByReplayIdOrderByVersionDesc(replayId).stream().map(ReplayVersionResponse::from).toList(); }
+
+    @Transactional(readOnly = true)
+    public ReplayVersionResponse getVersion(UUID workspaceId, UUID replayId, int version, UUID currentUserId) { workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId); find(workspaceId, replayId); return ReplayVersionResponse.from(replayVersionRepository.findByReplayIdAndVersion(replayId, version).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Replay version not found"))); }
 
     private Replay find(UUID workspaceId, UUID replayId) {
         return replayRepository.findByIdAndWorkspaceId(replayId, workspaceId)

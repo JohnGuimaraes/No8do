@@ -61,6 +61,12 @@ public class ReplayController {
         return replayRelationService.list(workspaceId, replayId, currentUser.user().getId());
     }
 
+    @GetMapping("/{replayId}/versions")
+    public List<ReplayVersionResponse> listVersions(@PathVariable UUID workspaceId, @PathVariable UUID replayId, @AuthenticationPrincipal No8doUserDetails currentUser) { return replayService.listVersions(workspaceId, replayId, currentUser.user().getId()); }
+
+    @GetMapping("/{replayId}/versions/{version}")
+    public ReplayVersionResponse getVersion(@PathVariable UUID workspaceId, @PathVariable UUID replayId, @PathVariable int version, @AuthenticationPrincipal No8doUserDetails currentUser) { return replayService.getVersion(workspaceId, replayId, version, currentUser.user().getId()); }
+
     @PostMapping("/{replayId}/relations")
     public ReplayRelationResponse createRelation(@PathVariable UUID workspaceId, @PathVariable UUID replayId, @AuthenticationPrincipal No8doUserDetails currentUser, @Valid @RequestBody CreateReplayRelationRequest request) {
         return replayRelationService.create(workspaceId, replayId, currentUser.user().getId(), request);

@@ -45,6 +45,7 @@ class ReplayControllerTests {
     @Autowired private ReplayRepository replayRepository;
     @Autowired private ReplayUsageRepository replayUsageRepository;
     @Autowired private ReplayRelationRepository replayRelationRepository;
+    @Autowired private ReplayVersionRepository replayVersionRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ProjectRepository projectRepository;
     @Autowired private UserRepository userRepository;
@@ -84,6 +85,36 @@ class ReplayControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.projectId").value(project.getId().toString()))
             .andExpect(jsonPath("$.status").value("VALIDATED"));
+    }
+
+    @Test
+    void createsImmutableSnapshotsForRealUpdatesAndKeepsUsageVersion() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER); Project project = project(workspace, owner);
+        mockMvc.perform(create(workspace, owner, createRequest("Versionado", project.getId(), ReplayStatus.DRAFT))).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1));
+        Replay replay = replayRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspace.getId()).getFirst();
+        org.assertj.core.api.Assertions.assertThat(replayVersionRepository.findByReplayIdOrderByVersionDesc(replay.getId())).hasSize(1).first().extracting(ReplayVersion::getVersion, ReplayVersion::getProjectId).containsExactly(1, project.getId());
+        mockMvc.perform(registerUsage(workspace, owner, replay.getId(), new RegisterReplayUsageRequest(null, null, ReplayUsageResult.SUCCESS, ReplayUsageSource.MANUAL, null))).andExpect(status().isOk()).andExpect(jsonPath("$.replayVersion").value(1));
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"solution\":\"v2\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
+        List<ReplayVersion> versions = replayVersionRepository.findByReplayIdOrderByVersionDesc(replay.getId());
+        org.assertj.core.api.Assertions.assertThat(versions).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(versions.get(1).getSolution()).isEqualTo("Solução");
+        org.assertj.core.api.Assertions.assertThat(replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replay.getId()).getFirst().getReplayVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void readsVersionsForViewerAndPreservesHistoricalProjectSnapshot() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER); User viewer = member(workspace, WorkspaceRole.VIEWER); User outsider = createUser(); Project project = project(workspace, owner); Replay replay = detailedReplay(workspace, owner, project);
+        replayVersionRepository.saveAndFlush(new ReplayVersion(replay, owner));
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"projectId\":null}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/versions", workspace.getId(), replay.getId()).with(user(new No8doUserDetails(viewer))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].version").value(2)).andExpect(jsonPath("$[0].projectId").doesNotExist());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/versions/{version}", workspace.getId(), replay.getId(), 1).with(user(new No8doUserDetails(viewer))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.projectId").value(project.getId().toString()));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/versions", workspace.getId(), replay.getId()).with(user(new No8doUserDetails(outsider)))).andExpect(status().isForbidden());
     }
 
     @Test
