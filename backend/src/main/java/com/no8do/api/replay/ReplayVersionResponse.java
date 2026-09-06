@@ -1,0 +1,3 @@
+package com.no8do.api.replay;
+import java.time.Instant; import java.util.*;
+public record ReplayVersionResponse(int version,String title,ReplayType type,String problem,String solution,String context,List<String> tags,List<String> stack,ReplayStatus status,UUID projectId,UUID changedBy,String changedByName,Instant createdAt){ static ReplayVersionResponse from(ReplayVersion value){ return new ReplayVersionResponse(value.getVersion(),value.getTitle(),value.getType(),value.getProblem(),value.getSolution(),value.getContext(),List.of(value.getTags()),List.of(value.getStack()),value.getStatus(),value.getProjectId(),value.getChangedBy()==null?null:value.getChangedBy().getId(),value.getChangedBy()==null?"Usuário excluído":value.getChangedBy().getName(),value.getCreatedAt()); } }
