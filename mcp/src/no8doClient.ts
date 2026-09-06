@@ -69,6 +69,9 @@ export class No8doClient {
     this.baseUrl = apiUrl.replace(/\/+$/, "").replace(/\/api$/, "");
   }
 
+  listReplays(workspaceId: string): Promise<Replay[]> {
+    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);
+  }
   searchReplays(workspaceId: string, query: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/search?q=${encodeURIComponent(query)}`);
   }
@@ -76,7 +79,9 @@ export class No8doClient {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}`);
   }
   createReplay(workspaceId: string, body: ReplayMutation): Promise<Replay> {
-    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`, { method: "POST", body: JSON.stringify(body) });
+    const { projectId, ...withoutProjectId } = body;
+    const payload = projectId === null ? withoutProjectId : body;
+    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`, { method: "POST", body: JSON.stringify(payload) });
   }
   updateReplay(workspaceId: string, replayId: string, body: ReplayUpdate): Promise<Replay> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}`, { method: "PATCH", body: JSON.stringify(body) });

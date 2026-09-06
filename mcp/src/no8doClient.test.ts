@@ -21,20 +21,34 @@ test("envia bearer e busca com query codificada", async () => {
   assert.equal(setup.calls[0][1]?.method, undefined);
 });
 
+test("lista o catálogo sem usar busca textual", async () => {
+  const setup = client(200, [replay]);
+  await setup.client.listReplays("w1");
+  assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays");
+  assert.equal(setup.calls[0][1]?.method, undefined);
+});
+
+test("lista retorna erro seguro para PAT inválido ou revogado", async () => {
+  const setup = client(401, { message: "token interno" });
+  await assert.rejects(() => setup.client.listReplays("w1"), (error: unknown) => error instanceof No8doApiError && error.message === "Token No8do ausente, inválido ou revogado.");
+});
+
 test("usa endpoints e corpos corretos para get, create, update e register usage", async () => {
   const setup = client();
   await setup.client.getReplay("w1", "r1");
   await setup.client.createReplay("w1", { title: "Novo", type: "RECIPE", tags: ["node"] });
+  await setup.client.createReplay("w1", { title: "Sem projeto", type: "RECIPE", projectId: null });
   await setup.client.updateReplay("w1", "r1", { solution: "melhor" });
   await setup.client.registerReplayUsage("w1", "r1", { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado" });
   assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays/r1");
   assert.equal(setup.calls[1][1]?.method, "POST");
   assert.deepEqual(JSON.parse(String(setup.calls[1][1]?.body)), { title: "Novo", type: "RECIPE", tags: ["node"] });
-  assert.equal(setup.calls[2][1]?.method, "PATCH");
-  assert.deepEqual(JSON.parse(String(setup.calls[2][1]?.body)), { solution: "melhor" });
-  assert.equal(setup.calls[3][0], "http://localhost:8080/api/workspaces/w1/replays/r1/usages");
-  assert.equal(setup.calls[3][1]?.method, "POST");
-  assert.deepEqual(JSON.parse(String(setup.calls[3][1]?.body)), { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado", source: "MCP" });
+  assert.deepEqual(JSON.parse(String(setup.calls[2][1]?.body)), { title: "Sem projeto", type: "RECIPE" });
+  assert.equal(setup.calls[3][1]?.method, "PATCH");
+  assert.deepEqual(JSON.parse(String(setup.calls[3][1]?.body)), { solution: "melhor" });
+  assert.equal(setup.calls[4][0], "http://localhost:8080/api/workspaces/w1/replays/r1/usages");
+  assert.equal(setup.calls[4][1]?.method, "POST");
+  assert.deepEqual(JSON.parse(String(setup.calls[4][1]?.body)), { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado", source: "MCP" });
 });
 
 test("força source MCP mesmo diante de entrada não tipada", async () => {
