@@ -35,6 +35,16 @@ test("busca sugestões reutilizáveis pelo endpoint similar", async () => {
   assert.deepEqual(JSON.parse(String(setup.calls[0][1]?.body)), { query: "Replay", tags: ["java"] });
 });
 
+test("lista, cria e remove relações pelos endpoints corretos", async () => {
+  const setup = client(200, []);
+  await setup.client.listReplayRelations("w1", "r1");
+  await setup.client.createReplayRelation("w1", "r1", "r2", "RELATED_TO");
+  await setup.client.deleteReplayRelation("w1", "r1", "rel1");
+  assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays/r1/relations");
+  assert.deepEqual(JSON.parse(String(setup.calls[1][1]?.body)), { targetReplayId: "r2", type: "RELATED_TO" });
+  assert.equal(setup.calls[2][1]?.method, "DELETE");
+});
+
 test("lista retorna erro seguro para PAT inválido ou revogado", async () => {
   const setup = client(401, { message: "token interno" });
   await assert.rejects(() => setup.client.listReplays("w1"), (error: unknown) => error instanceof No8doApiError && error.message === "Token No8do ausente, inválido ou revogado.");

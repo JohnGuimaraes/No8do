@@ -42,6 +42,8 @@ export interface Replay {
 }
 export interface SimilarReplay { id: string; title: string; type: ReplayType; status: ReplayStatus; version: number; stack: string[]; usageCount: number; score: number; }
 export type FindReusableKnowledgeInput = { query?: string; problem?: string; stack?: string[]; tags?: string[]; type?: ReplayType };
+export type ReplayRelationType = "RELATED_TO" | "SUPERSEDES" | "RESOLVES" | "DEPENDS_ON";
+export type ReplayRelation = { id: string; type: ReplayRelationType; direction: "RELATED" | "OUTGOING" | "INCOMING"; relatedReplayId: string; relatedReplayTitle: string; relatedReplayType: ReplayType; relatedReplayStatus: ReplayStatus; relatedReplayVersion: number; createdAt: string };
 
 export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId">>;
 export type ReplayUpdate = Partial<ReplayMutation>;
@@ -82,6 +84,15 @@ export class No8doClient {
   }
   getReplay(workspaceId: string, replayId: string): Promise<Replay> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}`);
+  }
+  listReplayRelations(workspaceId: string, replayId: string): Promise<ReplayRelation[]> {
+    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/relations`);
+  }
+  createReplayRelation(workspaceId: string, replayId: string, targetReplayId: string, type: ReplayRelationType): Promise<ReplayRelation> {
+    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/relations`, { method: "POST", body: JSON.stringify({ targetReplayId, type }) });
+  }
+  async deleteReplayRelation(workspaceId: string, replayId: string, relationId: string): Promise<void> {
+    await this.request<unknown>(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/relations/${encodeURIComponent(relationId)}`, { method: "DELETE" });
   }
   createReplay(workspaceId: string, body: ReplayMutation): Promise<Replay> {
     const { projectId, ...withoutProjectId } = body;

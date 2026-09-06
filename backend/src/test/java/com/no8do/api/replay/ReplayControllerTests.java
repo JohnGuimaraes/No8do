@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -30,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +44,8 @@ class ReplayControllerTests {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private ReplayRepository replayRepository;
     @Autowired private ReplayUsageRepository replayUsageRepository;
+    @Autowired private ReplayRelationRepository replayRelationRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ProjectRepository projectRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private WorkspaceRepository workspaceRepository;
@@ -119,6 +123,34 @@ class ReplayControllerTests {
         mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", workspace.getId())
                 .with(user(new No8doUserDetails(outsider))))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void createsListsAndDeletesRelationsWithWorkspaceIsolation() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER); User viewer = member(workspace, WorkspaceRole.VIEWER); User outsider = createUser();
+        Replay source = replay(workspace, owner, "Fonte"); Replay target = replay(workspace, owner, "Destino");
+        Workspace other = workspace(); User otherOwner = member(other, WorkspaceRole.OWNER); Replay external = replay(other, otherOwner, "Externo");
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), source.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"targetReplayId\":\"%s\",\"type\":\"SUPERSEDES\"}".formatted(target.getId())))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.type").value("SUPERSEDES")).andExpect(jsonPath("$.direction").value("OUTGOING")).andExpect(jsonPath("$.relatedReplayId").value(target.getId().toString()));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), target.getId()).with(user(new No8doUserDetails(viewer))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(1))).andExpect(jsonPath("$[0].direction").value("INCOMING"));
+        UUID relationId = replayRelationRepository.findAll().getFirst().getId();
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/replays/{replayId}/relations/{relationId}", workspace.getId(), source.getId(), relationId).with(user(new No8doUserDetails(viewer))).with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), source.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"targetReplayId\":\"%s\",\"type\":\"RELATED_TO\"}".formatted(external.getId()))).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), source.getId()).with(user(new No8doUserDetails(outsider)))).andExpect(status().isForbidden());
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/replays/{replayId}/relations/{relationId}", workspace.getId(), source.getId(), relationId).with(user(new No8doUserDetails(owner))).with(csrf())).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void rejectsSelfAndEquivalentRelatedToAndCascadesWhenReplayIsRemoved() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER); Replay first = replay(workspace, owner, "Primeiro"); Replay second = replay(workspace, owner, "Segundo");
+        String related = "{\"targetReplayId\":\"%s\",\"type\":\"RELATED_TO\"}".formatted(second.getId());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), first.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(related)).andExpect(status().isOk()).andExpect(jsonPath("$.direction").value("RELATED"));
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), second.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"targetReplayId\":\"%s\",\"type\":\"RELATED_TO\"}".formatted(first.getId()))).andExpect(status().isConflict());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/{replayId}/relations", workspace.getId(), first.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"targetReplayId\":\"%s\",\"type\":\"RESOLVES\"}".formatted(first.getId()))).andExpect(status().isBadRequest());
+        jdbcTemplate.update("delete from replays where id = ?", first.getId());
+        org.assertj.core.api.Assertions.assertThat(replayRelationRepository.count()).isZero();
     }
 
     @Test
