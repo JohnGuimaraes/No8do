@@ -1,14 +1,16 @@
 import { ArrowRight, CheckCircle, GithubLogo, NotePencil, WarningCircle } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Children, type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { listWorkspaceProjectActivities, type WorkspaceProjectActivity } from "@/activities/activityApi";
 import { MetricGlyph } from "@/dashboard/MetricGlyph";
 import no8doLogo from "@/assets/logo/no8do-logo.png";
-import { WorkspaceNodeGraphic } from "@/components/visual/WorkspaceNodeGraphic";
+import { ConnectedNodeGraphic } from "@/components/visual/ConnectedNodeGraphic";
 import { type Idea, type IdeaStatus, type IdeaType } from "@/ideas/ideaApi";
 import { listGithubAppRepositories, type GithubAppRepository } from "@/github/githubAppApi";
 import { type LibraryItem, type LibraryItemType } from "@/library/libraryApi";
 import { type Project, type ProjectStatus } from "@/projects/projectApi";
 import { getProjectStatusLabel } from "@/projects/projectStatus";
+import { listReplays, type Replay } from "@/replays/replayApi";
+import { ReplayRecentSpotlight } from "@/replays/ReplaysPanel";
 import { listWorkspaceWorkItems, type WorkspaceWorkItem } from "@/work-items/workItemApi";
 import { getWorkItemDueDateLabel, isWorkItemDueDateOverdue } from "@/work-items/workItemDate";
 import { getWorkspaceGithubAppStatus, type Workspace } from "@/workspaces/workspaceApi";
@@ -18,10 +20,11 @@ type WorkspaceDashboardProps = {
   projects: Project[];
   libraryItems: LibraryItem[];
   ideas: Idea[];
-  onOpenSection: (section: "development" | "work-items" | "projects" | "library" | "ideas") => void;
+  onOpenSection: (section: "development" | "work-items" | "projects" | "library" | "ideas" | "replays") => void;
   onOpenProject: (project: Project) => void;
   onOpenLibraryItem: (itemId: string) => void;
   onOpenIdea: (ideaId: string) => void;
+  onOpenReplays: () => void;
 };
 
 type AttentionEntry =
@@ -46,7 +49,9 @@ export function WorkspaceDashboard({
   onOpenProject,
   onOpenLibraryItem,
   onOpenIdea,
+  onOpenReplays,
 }: WorkspaceDashboardProps) {
+  const [motionPaused, setMotionPaused] = useState(false);
   const metrics = useMemo(() => {
     const developmentProjects = projects.filter((project) => project.status !== "DONE");
     return {
@@ -107,6 +112,19 @@ export function WorkspaceDashboard({
   const [recentActivities, setRecentActivities] = useState<WorkspaceProjectActivity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(true);
   const [activitiesError, setActivitiesError] = useState<string | null>(null);
+  const [replays, setReplays] = useState<Replay[]>([]);
+
+  const replayMetrics = useMemo(() => ({
+    total: replays.length,
+    validated: replays.filter((replay) => replay.status === "VALIDATED").length,
+  }), [replays]);
+
+  const recentReplays = useMemo(
+    () => [...replays].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)).slice(0, 5),
+    [replays],
+  );
+
+  useEffect(() => { let active = true; void listReplays(workspace.id).then((items) => { if (active) setReplays(items); }).catch(() => { if (active) setReplays([]); }); return () => { active = false; }; }, [workspace.id]);
 
   useEffect(() => {
     let active = true;
@@ -237,14 +255,33 @@ export function WorkspaceDashboard({
           />
         </div>
 
-        <div className="workspace-node-card">
-          <div className="min-w-0">
-            <p className="text-xs font-medium uppercase text-muted-foreground">Workspace Node</p>
-            <h2 className="mt-1 break-words text-lg font-semibold text-card-foreground">{workspace.name}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Camadas de projetos, ideias e conhecimento conectadas.</p>
-          </div>
-          <WorkspaceNodeGraphic className="mt-3" />
-        </div>
+        <section className="dashboard-identity-field" aria-label="Identidade No8do">
+          <ConnectedNodeGraphic wordmark paused={motionPaused} />
+        </section>
+
+        <aside className="dashboard-context-stack">
+          <section className="workspace-node-card" aria-labelledby="workspace-node-title">
+            <header className="workspace-node-card__lead">
+              <p className="text-xs font-medium uppercase text-muted-foreground">Workspace Node</p>
+              <h2 id="workspace-node-title" className="mt-1 break-words text-lg font-semibold text-card-foreground">{workspace.name}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Contexto operacional conectado.</p>
+            </header>
+            <ConnectedNodeGraphic className="workspace-node-card__graphic" paused={motionPaused} />
+            <button className="workspace-node-card__motion" type="button" aria-pressed={motionPaused} onClick={() => setMotionPaused((value) => !value)}>{motionPaused ? "Retomar movimento" : "Pausar movimento"}</button>
+            <div className="workspace-node-card__map">
+              <div><p className="replay-section-label">Leitura do workspace</p><h3>Mapa do conhecimento</h3></div>
+              <dl><div><dt>Replays</dt><dd>{replayMetrics.total}</dd></div><div><dt>Acervo</dt><dd>{metrics.library}</dd></div><div><dt>Ideias</dt><dd>{metrics.activeIdeas}</dd></div><div><dt>Em curso</dt><dd>{metrics.development}</dd></div><div><dt>Concluídos</dt><dd>{metrics.completed}</dd></div></dl>
+            </div>
+          </section>
+        </aside>
+
+        <section className="dashboard-replays-section dashboard-replays-section--top" aria-labelledby="dashboard-replays-title">
+          <header className="dashboard-replays-section__header">
+            <div><p className="replay-section-label">Memória técnica reutilizável</p><h3 id="dashboard-replays-title">Replays recentes</h3><p>{replayMetrics.total} no workspace{replayMetrics.validated ? ` · ${replayMetrics.validated} validados` : ""}</p></div>
+            <button type="button" className="dashboard-replays-section__action" onClick={onOpenReplays}>Ver todos<ArrowRight className="h-4 w-4" /></button>
+          </header>
+          {recentReplays.length === 0 ? <CompactState text="Nenhum Replay registrado ainda." /> : <ReplayRecentSpotlight recent={recentReplays} onAccess={onOpenReplays} motionPaused={motionPaused} />}
+        </section>
       </div>
 
       <div className="dashboard-operational-grid">
@@ -450,10 +487,15 @@ function MetricCard({
 }
 
 function DashboardSection({ title, tone, children, actionLabel, onAction }: { title: string; tone: "attention" | "development" | "activity" | "ideas" | "library" | "completed"; children: ReactNode; actionLabel?: string; onAction?: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const entries = Children.toArray(children);
+  const regionId = useId();
+  const visibleEntries = expanded ? entries : entries.slice(0, 2);
+  const hasMore = entries.length > 2;
   return (
     <section className={`dashboard-section dashboard-section--${tone}`}>
-      <header className="dashboard-section__header"><h3>{title}</h3>{actionLabel && onAction ? <button type="button" className="text-xs font-medium text-primary hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={onAction}>{actionLabel}</button> : <span aria-hidden="true" />}</header>
-      <div className="dashboard-section__rows">{children}</div>
+      <header className="dashboard-section__header"><div><h3>{title}</h3></div><div className="dashboard-section__actions">{hasMore ? <button type="button" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded((current) => !current)}>{expanded ? "Recolher" : "Ver mais"}</button> : null}{actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}</div></header>
+      <div id={regionId} className="dashboard-section__rows">{visibleEntries}</div>
     </section>
   );
 }

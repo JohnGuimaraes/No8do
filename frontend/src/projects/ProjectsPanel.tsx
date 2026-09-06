@@ -1,6 +1,8 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DndContext, PointerSensor, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import {
+  ArrowsClockwise,
+  ArrowLeft,
   Books,
   CheckSquare,
   Circle,
@@ -17,6 +19,7 @@ import { ViewModeToggle, type ViewMode } from "@/components/ViewModeToggle";
 import { WorkspaceDashboard } from "@/dashboard/WorkspaceDashboard";
 import { IdeasPanel } from "@/ideas/IdeasPanel";
 import { listIdeas, type Idea, type IdeaStatus, type IdeaType } from "@/ideas/ideaApi";
+import { AcervoLibraryScene, animateAcervoEntry } from "@/library/AcervoEditorialBackground";
 import { LibraryPanel } from "@/library/LibraryPanel";
 import { ReplaysPanel } from "@/replays/ReplaysPanel";
 import { listLibraryItems, type LibraryItem, type LibraryItemType } from "@/library/libraryApi";
@@ -43,6 +46,7 @@ import { DEVELOPMENT_PROJECT_STATUS_COLUMNS, getProjectStatusLabel } from "@/pro
 import { WorkspaceWorkItemsPanel } from "@/work-items/WorkspaceWorkItemsPanel";
 import { type Workspace } from "@/workspaces/workspaceApi";
 import { ProjectMedia } from "@/components/visual/ProjectMedia";
+import { gsap } from "gsap";
 import no8doLogo from "@/assets/logo/no8do-logo.png";
 
 export type WorkspaceSection = "overview" | "development" | "work-items" | "projects" | "library" | "ideas" | "replays";
@@ -132,6 +136,8 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
   const [archivedProjectsOpen, setArchivedProjectsOpen] = useState(false);
   const [projectActionId, setProjectActionId] = useState<string | null>(null);
   const [projectPendingDeletion, setProjectPendingDeletion] = useState<Project | null>(null);
+  const [replaysImmersive, setReplaysImmersive] = useState(false);
+  const [replayLaunch, setReplayLaunch] = useState<{ replayId?: string } | null>(null);
   const completionTimeoutRef = useRef<number | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const popupTimeoutRef = useRef<number | null>(null);
@@ -552,6 +558,8 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
 
   function handleSectionChange(sectionId: WorkspaceSection) {
     onNavigateSection(sectionId);
+    if (sectionId !== "replays") setReplaysImmersive(false);
+    if (sectionId === "replays") setReplayLaunch(null);
     setEditingProjectId(null);
     setBoardError(null);
     if (sectionId !== "development") {
@@ -559,6 +567,11 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
     }
     setSelectedLibraryItemId(null);
     setSelectedIdeaId(null);
+  }
+
+  function openReplaysFromDashboard() {
+    setReplayLaunch({});
+    onNavigateSection("replays");
   }
 
   function handleSearchSelect(result: SearchResult) {
@@ -639,8 +652,8 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-col gap-8">
-        <header className="grid min-w-0 gap-5 border-b border-border/80 pb-5">
+      <div className={`workspace-content-shell flex min-w-0 flex-col gap-8 ${replaysImmersive || activeSection === "library" || activeSection === "replays" ? "workspace-content-shell--knowledge-immersive" : ""}`}>
+        <header className="workspace-shell-header grid min-w-0 gap-5 border-b border-border/80 pb-5">
           <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,460px)] xl:items-start">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase text-muted-foreground">No8do / {workspace.name}</p>
@@ -664,25 +677,9 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
             className="workspace-tabs"
             aria-label="Navegacao principal do workspace"
           >
-            {WORKSPACE_SECTIONS.map((section) => {
-              const isActive = activeSection === section.id;
-              return (
-                <button
-                  key={section.id}
-                  type="button"
-                  aria-current={isActive ? "page" : undefined}
-                  className={`workspace-tabs__item ${
-                    isActive
-                      ? "workspace-tabs__item--active"
-                      : ""
-                  }`}
-                  onClick={() => handleSectionChange(section.id)}
-                >
-                  {getSectionIcon(section.id, "h-4 w-4")}
-                  {section.label}
-                </button>
-              );
-            })}
+            <WorkspaceTabGroup label="Visão geral" sections={WORKSPACE_SECTIONS.filter((section) => section.id === "overview")} activeSection={activeSection} onChange={handleSectionChange} />
+            <WorkspaceTabGroup label="Desenvolvimento" sections={WORKSPACE_SECTIONS.filter((section) => ["ideas", "development", "work-items", "projects"].includes(section.id))} activeSection={activeSection} onChange={handleSectionChange} />
+            <WorkspaceTabGroup label="Conhecimento" sections={WORKSPACE_SECTIONS.filter((section) => ["library", "replays"].includes(section.id))} activeSection={activeSection} onChange={handleSectionChange} />
           </nav>
         </header>
 
@@ -705,6 +702,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
               onOpenProject={openProjectFromDashboard}
               onOpenLibraryItem={openLibraryItemFromDashboard}
               onOpenIdea={openIdeaFromDashboard}
+              onOpenReplays={openReplaysFromDashboard}
             />
           ) : null}
 
@@ -758,13 +756,15 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
           ) : null}
 
           {activeSection === "library" ? (
-            <LibraryPanel
-              workspaceId={workspace.id}
-              selectedItemId={selectedLibraryItemId}
-              canWrite={canWrite}
-              onItemsChange={handleLibraryItemsChange}
-              onItemRestored={(item) => setLibraryItems((current) => [item, ...current.filter((value) => value.id !== item.id)])}
-            />
+            <KnowledgeFullscreenEnvironment workspaceName={workspace.name} onExit={() => handleSectionChange("overview")}>
+              <LibraryPanel
+                workspaceId={workspace.id}
+                selectedItemId={selectedLibraryItemId}
+                canWrite={canWrite}
+                onItemsChange={handleLibraryItemsChange}
+                onItemRestored={(item) => setLibraryItems((current) => [item, ...current.filter((value) => value.id !== item.id)])}
+              />
+            </KnowledgeFullscreenEnvironment>
           ) : null}
 
           {activeSection === "ideas" ? (
@@ -779,7 +779,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
               onIdeaRestored={(idea) => setIdeas((current) => [idea, ...current.filter((item) => item.id !== idea.id)])}
             />
           ) : null}
-          {activeSection === "replays" ? <ReplaysPanel workspaceId={workspace.id} canWrite={canWrite} /> : null}
+          {activeSection === "replays" ? <ReplaysPanel workspaceId={workspace.id} canWrite={canWrite} onImmersiveChange={setReplaysImmersive} onExitWorkspace={() => handleSectionChange("overview")} initialReplayId={replayLaunch?.replayId} /> : null}
         </>
       )}
 
@@ -800,6 +800,34 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
       </div>
     </div>
   );
+}
+
+function KnowledgeFullscreenEnvironment({ workspaceName, onExit, children }: { workspaceName: string; onExit: () => void; children: ReactNode }) {
+  const rootRef = useRef<HTMLElement>(null); const [revealed, setRevealed] = useState(false); const [exiting, setExiting] = useState(false);
+  useLayoutEffect(() => {
+    if (!rootRef.current) return;
+    return animateAcervoEntry(rootRef.current, () => setRevealed(true));
+  }, []);
+  useEffect(() => { const element = rootRef.current; return () => { if (element) gsap.killTweensOf(element); }; }, []);
+  const leave = () => { if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { onExit(); return; } setExiting(true); gsap.to(rootRef.current, { autoAlpha: 0, y: -8, duration: .24, ease: "power2.inOut", onComplete: onExit }); };
+  return <section ref={rootRef} className={`knowledge-environment ${exiting ? "knowledge-environment--exiting" : ""}`} aria-label="Acervo do workspace">
+    <header className="knowledge-environment__header">
+      <Button type="button" variant="ghost" size="sm" className="knowledge-environment__back" onClick={leave}><ArrowLeft className="h-4 w-4" />Workspace</Button>
+      <div className="knowledge-environment__identity"><p><Books className="h-4 w-4" weight="duotone" />Acervo</p><span>{workspaceName} / conhecimento compartilhado</span></div>
+      <span className="knowledge-environment__rule" aria-hidden="true" />
+    </header>
+    <div ref={(element) => element?.toggleAttribute("inert", !revealed)} className={`knowledge-environment__content ${revealed ? "" : "knowledge-environment__content--entering"}`}>{children}</div>
+    {!revealed ? <LibraryEntryOverlay /> : null}
+  </section>;
+}
+
+function LibraryEntryOverlay() {
+  return <div className="library-entry-overlay" aria-hidden="true"><AcervoLibraryScene /><div className="library-entry-overlay__title"><span>MEMÓRIA DO WORKSPACE</span><strong>Acervo</strong><p>Conhecimento preservado.</p></div></div>;
+}
+
+function WorkspaceTabGroup({ label, sections, activeSection, onChange }: { label: string; sections: Array<{ id: WorkspaceSection; label: string; description: string }>; activeSection: WorkspaceSection; onChange: (section: WorkspaceSection) => void }) {
+  const overview = sections[0]?.id === "overview";
+  return <div className={`workspace-tabs__group ${overview ? "workspace-tabs__group--overview" : ""}`} aria-label={label}>{overview ? null : <span className="workspace-tabs__group-label">{label}</span>}<span className="workspace-tabs__group-items">{sections.map((section) => <button key={section.id} type="button" aria-current={activeSection === section.id ? "page" : undefined} className={`workspace-tabs__item ${activeSection === section.id ? "workspace-tabs__item--active" : ""}`} onClick={() => onChange(section.id)}>{getSectionIcon(section.id, "h-4 w-4")}{section.label}</button>)}</span></div>;
 }
 
 function WorkspaceNavButton({
@@ -917,6 +945,9 @@ function getSectionIcon(sectionId: WorkspaceSection, className: string) {
   }
   if (sectionId === "library") {
     return <Books {...props} />;
+  }
+  if (sectionId === "replays") {
+    return <ArrowsClockwise {...props} />;
   }
   return <Lightbulb {...props} />;
 }

@@ -7,6 +7,7 @@ import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { LibraryListSection } from "@/library/LibraryListSection";
 import { LibraryItemCard } from "@/library/LibraryItemCard";
+import { AcervoEditorialBackground } from "@/library/AcervoEditorialBackground";
 import { LibrarySection } from "@/library/LibrarySection";
 import { GithubRepositoriesPanel } from "@/github/GithubRepositoriesPanel";
 import { listGithubAppRepositories, type GithubAppRepository } from "@/github/githubAppApi";
@@ -293,6 +294,7 @@ export function LibraryPanel({
 
   return (
     <section className="acervo-panel grid min-w-0 gap-7">
+      <AcervoEditorialBackground />
       <div className="grid min-w-0 gap-4">
         <div className="acervo-panel__heading flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
@@ -526,13 +528,12 @@ function AcervoHome({ items, recentItems, workspaceId, canWrite, onShowMore, onO
   const codeItems = useMemo(() => items.filter((item) => matchesAcervoFilter(item, "CODE")), [items]);
   const sectionGroups = groupHomeSections(sections);
   return <div className="acervo-home">
-    <div className="acervo-home__ambient" aria-hidden="true"><span className="acervo-home__ambient-node acervo-home__ambient-node--one" /><span className="acervo-home__ambient-node acervo-home__ambient-node--two" /><span className="acervo-home__ambient-node acervo-home__ambient-node--three" /></div>
     <section className="acervo-home__recent" aria-labelledby="acervo-recentes-title">
       <div className="acervo-home__section-heading acervo-home__section-heading--recent">
-        <div><h3 id="acervo-recentes-title" className="text-lg font-semibold text-foreground">Recentes</h3><p className="mt-1 text-sm text-muted-foreground">Conteúdos atualizados que mantêm a memória em movimento.</p></div>
+        <div><h3 id="acervo-recentes-title" className="text-lg font-semibold text-foreground">Recentes</h3><p className="mt-1 text-sm text-muted-foreground">Últimas leituras da memória do workspace.</p></div>
         <span className="acervo-home__signature">Memória em movimento</span>
       </div>
-      {recentItems.length ? <div className="acervo-recent-composition"><div className="acervo-recent-hero" role="list"><div role="listitem"><button type="button" onClick={() => onOpen(recentItems[0])} className="acervo-recent-item acervo-recent-item--primary" data-acervo-type={recentItems[0].type}><span className="acervo-recent-item__type">{getTypeLabel(recentItems[0].type)}</span><span className="acervo-recent-item__title">{recentItems[0].title}</span><span className="acervo-recent-item__summary">{getRecentSummary(recentItems[0])}</span><span className="acervo-recent-item__meta">Atualizado {formatDate(recentItems[0].updatedAt)}</span></button></div><div className="acervo-recent-hero__secondary">{recentItems.slice(1).map((item) => <div key={item.id} role="listitem"><button type="button" onClick={() => onOpen(item)} className="acervo-recent-item" data-acervo-type={item.type}><span className="acervo-recent-item__type">{getTypeLabel(item.type)}</span><span className="acervo-recent-item__title">{item.title}</span><span className="acervo-recent-item__meta">Atualizado {formatDate(item.updatedAt)}</span></button></div>)}</div></div></div> : <p className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Ainda não há conteúdos no Acervo.</p>}
+      {recentItems.length ? <div className="acervo-recent-composition acervo-recent-composition--editorial"><div className={`acervo-recent-hero ${recentItems.length === 1 ? "acervo-recent-hero--single" : ""}`} role="list"><div role="listitem"><button type="button" onClick={() => onOpen(recentItems[0])} className="acervo-recent-item acervo-recent-item--primary" data-acervo-type={recentItems[0].type}><span className="acervo-recent-item__type">{getTypeLabel(recentItems[0].type)}</span><span className="acervo-recent-item__title">{recentItems[0].title}</span><span className="acervo-recent-item__summary">{getRecentSummary(recentItems[0])}</span><span className="acervo-recent-item__meta">Atualizado {formatDate(recentItems[0].updatedAt)}</span></button></div><div className="acervo-recent-hero__secondary">{recentItems.slice(1).map((item) => <div key={item.id} role="listitem"><button type="button" onClick={() => onOpen(item)} className="acervo-recent-item" data-acervo-type={item.type}><span className="acervo-recent-item__type">{getTypeLabel(item.type)}</span><span className="acervo-recent-item__title">{item.title}</span><span className="acervo-recent-item__meta">Atualizado {formatDate(item.updatedAt)}</span></button></div>)}</div></div><aside className="acervo-recent-identity"><BookOpen aria-hidden="true" weight="thin" /><span>Acervo</span><p>Escrita, memória<br />e conhecimento.</p></aside></div> : <p className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">Ainda não há conteúdos no Acervo.</p>}
     </section>
     <AcervoHomeSection filter="CODE" title="Código" items={codeItems} canWrite={canWrite} onShowMore={() => onShowMore("CODE")} onOpen={onOpen} onArchive={onArchive} onDelete={onDelete} />
     <AcervoGithubHighlights workspaceId={workspaceId} onOpenRepositories={onOpenRepositories} />
