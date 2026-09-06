@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/**/*.test.js"
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "start:stdio": "node dist/index.js",
+    "start:http": "node dist/http.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.0",

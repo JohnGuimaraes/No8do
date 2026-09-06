@@ -23,3 +23,9 @@ Em `create_replay`, `projectId` é opcional. Você pode omiti-lo ou enviar `null
 As relações aceitam `RELATED_TO`, `SUPERSEDES`, `RESOLVES` e `DEPENDS_ON`, sempre entre Replays do mesmo workspace. `RELATED_TO` é tratado como associação não direcional, portanto a inversão não cria outra relação equivalente. As demais relações preservam a direção do `replayId` para `targetReplayId`.
 
 As tools de versão são somente leitura. Elas retornam snapshots históricos do conteúdo; não existe restauração, edição ou exclusão de versão pelo MCP.
+
+## Remote MCP — Fase 1
+
+O transporte remoto usa Streamable HTTP oficial em `POST`/`GET /mcp` e `GET /health`. Execute com `NO8DO_API_URL=https://api.example npm run start:http`. O servidor não usa `NO8DO_API_TOKEN`: cada cliente envia `Authorization: Bearer <PAT pessoal>`, que é encaminhado somente à API No8do para aquela requisição. Em modo remoto, `workspaceId` é obrigatório em cada tool; `NO8DO_WORKSPACE_ID` continua sendo apenas o fallback do STDIO local.
+
+Para Docker: `docker build -t no8do-mcp .`; configure somente `NO8DO_API_URL` e `PORT`. Para um futuro serviço Coolify, publique `/mcp` e use `/health` como health check. OAuth, workspace padrão por usuário, rate limiting e auditoria de abuso permanecem pendentes antes de exposição pública ampla.
