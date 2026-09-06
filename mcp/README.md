@@ -14,8 +14,10 @@ Exemplo de configuração MCP:
 { "mcpServers": { "no8do-replays": { "command": "node", "args": ["/caminho/no8do/mcp/dist/index.js"], "env": { "NO8DO_API_URL": "http://localhost:8080", "NO8DO_API_TOKEN": "no8do_pat_EXEMPLO", "NO8DO_WORKSPACE_ID": "UUID_DO_WORKSPACE" } } } }
 ```
 
-Tools: `list_replays`, `search_replays`, `get_replay`, `create_replay`, `update_replay`, `register_replay_usage`.
+Tools: `list_replays`, `search_replays`, `find_reusable_knowledge`, `get_replay`, `create_replay`, `update_replay`, `register_replay_usage`, `list_replay_relations`, `create_replay_relation` e `delete_replay_relation`.
 
 Use `list_replays` para obter o catálogo completo do workspace, na ordem retornada pela API. O endpoint atual não expõe paginação ou filtros. Use `search_replays` somente para busca textual de conhecimento técnico existente.
 
 Em `create_replay`, `projectId` é opcional. Você pode omiti-lo ou enviar `null`; ambos criam o Replay sem projeto associado. Em `update_replay`, `projectId: null` preserva o comportamento existente da API para remover a associação.
+
+As relações aceitam `RELATED_TO`, `SUPERSEDES`, `RESOLVES` e `DEPENDS_ON`, sempre entre Replays do mesmo workspace. `RELATED_TO` é tratado como associação não direcional, portanto a inversão não cria outra relação equivalente. As demais relações preservam a direção do `replayId` para `targetReplayId`.
