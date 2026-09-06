@@ -6,12 +6,16 @@ Servidor MCP por STDIO para consultar e registrar Replays usando somente a API H
 
 Requer Node.js 20+ e uma Personal API Token criada no No8do. Instale com `npm install`, valide com `npm test`, e execute com `npm run build && node dist/index.js`.
 
-Defina `NO8DO_API_URL` como a origem da API, por exemplo `http://localhost:8080`; o cliente acrescenta `/api`. Defina `NO8DO_API_TOKEN` com uma token `no8do_pat_...`. Nunca inclua a token em arquivos de configuração versionados.
+Defina `NO8DO_API_URL` como a origem da API, por exemplo `http://localhost:8080`; o cliente acrescenta `/api`. Defina `NO8DO_API_TOKEN` com uma token `no8do_pat_...`. Opcionalmente, defina `NO8DO_WORKSPACE_ID` para usar esse workspace quando uma chamada não enviar `workspaceId`; o valor explícito na chamada sempre tem prioridade. Sem um dos dois, a tool retorna erro claro. Nunca inclua a token em arquivos de configuração versionados.
 
 Exemplo de configuração MCP:
 
 ```json
-{ "mcpServers": { "no8do-replays": { "command": "node", "args": ["/caminho/no8do/mcp/dist/index.js"], "env": { "NO8DO_API_URL": "http://localhost:8080", "NO8DO_API_TOKEN": "no8do_pat_EXEMPLO" } } } }
+{ "mcpServers": { "no8do-replays": { "command": "node", "args": ["/caminho/no8do/mcp/dist/index.js"], "env": { "NO8DO_API_URL": "http://localhost:8080", "NO8DO_API_TOKEN": "no8do_pat_EXEMPLO", "NO8DO_WORKSPACE_ID": "UUID_DO_WORKSPACE" } } } }
 ```
 
-Tools: `search_replays`, `get_replay`, `create_replay`, `update_replay`. Pesquise antes de criar; quando houver um equivalente, obtenha-o e atualize-o somente quando houver melhoria relevante.
+Tools: `list_replays`, `search_replays`, `get_replay`, `create_replay`, `update_replay`, `register_replay_usage`.
+
+Use `list_replays` para obter o catálogo completo do workspace, na ordem retornada pela API. O endpoint atual não expõe paginação ou filtros. Use `search_replays` somente para busca textual de conhecimento técnico existente.
+
+Em `create_replay`, `projectId` é opcional. Você pode omiti-lo ou enviar `null`; ambos criam o Replay sem projeto associado. Em `update_replay`, `projectId: null` preserva o comportamento existente da API para remover a associação.
