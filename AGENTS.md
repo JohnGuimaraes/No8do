@@ -42,6 +42,16 @@ Arquitetura: monolito modular.
 - Não fazer commit, push, merge, PR ou deploy sem pedido explícito.
 - Não commitar `.env`, `node_modules/`, `frontend/dist/` ou `backend/target/`.
 
+## No8do Replays / Knowledge Layer
+
+O MCP `No8do` de produção é a memória técnica canônica compartilhada do projeto. Para tarefas técnicas não triviais, consulte `docs/REPLAYS_AGENT_PROTOCOL.md`.
+
+- Consultar conhecimento existente antes de reinventar solução técnica não trivial.
+- Não criar Replays para alterações rotineiras ou sem valor reutilizável; registrar somente após evidência adequada.
+- Pesquisar equivalentes antes de criar e atualizar existentes somente quando houver melhoria real.
+- Registrar ReplayUsage somente quando um Replay influenciar materialmente a solução.
+- Indisponibilidade do MCP não bloqueia desenvolvimento local; produção não é ambiente para testes destrutivos ou dados artificiais.
+
 ## Segurança backend
 
 - Autorização sempre no backend.
