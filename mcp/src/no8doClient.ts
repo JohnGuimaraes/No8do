@@ -40,6 +40,8 @@ export interface Replay {
   createdAt: string;
   updatedAt: string;
 }
+export interface SimilarReplay { id: string; title: string; type: ReplayType; status: ReplayStatus; version: number; stack: string[]; usageCount: number; score: number; }
+export type FindReusableKnowledgeInput = { query?: string; problem?: string; stack?: string[]; tags?: string[]; type?: ReplayType };
 
 export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId">>;
 export type ReplayUpdate = Partial<ReplayMutation>;
@@ -74,6 +76,9 @@ export class No8doClient {
   }
   searchReplays(workspaceId: string, query: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/search?q=${encodeURIComponent(query)}`);
+  }
+  findReusableKnowledge(workspaceId: string, input: FindReusableKnowledgeInput): Promise<SimilarReplay[]> {
+    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/similar`, { method: "POST", body: JSON.stringify({ query: input.query, problem: input.problem, stack: input.stack, tags: input.tags, type: input.type }) });
   }
   getReplay(workspaceId: string, replayId: string): Promise<Replay> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}`);

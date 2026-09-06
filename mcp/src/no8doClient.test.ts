@@ -28,6 +28,13 @@ test("lista o catálogo sem usar busca textual", async () => {
   assert.equal(setup.calls[0][1]?.method, undefined);
 });
 
+test("busca sugestões reutilizáveis pelo endpoint similar", async () => {
+  const setup = client(200, [{ id: "r1", title: "Replay", type: "FIX", status: "VALIDATED", version: 1, stack: ["Spring"], usageCount: 2, score: 100 }]);
+  await setup.client.findReusableKnowledge("w1", { query: "Replay", tags: ["java"] });
+  assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays/similar");
+  assert.deepEqual(JSON.parse(String(setup.calls[0][1]?.body)), { query: "Replay", tags: ["java"] });
+});
+
 test("lista retorna erro seguro para PAT inválido ou revogado", async () => {
   const setup = client(401, { message: "token interno" });
   await assert.rejects(() => setup.client.listReplays("w1"), (error: unknown) => error instanceof No8doApiError && error.message === "Token No8do ausente, inválido ou revogado.");

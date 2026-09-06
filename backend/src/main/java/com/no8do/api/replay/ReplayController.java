@@ -41,6 +41,12 @@ public class ReplayController {
         return replayService.search(workspaceId, currentUser.user().getId(), q);
     }
 
+    @PostMapping("/similar")
+    public List<SimilarReplayResponse> similar(@PathVariable UUID workspaceId, @AuthenticationPrincipal No8doUserDetails currentUser,
+            @RequestBody(required = false) FindSimilarReplaysRequest request) {
+        return replayService.findSimilar(workspaceId, currentUser.user().getId(), request == null ? new FindSimilarReplaysRequest(null, null, null, null, null, null) : request);
+    }
+
     @GetMapping("/{replayId}")
     public ReplayResponse get(@PathVariable UUID workspaceId, @PathVariable UUID replayId,
             @AuthenticationPrincipal No8doUserDetails currentUser) {

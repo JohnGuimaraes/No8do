@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Comparator;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -79,15 +80,15 @@ public class ReplayService {
         workspaceAuthorizationService.requireWorkspaceWrite(workspaceId, currentUserId);
         Replay replay = find(workspaceId, replayId);
 
-        String title = request.title() == null ? replay.getTitle() : normalizeRequiredTitle(request.title());
-        ReplayType type = request.type() == null ? replay.getType() : request.type();
-        String problem = normalizeOptionalText(request.problem());
-        String solution = normalizeOptionalText(request.solution());
-        String context = normalizeOptionalText(request.context());
-        String[] tags = normalizeTerms(request.tags());
-        String[] stack = normalizeTerms(request.stack());
-        ReplayStatus status = request.status() == null ? replay.getStatus() : request.status();
-        Project project = resolveProject(workspaceId, request.projectId());
+        String title = request.hasTitle() ? normalizeRequiredTitle(request.title()) : replay.getTitle();
+        ReplayType type = request.hasType() ? request.type() : replay.getType();
+        String problem = request.hasProblem() ? normalizeOptionalText(request.problem()) : replay.getProblem();
+        String solution = request.hasSolution() ? normalizeOptionalText(request.solution()) : replay.getSolution();
+        String context = request.hasContext() ? normalizeOptionalText(request.context()) : replay.getContext();
+        String[] tags = request.hasTags() ? normalizeTerms(request.tags()) : replay.getTags();
+        String[] stack = request.hasStack() ? normalizeTerms(request.stack()) : replay.getStack();
+        ReplayStatus status = request.hasStatus() ? request.status() : replay.getStatus();
+        Project project = request.hasProjectId() ? resolveProject(workspaceId, request.projectId()) : replay.getProject();
 
         boolean changed = !Objects.equals(replay.getTitle(), title)
             || replay.getType() != type
@@ -119,7 +120,24 @@ public class ReplayService {
         if (query == null || query.trim().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Replay search query is required");
         }
-        return replayRepository.searchByWorkspaceId(workspaceId, query.trim()).stream().map(ReplayResponse::from).toList();
+        String normalizedQuery = query.trim();
+        return replayRepository.searchByWorkspaceId(workspaceId, normalizedQuery).stream()
+            .sorted(replayOrder(replay -> relevance(replay, normalizedQuery)))
+            .map(ReplayResponse::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<SimilarReplayResponse> findSimilar(UUID workspaceId, UUID currentUserId, FindSimilarReplaysRequest request) {
+        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return replayRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspaceId).stream()
+            .map(replay -> new ScoredReplay(replay, similarity(replay, request)))
+            .filter(candidate -> candidate.score() > 0)
+            .sorted(Comparator.comparingInt(ScoredReplay::score).reversed()
+                .thenComparing(Comparator.comparingInt((ScoredReplay candidate) -> candidate.replay().getUsageCount()).reversed())
+                .thenComparing(candidate -> candidate.replay().getUpdatedAt(), Comparator.reverseOrder())
+                .thenComparing(candidate -> candidate.replay().getId()))
+            .limit(5)
+            .map(candidate -> SimilarReplayResponse.from(candidate.replay(), candidate.score())).toList();
     }
 
     @Transactional
@@ -191,4 +209,45 @@ public class ReplayService {
             .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new))
             .toArray(String[]::new);
     }
+
+    private Comparator<Replay> replayOrder(java.util.function.ToIntFunction<Replay> score) {
+        return Comparator.comparingInt(score).reversed()
+            .thenComparing(Comparator.comparingInt(Replay::getUsageCount).reversed())
+            .thenComparing(Replay::getUpdatedAt, Comparator.reverseOrder())
+            .thenComparing(Replay::getId);
+    }
+
+    private int similarity(Replay replay, FindSimilarReplaysRequest request) {
+        int score = relevance(replay, request.query()) + scoreText(replay.getTitle(), request.title(), 100) + scoreText(replay.getProblem(), request.problem(), 80);
+        for (String tag : safeTerms(request.tags())) score += scoreTerms(replay.getTags(), tag, 60);
+        for (String stack : safeTerms(request.stack())) score += scoreTerms(replay.getStack(), stack, 50);
+        if (request.type() != null && request.type() == replay.getType()) score += 10;
+        return score;
+    }
+
+    private int relevance(Replay replay, String query) {
+        return scoreText(replay.getTitle(), query, 100)
+            + scoreText(replay.getProblem(), query, 80)
+            + scoreTerms(replay.getTags(), query, 60)
+            + scoreTerms(replay.getStack(), query, 50)
+            + scoreText(replay.getSolution(), query, 30)
+            + scoreText(replay.getContext(), query, 20);
+    }
+
+    private int scoreTerms(String[] values, String query, int weight) {
+        return Arrays.stream(values == null ? new String[0] : values).mapToInt(value -> scoreText(value, query, weight)).sum();
+    }
+
+    private int scoreText(String value, String query, int weight) {
+        if (value == null || query == null || query.trim().isEmpty()) return 0;
+        String field = value.toLowerCase(java.util.Locale.ROOT);
+        String term = query.trim().toLowerCase(java.util.Locale.ROOT);
+        if (field.equals(term)) return weight * 10;
+        if (field.startsWith(term)) return weight * 7;
+        return field.contains(term) ? weight * 4 : 0;
+    }
+
+    private List<String> safeTerms(List<String> values) { return values == null ? List.of() : values.stream().filter(Objects::nonNull).toList(); }
+
+    private record ScoredReplay(Replay replay, int score) {}
 }

@@ -178,6 +178,81 @@ class ReplayControllerTests {
     }
 
     @Test
+    void partialStatusUpdatePreservesAllOmittedReplayFields() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Project project = project(workspace, owner);
+        Replay replay = detailedReplay(workspace, owner, project);
+
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"VALIDATED\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("VALIDATED"));
+
+        Replay persisted = replayRepository.findById(replay.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(persisted.getTitle()).isEqualTo("Replay detalhado");
+        org.assertj.core.api.Assertions.assertThat(persisted.getProblem()).isEqualTo("Problema original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getSolution()).isEqualTo("Solução original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getContext()).isEqualTo("Contexto original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getTags()).containsExactly("tag-original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getStack()).containsExactly("Spring Boot");
+        org.assertj.core.api.Assertions.assertThat(persisted.getProject().getId()).isEqualTo(project.getId());
+    }
+
+    @Test
+    void partialSolutionUpdatePreservesOtherFieldsAndOmittedProject() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Project project = project(workspace, owner);
+        Replay replay = detailedReplay(workspace, owner, project);
+
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"solution\":\"Solução revisada\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.solution").value("Solução revisada"));
+
+        Replay persisted = replayRepository.findById(replay.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(persisted.getTitle()).isEqualTo("Replay detalhado");
+        org.assertj.core.api.Assertions.assertThat(persisted.getProblem()).isEqualTo("Problema original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getContext()).isEqualTo("Contexto original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getTags()).containsExactly("tag-original");
+        org.assertj.core.api.Assertions.assertThat(persisted.getStack()).containsExactly("Spring Boot");
+        org.assertj.core.api.Assertions.assertThat(persisted.getProject().getId()).isEqualTo(project.getId());
+    }
+
+    @Test
+    void partialUpdateRemovesProjectOnlyWhenProjectIdIsExplicitlyNull() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Project project = project(workspace, owner);
+        Replay replay = detailedReplay(workspace, owner, project);
+
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"projectId\":null}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.projectId").doesNotExist());
+
+        org.assertj.core.api.Assertions.assertThat(replayRepository.findById(replay.getId()).orElseThrow().getProject()).isNull();
+    }
+
+    @Test
+    void partialUpdateAppliesExplicitEmptyValuesUsingExistingNormalizationRules() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay replay = detailedReplay(workspace, owner, null);
+
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"problem\":\"\",\"tags\":[],\"stack\":[],\"title\":\"  Título revisado  \"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.title").value("Título revisado"));
+
+        Replay persisted = replayRepository.findById(replay.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(persisted.getProblem()).isNull();
+        org.assertj.core.api.Assertions.assertThat(persisted.getTags()).isEmpty();
+        org.assertj.core.api.Assertions.assertThat(persisted.getStack()).isEmpty();
+    }
+
+    @Test
     void searchFindsTechnicalFieldsCaseInsensitivelyAndNeverLeaksOtherWorkspace() throws Exception {
         Workspace workspace = workspace();
         User owner = member(workspace, WorkspaceRole.OWNER);
@@ -204,6 +279,71 @@ class ReplayControllerTests {
                 .param("q", " ")
                 .with(user(new No8doUserDetails(owner))))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void searchRanksFieldsAndMatchKindsWithoutLeakingWorkspaces() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay titleExact = replay(workspace, owner, "Token");
+        Replay problem = replay(workspace, owner, "Problema"); problem.setProblem("Token");
+        Replay tags = replay(workspace, owner, "Tags"); tags.setTags(new String[] { "token" });
+        Replay stack = replay(workspace, owner, "Stack"); stack.setStack(new String[] { "token" });
+        Replay solution = replay(workspace, owner, "Solução"); solution.setSolution("Token");
+        Replay context = replay(workspace, owner, "Contexto"); context.setContext("Token");
+        replayRepository.saveAllAndFlush(List.of(problem, tags, stack, solution, context));
+        Replay titlePrefix = replay(workspace, owner, "Needle seguro");
+        Replay titleContains = replay(workspace, owner, "Uso de needle");
+        Replay matchExact = replay(workspace, owner, "Needle");
+        Workspace other = workspace(); Replay secret = replay(other, member(other, WorkspaceRole.OWNER), "Token secreto");
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId()).param("q", "Token").with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(6)))
+            .andExpect(jsonPath("$[0].id").value(titleExact.getId().toString()))
+            .andExpect(jsonPath("$[1].id").value(problem.getId().toString()))
+            .andExpect(jsonPath("$[2].id").value(tags.getId().toString()))
+            .andExpect(jsonPath("$[3].id").value(stack.getId().toString()))
+            .andExpect(jsonPath("$[4].id").value(solution.getId().toString()))
+            .andExpect(jsonPath("$[5].id").value(context.getId().toString()));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId()).param("q", "Needle").with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(3)))
+            .andExpect(jsonPath("$[0].id").value(matchExact.getId().toString()))
+            .andExpect(jsonPath("$[1].id").value(titlePrefix.getId().toString()))
+            .andExpect(jsonPath("$[2].id").value(titleContains.getId().toString()));
+    }
+
+    @Test
+    void similarReturnsRankedCandidatesToViewerAndRejectsOutsider() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER); User viewer = member(workspace, WorkspaceRole.VIEWER); User outsider = createUser();
+        Replay preferred = replay(workspace, owner, "Token MCP"); preferred.setTags(new String[] { "mcp" }); replayRepository.saveAndFlush(preferred);
+        Replay deprecated = replay(workspace, owner, "Outro token"); deprecated.setStatus(ReplayStatus.DEPRECATED); replayRepository.saveAndFlush(deprecated);
+
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/similar", workspace.getId()).with(user(new No8doUserDetails(viewer))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"query\":\"Token MCP\",\"tags\":[\"mcp\"]}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].id").value(preferred.getId().toString()))
+            .andExpect(jsonPath("$[0].score").isNumber());
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/similar", workspace.getId()).with(user(new No8doUserDetails(outsider))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void similarGenericQueryFindsTechnicalFieldsAndExcludesCandidatesWithoutSignals() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay solution = replay(workspace, owner, "Outro"); solution.setSolution("Use transação serializável"); replayRepository.saveAndFlush(solution);
+        Replay context = replay(workspace, owner, "Contexto"); context.setContext("PostgreSQL com transação"); replayRepository.saveAndFlush(context);
+        Replay unrelated = replay(workspace, owner, "Sem relação");
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/similar", workspace.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"query\":\"transação\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(2)))
+            .andExpect(jsonPath("$[?(@.id == '%s')]".formatted(solution.getId())).isNotEmpty())
+            .andExpect(jsonPath("$[?(@.id == '%s')]".formatted(context.getId())).isNotEmpty())
+            .andExpect(jsonPath("$[?(@.id == '%s')]".formatted(unrelated.getId())).isEmpty());
+    }
+
+    @Test
+    void similarLimitsCandidatesToFive() throws Exception {
+        Workspace workspace = workspace(); User owner = member(workspace, WorkspaceRole.OWNER);
+        for (int index = 0; index < 6; index++) { Replay candidate = replay(workspace, owner, "Candidato " + index); candidate.setProblem("transação"); replayRepository.saveAndFlush(candidate); }
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/similar", workspace.getId()).with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"query\":\"transação\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(5)));
     }
 
     @Test
@@ -352,6 +492,17 @@ class ReplayControllerTests {
 
     private Replay replay(Workspace workspace, User createdBy, String title) {
         return replayRepository.saveAndFlush(new Replay(workspace, null, title, ReplayType.FIX, createdBy));
+    }
+
+    private Replay detailedReplay(Workspace workspace, User createdBy, Project project) {
+        Replay replay = new Replay(workspace, project, "Replay detalhado", ReplayType.FIX, createdBy);
+        replay.setProblem("Problema original");
+        replay.setSolution("Solução original");
+        replay.setContext("Contexto original");
+        replay.setTags(new String[] { "tag-original" });
+        replay.setStack(new String[] { "Spring Boot" });
+        replay.setStatus(ReplayStatus.DRAFT);
+        return replayRepository.saveAndFlush(replay);
     }
 
     private Project project(Workspace workspace, User createdBy) {
