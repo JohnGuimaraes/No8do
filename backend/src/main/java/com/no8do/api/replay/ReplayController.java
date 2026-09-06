@@ -56,6 +56,11 @@ public class ReplayController {
         return replayService.get(workspaceId, replayId, currentUser.user().getId());
     }
 
+    @GetMapping("/{replayId}/quality")
+    public ReplayQualityResponse quality(@PathVariable UUID workspaceId, @PathVariable UUID replayId, @AuthenticationPrincipal No8doUserDetails currentUser) {
+        return replayService.quality(workspaceId, replayId, currentUser.user().getId());
+    }
+
     @GetMapping("/{replayId}/relations")
     public List<ReplayRelationResponse> listRelations(@PathVariable UUID workspaceId, @PathVariable UUID replayId, @AuthenticationPrincipal No8doUserDetails currentUser) {
         return replayRelationService.list(workspaceId, replayId, currentUser.user().getId());

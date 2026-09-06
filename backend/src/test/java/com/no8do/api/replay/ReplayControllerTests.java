@@ -410,6 +410,57 @@ class ReplayControllerTests {
     }
 
     @Test
+    void qualityAllowsViewerRejectsOutsiderAndStaysInWorkspace() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        User viewer = member(workspace, WorkspaceRole.VIEWER);
+        User outsider = createUser();
+        Replay replay = replay(workspace, owner, "Qualidade");
+        Workspace otherWorkspace = workspace();
+        User otherOwner = member(otherWorkspace, WorkspaceRole.OWNER);
+        Replay otherReplay = replay(otherWorkspace, otherOwner, "Qualidade secreta");
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/quality", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(viewer))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.score").value(20))
+            .andExpect(jsonPath("$.level").value("LOW"));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/quality", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(outsider))))
+            .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/quality", otherWorkspace.getId(), otherReplay.getId())
+                .with(user(new No8doUserDetails(viewer))))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void lexicalRelevancePrecedesQualityAndQualityBreaksEqualRelevance() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay titleDraft = replay(workspace, owner, "Needle");
+        Replay problemValidated = replay(workspace, owner, "Problema");
+        problemValidated.setProblem("Needle");
+        problemValidated.setStatus(ReplayStatus.VALIDATED);
+        replayRepository.saveAndFlush(problemValidated);
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId()).param("q", "Needle")
+                .with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].id").value(titleDraft.getId().toString()))
+            .andExpect(jsonPath("$[1].id").value(problemValidated.getId().toString()));
+
+        Replay draftPrefix = replay(workspace, owner, "Quality Needle alpha");
+        Replay validatedPrefix = replay(workspace, owner, "Quality Needle beta");
+        validatedPrefix.setStatus(ReplayStatus.VALIDATED);
+        replayRepository.saveAndFlush(validatedPrefix);
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId()).param("q", "Quality Needle")
+                .with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].id").value(validatedPrefix.getId().toString()))
+            .andExpect(jsonPath("$[1].id").value(draftPrefix.getId().toString()));
+    }
+
+    @Test
     void invalidTitleAndEnumAreRejected() throws Exception {
         Workspace workspace = workspace();
         User owner = member(workspace, WorkspaceRole.OWNER);

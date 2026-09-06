@@ -92,3 +92,13 @@ for (const [status, expected] of [[400, "Request inválido."], [401, "Token No8d
 test("compacta o resultado de busca", () => {
   assert.deepEqual(compactReplay(replay), { id: "r1", title: "Replay", type: "FIX", status: "DRAFT", version: 1, projectId: null, tags: ["java"], stack: ["spring"], usageCount: 0, successCount: 0, failureCount: 0, lastUsedAt: null, updatedAt: "2026-01-02T00:00:00Z" });
 });
+
+test("obtém qualidade pelo endpoint correto e trata PAT inválido", async () => {
+  const setup = client(200, { score: 45, level: "MEDIUM", usageCount: 0, successCount: 0, failureCount: 0, successRate: null, signals: ["Conhecimento validado"] });
+  const quality = await setup.client.getReplayQuality("w1", "r1");
+  assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays/r1/quality");
+  assert.equal(quality.score, 45);
+  assert.deepEqual(quality.signals, ["Conhecimento validado"]);
+  const denied = client(401, {});
+  await assert.rejects(() => denied.client.getReplayQuality("w1", "r1"), (error: unknown) => error instanceof No8doApiError && error.message === "Token No8do ausente, inválido ou revogado.");
+});

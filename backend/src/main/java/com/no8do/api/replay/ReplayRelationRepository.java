@@ -9,4 +9,6 @@ public interface ReplayRelationRepository extends JpaRepository<ReplayRelation, 
     List<ReplayRelation> findByWorkspaceIdAndSourceReplayIdOrWorkspaceIdAndTargetReplayIdOrderByCreatedAtDesc(UUID sourceWorkspaceId, UUID sourceReplayId, UUID targetWorkspaceId, UUID targetReplayId);
     boolean existsByWorkspaceIdAndSourceReplayIdAndTargetReplayIdAndType(UUID workspaceId, UUID sourceReplayId, UUID targetReplayId, ReplayRelationType type);
     Optional<ReplayRelation> findByIdAndWorkspaceId(UUID id, UUID workspaceId);
+
+    boolean existsByWorkspaceIdAndTargetReplayIdAndType(UUID workspaceId, UUID targetReplayId, ReplayRelationType type);
 }

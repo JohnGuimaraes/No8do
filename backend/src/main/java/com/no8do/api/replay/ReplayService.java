@@ -28,6 +28,7 @@ public class ReplayService {
     private final UserRepository userRepository;
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
+    private final ReplayQualityService replayQualityService;
 
     public ReplayService(
             ReplayRepository replayRepository,
@@ -36,7 +37,8 @@ public class ReplayService {
             ProjectRepository projectRepository,
             UserRepository userRepository,
             WorkspaceRepository workspaceRepository,
-            WorkspaceAuthorizationService workspaceAuthorizationService
+            WorkspaceAuthorizationService workspaceAuthorizationService,
+            ReplayQualityService replayQualityService
     ) {
         this.replayRepository = replayRepository;
         this.replayUsageRepository = replayUsageRepository;
@@ -45,6 +47,7 @@ public class ReplayService {
         this.userRepository = userRepository;
         this.workspaceRepository = workspaceRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
+        this.replayQualityService = replayQualityService;
     }
 
     @Transactional(readOnly = true)
@@ -57,6 +60,12 @@ public class ReplayService {
     public ReplayResponse get(UUID workspaceId, UUID replayId, UUID currentUserId) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
         return ReplayResponse.from(find(workspaceId, replayId));
+    }
+
+    @Transactional(readOnly = true)
+    public ReplayQualityResponse quality(UUID workspaceId, UUID replayId, UUID currentUserId) {
+        workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return replayQualityService.assess(find(workspaceId, replayId));
     }
 
     @Transactional
@@ -140,6 +149,7 @@ public class ReplayService {
             .map(replay -> new ScoredReplay(replay, similarity(replay, request)))
             .filter(candidate -> candidate.score() > 0)
             .sorted(Comparator.comparingInt(ScoredReplay::score).reversed()
+                .thenComparing(Comparator.comparingInt((ScoredReplay candidate) -> replayQualityService.assess(candidate.replay()).score()).reversed())
                 .thenComparing(Comparator.comparingInt((ScoredReplay candidate) -> candidate.replay().getUsageCount()).reversed())
                 .thenComparing(candidate -> candidate.replay().getUpdatedAt(), Comparator.reverseOrder())
                 .thenComparing(candidate -> candidate.replay().getId()))
@@ -225,6 +235,7 @@ public class ReplayService {
 
     private Comparator<Replay> replayOrder(java.util.function.ToIntFunction<Replay> score) {
         return Comparator.comparingInt(score).reversed()
+            .thenComparing(Comparator.comparingInt((Replay replay) -> replayQualityService.assess(replay).score()).reversed())
             .thenComparing(Comparator.comparingInt(Replay::getUsageCount).reversed())
             .thenComparing(Replay::getUpdatedAt, Comparator.reverseOrder())
             .thenComparing(Replay::getId);
