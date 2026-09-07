@@ -5,11 +5,14 @@ type WorkspacePanelProps = {
   workspace: Workspace | null;
   activeSection: WorkspaceSection;
   selectedProjectId: string | null;
+  selectedReplayId: string | null;
   onNavigateSection: (section: WorkspaceSection) => void;
   onOpenProject: (projectId: string, section: WorkspaceSection) => void;
+  onOpenReplay: (replayId: string) => void;
+  onBackToReplayCatalog: () => void;
 };
 
-export function WorkspacePanel({ workspace, activeSection, selectedProjectId, onNavigateSection, onOpenProject }: WorkspacePanelProps) {
+export function WorkspacePanel({ workspace, activeSection, selectedProjectId, selectedReplayId, onNavigateSection, onOpenProject, onOpenReplay, onBackToReplayCatalog }: WorkspacePanelProps) {
   if (!workspace) {
     return (
       <section className="editorial-empty-state">
@@ -19,5 +22,5 @@ export function WorkspacePanel({ workspace, activeSection, selectedProjectId, on
     );
   }
 
-  return <ProjectsPanel workspace={workspace} activeSection={activeSection} selectedProjectId={selectedProjectId} onNavigateSection={onNavigateSection} onOpenProject={onOpenProject} />;
+  return <ProjectsPanel workspace={workspace} activeSection={activeSection} selectedProjectId={selectedProjectId} selectedReplayId={selectedReplayId} onNavigateSection={onNavigateSection} onOpenProject={onOpenProject} onOpenReplay={onOpenReplay} onBackToReplayCatalog={onBackToReplayCatalog} />;
 }
