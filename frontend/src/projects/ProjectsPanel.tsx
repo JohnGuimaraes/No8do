@@ -98,11 +98,14 @@ type ProjectsPanelProps = {
   workspace: Workspace;
   activeSection: WorkspaceSection;
   selectedProjectId: string | null;
+  selectedReplayId: string | null;
   onNavigateSection: (section: WorkspaceSection) => void;
   onOpenProject: (projectId: string, section: WorkspaceSection) => void;
+  onOpenReplay: (replayId: string) => void;
+  onBackToReplayCatalog: () => void;
 };
 
-export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onNavigateSection, onOpenProject }: ProjectsPanelProps) {
+export function ProjectsPanel({ workspace, activeSection, selectedProjectId, selectedReplayId, onNavigateSection, onOpenProject, onOpenReplay, onBackToReplayCatalog }: ProjectsPanelProps) {
   const canWrite = workspace.role !== "VIEWER";
   const [projects, setProjects] = useState<Project[]>([]);
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
@@ -137,7 +140,6 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
   const [projectActionId, setProjectActionId] = useState<string | null>(null);
   const [projectPendingDeletion, setProjectPendingDeletion] = useState<Project | null>(null);
   const [replaysImmersive, setReplaysImmersive] = useState(false);
-  const [replayLaunch, setReplayLaunch] = useState<{ replayId?: string } | null>(null);
   const completionTimeoutRef = useRef<number | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const popupTimeoutRef = useRef<number | null>(null);
@@ -559,7 +561,6 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
   function handleSectionChange(sectionId: WorkspaceSection) {
     onNavigateSection(sectionId);
     if (sectionId !== "replays") setReplaysImmersive(false);
-    if (sectionId === "replays") setReplayLaunch(null);
     setEditingProjectId(null);
     setBoardError(null);
     if (sectionId !== "development") {
@@ -570,7 +571,6 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
   }
 
   function openReplaysFromDashboard() {
-    setReplayLaunch({});
     onNavigateSection("replays");
   }
 
@@ -779,7 +779,7 @@ export function ProjectsPanel({ workspace, activeSection, selectedProjectId, onN
               onIdeaRestored={(idea) => setIdeas((current) => [idea, ...current.filter((item) => item.id !== idea.id)])}
             />
           ) : null}
-          {activeSection === "replays" ? <ReplaysPanel workspaceId={workspace.id} canWrite={canWrite} onImmersiveChange={setReplaysImmersive} onExitWorkspace={() => handleSectionChange("overview")} initialReplayId={replayLaunch?.replayId} /> : null}
+          {activeSection === "replays" ? <ReplaysPanel workspaceId={workspace.id} canWrite={canWrite} onImmersiveChange={setReplaysImmersive} onExitWorkspace={() => handleSectionChange("overview")} replayId={selectedReplayId} onOpenReplay={onOpenReplay} onBackToCatalog={onBackToReplayCatalog} /> : null}
         </>
       )}
 

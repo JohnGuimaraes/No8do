@@ -19,7 +19,7 @@ type WorkspaceSection = "overview" | "development" | "work-items" | "projects" |
 
 type HealthStatus = "checking" | "online" | "offline";
 type AppRoute =
-  | { view: "workspace"; workspaceId?: string; section: WorkspaceSection }
+  | { view: "workspace"; workspaceId?: string; section: WorkspaceSection; replayId?: string }
   | { view: "project-details"; workspaceId: string; projectId: string; section: WorkspaceSection }
   | { view: "login" }
   | { view: "register" }
@@ -51,6 +51,8 @@ function readRoute(): AppRoute {
       section: readWorkspaceSection(new URLSearchParams(window.location.search).get("from")),
     };
   }
+  const replayDetails = pathname.match(/^\/w\/([^/]+)\/replays\/([^/]+)$/);
+  if (replayDetails) return { view: "workspace", workspaceId: decodeURIComponent(replayDetails[1]), section: "replays", replayId: decodeURIComponent(replayDetails[2]) };
   const workspaceRoute = pathname.match(/^\/w\/([^/]+)(?:\/(acervo|ideias|desenvolvimento|pendencias|finalizados|replays))?$/);
   if (workspaceRoute) {
     return {
@@ -151,8 +153,8 @@ function App() {
     ? workspaces.find((workspace) => workspace.id === routedWorkspaceId) ?? null
     : activeWorkspace;
 
-  function navigate(path: string) {
-    window.history.pushState({}, "", path);
+  function navigate(path: string, state: Record<string, unknown> = {}) {
+    window.history.pushState({ no8do: true, ...state }, "", path);
     setRoute(readRoute());
   }
 
@@ -256,6 +258,22 @@ function App() {
     if (activeWorkspaceId) navigate(workspacePath(activeWorkspaceId, section));
   }
 
+  function openReplay(replayId: string) {
+    if (!activeWorkspaceId) return;
+    const path = `${workspacePath(activeWorkspaceId, "replays")}/${encodeURIComponent(replayId)}`;
+    if (window.location.pathname === path) { setRoute(readRoute()); return; }
+    navigate(path, { replayDetailFromCatalog: true });
+  }
+
+  function returnToReplayCatalog() {
+    if (!activeWorkspaceId) return;
+    if (window.history.state?.replayDetailFromCatalog) {
+      window.history.back();
+      return;
+    }
+    navigate(workspacePath(activeWorkspaceId, "replays"));
+  }
+
   function openWorkspaceProject(projectId: string, section: WorkspaceSection) {
     if (!activeWorkspaceId) return;
     navigate(`/w/${encodeURIComponent(activeWorkspaceId)}/projects/${encodeURIComponent(projectId)}?from=${encodeURIComponent(section)}`);
@@ -320,7 +338,7 @@ function App() {
           replaceNavigation(nextWorkspace ? workspacePath(nextWorkspace.id, "overview") : "/");
         }} /> : null}
         {route.view === "workspace-settings" && !routedWorkspace ? <div className="editorial-empty-state"><p className="text-sm text-muted-foreground">Carregando workspace...</p></div> : null}
-        {route.view === "workspace" || route.view === "project-details" ? <WorkspacePanel workspace={routedWorkspace} activeSection={route.section} selectedProjectId={route.view === "project-details" ? route.projectId : null} onNavigateSection={navigateWorkspaceSection} onOpenProject={openWorkspaceProject} /> : null}
+        {route.view === "workspace" || route.view === "project-details" ? <WorkspacePanel workspace={routedWorkspace} activeSection={route.section} selectedProjectId={route.view === "project-details" ? route.projectId : null} selectedReplayId={route.view === "workspace" ? route.replayId ?? null : null} onNavigateSection={navigateWorkspaceSection} onOpenProject={openWorkspaceProject} onOpenReplay={openReplay} onBackToReplayCatalog={returnToReplayCatalog} /> : null}
       </section>
     </main>
   );
