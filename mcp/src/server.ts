@@ -1,9 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { compactReplay, No8doClient, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
-import { resolveWorkspaceId } from "./workspace.js";
+import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 
-export type McpServerContext = { apiUrl: string; token: string; defaultWorkspaceId?: string };
+export type McpServerContext = { apiUrl: string; token: string; defaultWorkspaceId?: string; transport?: WorkspaceTransport };
 const type = z.enum(["FIX", "PATTERN", "RECIPE", "SNIPPET", "DECISION", "PROCEDURE", "CHECKLIST", "TROUBLESHOOTING", "PROMPT", "REFERENCE"]);
 const status = z.enum(["DRAFT", "VALIDATED", "DEPRECATED"]);
 const usageResult = z.enum(["SUCCESS", "FAILURE", "UNKNOWN"]);
@@ -15,7 +15,7 @@ const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSO
 export function createMcpServer(context: McpServerContext) {
   const client = new No8doClient(context.apiUrl, context.token);
   const server = new McpServer({ name: "no8do-replays", version: "0.1.0" });
-  const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId);
+  const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId, context.transport);
   server.registerTool("list_replays", { description: "Liste o catálogo de Replays do workspace sem aplicar busca textual.", inputSchema: workspace }, async ({ workspaceId }) => text((await client.listReplays(resolve(workspaceId))).map(compactReplay)));
   server.registerTool("search_replays", { description: "Pesquise conhecimento técnico reutilizável existente antes de resolver novamente ou criar um novo Replay.", inputSchema: { ...workspace, query: z.string().min(1) } }, async ({ workspaceId, query }) => text((await client.searchReplays(resolve(workspaceId), query)).map(compactReplay)));
   server.registerTool("find_reusable_knowledge", { description: "Sugira Replays reutilizáveis por relevância determinística. Revise candidatos antes de atualizar ou criar conteúdo.", inputSchema: { ...workspace, query: z.string().optional(), problem: z.string().optional(), stack: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), type: type.optional() } }, async ({ workspaceId, ...input }) => text({ suggestions: await client.findReusableKnowledge(resolve(workspaceId), input as FindReusableKnowledgeInput) }));

@@ -24,8 +24,16 @@ As relações aceitam `RELATED_TO`, `SUPERSEDES`, `RESOLVES` e `DEPENDS_ON`, sem
 
 As tools de versão são somente leitura. Elas retornam snapshots históricos do conteúdo; não existe restauração, edição ou exclusão de versão pelo MCP.
 
-## Remote MCP — Fase 1
+## Remote MCP — workspace único
 
-O transporte remoto usa Streamable HTTP oficial em `POST`/`GET /mcp` e `GET /health`. Execute com `NO8DO_API_URL=https://api.example npm run start:http`. O servidor não usa `NO8DO_API_TOKEN`: cada cliente envia `Authorization: Bearer <PAT pessoal>`, que é encaminhado somente à API No8do para aquela requisição. Em modo remoto, `workspaceId` é obrigatório em cada tool; `NO8DO_WORKSPACE_ID` continua sendo apenas o fallback do STDIO local.
+O transporte remoto usa Streamable HTTP oficial em `POST`/`GET /mcp` e `GET /health`. Cada instância representa exclusivamente um workspace e exige `NO8DO_API_URL`, `NO8DO_WORKSPACE_ID` (UUID válido) e `PORT`. Exemplo:
 
-Para Docker: `docker build -t no8do-mcp .`; configure somente `NO8DO_API_URL` e `PORT`. Para um futuro serviço Coolify, publique `/mcp` e use `/health` como health check. OAuth, workspace padrão por usuário, rate limiting e auditoria de abuso permanecem pendentes antes de exposição pública ampla.
+```bash
+NO8DO_API_URL=https://api.example
+NO8DO_WORKSPACE_ID=c8700de6-8549-4cc2-aa5f-1e652eba4c96
+PORT=3000
+```
+
+O servidor não usa `NO8DO_API_TOKEN`: cada cliente envia `Authorization: Bearer <PAT pessoal>`, encaminhado somente à API No8do para aquela requisição. Sem `workspaceId`, uma tool usa o workspace configurado; com o mesmo ID, é permitida; com ID divergente, é rejeitada antes de qualquer chamada à API. O MCP nunca acessa outro workspace. O PAT identifica o usuário, enquanto o workspace configurado limita a instância; a API continua validando membership e RBAC. O STDIO mantém o comportamento anterior: `workspaceId` explícito tem prioridade e `NO8DO_WORKSPACE_ID` é apenas fallback.
+
+Para Docker: `docker build -t no8do-mcp .`; configure `NO8DO_API_URL`, `NO8DO_WORKSPACE_ID` e `PORT`. Para Coolify, publique `/mcp`, use `/health` como health check e crie uma instância separada para cada workspace futuro. OAuth, rate limiting e auditoria de abuso permanecem pendentes antes de exposição pública ampla.
