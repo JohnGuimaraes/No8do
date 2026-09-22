@@ -10,17 +10,27 @@ public final class ReplayCanonicalizer {
     public CanonicalReplayContent canonicalize(ReplayVersion version) {
         Objects.requireNonNull(version, "ReplayVersion é obrigatória.");
 
+        return canonicalize(version.getTitle(), version.getType(), version.getTags(), version.getStack(), version.getProblem(), version.getContext(), version.getSolution());
+    }
+
+    public CanonicalReplayContent canonicalize(ReplaySemanticDuplicateQuery query) {
+        Objects.requireNonNull(query, "ReplaySemanticDuplicateQuery é obrigatória.");
+        return canonicalize(query.title(), query.type(), query.tags().toArray(String[]::new), query.stack().toArray(String[]::new), query.problem(), query.context(), query.solution());
+    }
+
+    private CanonicalReplayContent canonicalize(String title, com.no8do.api.replay.ReplayType type, String[] tags, String[] stack,
+            String problem, String context, String solution) {
         List<String> sections = new ArrayList<>();
-        sections.add("Título: " + requiredText("Título", version.getTitle()));
-        if (version.getType() == null) {
+        sections.add("Título: " + requiredText("Título", title));
+        if (type == null) {
             throw new IllegalArgumentException("Tipo de ReplayVersion é obrigatório.");
         }
-        sections.add("Tipo: " + version.getType().name());
-        appendTerms(sections, "Tags", version.getTags());
-        appendTerms(sections, "Stack", version.getStack());
-        appendSection(sections, "Problema", version.getProblem());
-        appendSection(sections, "Contexto", version.getContext());
-        appendSection(sections, "Solução", version.getSolution());
+        sections.add("Tipo: " + type.name());
+        appendTerms(sections, "Tags", tags);
+        appendTerms(sections, "Stack", stack);
+        appendSection(sections, "Problema", problem);
+        appendSection(sections, "Contexto", context);
+        appendSection(sections, "Solução", solution);
 
         return new CanonicalReplayContent(String.join("\n", sections));
     }
