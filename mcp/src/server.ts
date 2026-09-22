@@ -1,9 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { compactReplay, No8doClient, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
+import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
+import { compactReplay, No8doClient, type AgentProtocol, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 
-export type McpServerContext = { apiUrl: string; token: string; defaultWorkspaceId?: string; transport?: WorkspaceTransport };
+export type McpServerContext = { apiUrl: string; token: string; agentProtocol: AgentProtocol; defaultWorkspaceId?: string; transport?: WorkspaceTransport };
 const type = z.enum(["FIX", "PATTERN", "RECIPE", "SNIPPET", "DECISION", "PROCEDURE", "CHECKLIST", "TROUBLESHOOTING", "PROMPT", "REFERENCE"]);
 const status = z.enum(["DRAFT", "VALIDATED", "DEPRECATED"]);
 const usageResult = z.enum(["SUCCESS", "FAILURE", "UNKNOWN"]);
@@ -14,8 +15,36 @@ const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSO
 
 export function createMcpServer(context: McpServerContext) {
   const client = new No8doClient(context.apiUrl, context.token);
-  const server = new McpServer({ name: "no8do-replays", version: "0.1.0" });
+  const server = new McpServer({ name: "no8do-replays", version: "0.1.0" }, { instructions: renderAgentProtocolBootstrap(context.agentProtocol) });
   const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId, context.transport);
+  const protocolOutput = z.object({
+    protocolName: z.string(),
+    protocolVersion: z.number().int().positive(),
+    systemName: z.string(),
+    purpose: z.string(),
+    replayGuidance: z.object({
+      summary: z.string(),
+      searchBeforeNonTrivialWork: z.boolean(),
+      preferExistingKnowledge: z.boolean(),
+      searchBeforeCreate: z.boolean(),
+      recordUsageOnlyWhenMateriallyUsed: z.boolean(),
+      validatedRequiresEvidence: z.boolean(),
+      avoidTrivialKnowledge: z.boolean(),
+      avoidDuplicateKnowledge: z.boolean(),
+      neverStoreSecrets: z.boolean(),
+      neverStoreCredentials: z.boolean(),
+      avoidDiscardedAttempts: z.boolean()
+    }),
+    capabilities: z.object({ capabilities: z.array(z.object({ id: z.string(), description: z.string(), readOnly: z.boolean() })) }),
+    policies: z.object({ policies: z.array(z.object({ id: z.string(), description: z.string(), enforcement: z.enum(["ADVISORY", "ENFORCED"]) })) })
+  });
+  server.registerTool("get_agent_protocol", {
+    description: "Obtenha o Agent Protocol canônico do No8do, incluindo orientação, capabilities e policies atuais.",
+    outputSchema: protocolOutput
+  }, async () => ({
+    content: [{ type: "text" as const, text: `No8do Agent Protocol ${context.agentProtocol.protocolName} v${context.agentProtocol.protocolVersion}` }],
+    structuredContent: context.agentProtocol as unknown as Record<string, unknown>
+  }));
   server.registerTool("list_replays", { description: "Liste o catálogo de Replays do workspace sem aplicar busca textual.", inputSchema: workspace }, async ({ workspaceId }) => text((await client.listReplays(resolve(workspaceId))).map(compactReplay)));
   server.registerTool("search_replays", { description: "Pesquise conhecimento técnico reutilizável existente antes de resolver novamente ou criar um novo Replay.", inputSchema: { ...workspace, query: z.string().min(1) } }, async ({ workspaceId, query }) => text((await client.searchReplays(resolve(workspaceId), query)).map(compactReplay)));
   server.registerTool("find_reusable_knowledge", { description: "Sugira Replays reutilizáveis por relevância determinística. Revise candidatos antes de atualizar ou criar conteúdo.", inputSchema: { ...workspace, query: z.string().optional(), problem: z.string().optional(), stack: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), type: type.optional() } }, async ({ workspaceId, ...input }) => text({ suggestions: await client.findReusableKnowledge(resolve(workspaceId), input as FindReusableKnowledgeInput) }));

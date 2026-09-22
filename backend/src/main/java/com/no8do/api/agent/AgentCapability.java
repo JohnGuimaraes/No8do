@@ -1,6 +1,10 @@
 package com.no8do.api.agent;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /** Functional capability supported by the current No8do Replay backend. */
+@JsonFormat(shape = JsonFormat.Shape.OBJECT)
 public enum AgentCapability {
     REPLAY_CATALOG_LIST("Lista o catálogo de Replays.", true),
     REPLAY_SEARCH("Pesquisa Replays por texto.", true),
@@ -26,7 +30,7 @@ public enum AgentCapability {
         this.readOnly = readOnly;
     }
 
-    public String id() { return name(); }
-    public String description() { return description; }
-    public boolean readOnly() { return readOnly; }
+    @JsonProperty("id") public String id() { return name(); }
+    @JsonProperty("description") public String description() { return description; }
+    @JsonProperty("readOnly") public boolean readOnly() { return readOnly; }
 }

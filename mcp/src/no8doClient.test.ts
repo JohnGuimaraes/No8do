@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactReplay, No8doApiError, No8doClient, type Replay } from "./no8doClient.js";
+import { compactReplay, No8doApiError, No8doClient, type AgentProtocol, type Replay } from "./no8doClient.js";
 
 const replay: Replay = { id: "r1", workspaceId: "w1", projectId: null, title: "Replay", type: "FIX", problem: "p", solution: "s", context: null, tags: ["java"], stack: ["spring"], status: "DRAFT", version: 1, usageCount: 0, successCount: 0, failureCount: 0, lastUsedAt: null, createdBy: "u1", createdByName: "User", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z" };
 
@@ -101,4 +101,23 @@ test("obtém qualidade pelo endpoint correto e trata PAT inválido", async () =>
   assert.deepEqual(quality.signals, ["Conhecimento validado"]);
   const denied = client(401, {});
   await assert.rejects(() => denied.client.getReplayQuality("w1", "r1"), (error: unknown) => error instanceof No8doApiError && error.message === "Token No8do ausente, inválido ou revogado.");
+});
+
+test("obtém o protocolo canônico global pelo endpoint autenticado sem workspace", async () => {
+  const protocol: AgentProtocol = {
+    protocolName: "controlled-protocol",
+    protocolVersion: 7,
+    systemName: "Controlled No8do",
+    purpose: "Test fixture",
+    replayGuidance: { summary: "fixture", searchBeforeNonTrivialWork: true, preferExistingKnowledge: true, searchBeforeCreate: true, recordUsageOnlyWhenMateriallyUsed: true, validatedRequiresEvidence: true, avoidTrivialKnowledge: true, avoidDuplicateKnowledge: true, neverStoreSecrets: true, neverStoreCredentials: true, avoidDiscardedAttempts: true },
+    capabilities: { capabilities: [{ id: "CONTROLLED", description: "controlled capability", readOnly: true }] },
+    policies: { policies: [{ id: "controlled-policy", description: "controlled policy", enforcement: "ADVISORY" }] }
+  };
+  const setup = client(200, protocol);
+  const result = await setup.client.getAgentProtocol();
+
+  assert.deepEqual(result, protocol);
+  assert.equal(setup.calls[0][0], "http://localhost:8080/api/agent-protocol");
+  assert.equal(setup.calls[0][1]?.method, undefined);
+  assert.equal(new Headers(setup.calls[0][1]?.headers).get("Authorization"), "Bearer no8do_pat_secret-value");
 });
