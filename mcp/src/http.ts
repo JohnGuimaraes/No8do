@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { No8doApiError, No8doClient } from "./no8doClient.js";
 import { createMcpServer } from "./server.js";
 import { requireRemoteWorkspaceId } from "./workspace.js";
 
@@ -17,12 +18,17 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
   const token = bearer(request);
   if (!token) return json(response, 401, { error: "Unauthorized" });
   try {
-    const server = createMcpServer({ apiUrl, token, defaultWorkspaceId: scopedWorkspaceId, transport: "http" });
+    const agentProtocol = await new No8doClient(apiUrl, token).getAgentProtocol();
+    const server = createMcpServer({ apiUrl, token, agentProtocol, defaultWorkspaceId: scopedWorkspaceId, transport: "http" });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
     await transport.handleRequest(request, response, request.method === "POST" ? await body(request) : undefined);
     response.on("close", () => { void transport.close(); void server.close(); });
-  } catch { if (!response.headersSent) json(response, 500, { error: "Internal server error" }); }
+  } catch (error) {
+    if (response.headersSent) return;
+    if (error instanceof No8doApiError && (error.status === 401 || error.status === 403)) return json(response, error.status, { error: error.message });
+    json(response, 500, { error: "Internal server error" });
+  }
   });
 }
 

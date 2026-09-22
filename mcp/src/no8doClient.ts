@@ -46,6 +46,29 @@ export type ReplayQuality = { score: number; level: "LOW" | "MEDIUM" | "HIGH"; u
 export type ReplayRelationType = "RELATED_TO" | "SUPERSEDES" | "RESOLVES" | "DEPENDS_ON";
 export type ReplayRelation = { id: string; type: ReplayRelationType; direction: "RELATED" | "OUTGOING" | "INCOMING"; relatedReplayId: string; relatedReplayTitle: string; relatedReplayType: ReplayType; relatedReplayStatus: ReplayStatus; relatedReplayVersion: number; createdAt: string };
 export type ReplayVersion = { version: number; title: string; type: ReplayType; problem: string | null; solution: string | null; context: string | null; tags: string[]; stack: string[]; status: ReplayStatus; projectId: string | null; changedBy: string | null; changedByName: string; createdAt: string };
+export type AgentCapability = { id: string; description: string; readOnly: boolean };
+export type AgentPolicy = { id: string; description: string; enforcement: "ADVISORY" | "ENFORCED" };
+export type AgentProtocol = {
+  protocolName: string;
+  protocolVersion: number;
+  systemName: string;
+  purpose: string;
+  replayGuidance: {
+    summary: string;
+    searchBeforeNonTrivialWork: boolean;
+    preferExistingKnowledge: boolean;
+    searchBeforeCreate: boolean;
+    recordUsageOnlyWhenMateriallyUsed: boolean;
+    validatedRequiresEvidence: boolean;
+    avoidTrivialKnowledge: boolean;
+    avoidDuplicateKnowledge: boolean;
+    neverStoreSecrets: boolean;
+    neverStoreCredentials: boolean;
+    avoidDiscardedAttempts: boolean;
+  };
+  capabilities: { capabilities: AgentCapability[] };
+  policies: { policies: AgentPolicy[] };
+};
 
 export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId">>;
 export type ReplayUpdate = Partial<ReplayMutation>;
@@ -75,6 +98,9 @@ export class No8doClient {
     this.baseUrl = apiUrl.replace(/\/+$/, "").replace(/\/api$/, "");
   }
 
+  getAgentProtocol(): Promise<AgentProtocol> {
+    return this.request("/api/agent-protocol");
+  }
   listReplays(workspaceId: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);
   }

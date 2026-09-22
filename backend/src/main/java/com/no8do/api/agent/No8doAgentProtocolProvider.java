@@ -1,8 +1,10 @@
 package com.no8do.api.agent;
 
 import java.util.List;
+import org.springframework.stereotype.Component;
 
 /** Pure code-versioned provider of the canonical No8do agent protocol. */
+@Component
 public final class No8doAgentProtocolProvider {
     private static final No8doAgentProtocol CURRENT = buildCurrent();
 

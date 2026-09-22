@@ -8,6 +8,8 @@ O Capability Manifest lista somente capacidades presentes no MCP Replays ou supo
 
 O Policy Manifest separa orientação de policy potencialmente aplicável pelo servidor. Cada policy possui ID, descrição e enforcement explícito. Isolamento por workspace é `ENFORCED`, pois as operações atuais de Replay verificam membership/escopo no backend; regras sobre segredos, credenciais, duplicatas semânticas, evidência para `VALIDATED` e uso material são `ADVISORY`, pois ainda não são garantidas em todas as gravações.
 
-`No8doAgentProtocolProvider.current()` fornece a versão canônica construída no código, sem banco, configuração dinâmica ou dependência MCP. A serialização futura poderá usar os records normalmente; não há parser nem JSON/YAML manual. MCP poderá ser um transporte futuro para entregar o contrato, sem ser parte do domínio. `AGENTS.md` continua ativo no projeto atual; este protocolo prepara um mecanismo canônico autodescritivo para consumidores futuros, mas não o remove nem declara sua remoção.
+`No8doAgentProtocolProvider.current()` fornece a versão canônica construída no código, sem banco, configuração dinâmica ou dependência MCP. O endpoint autenticado serializa os records para o transporte MCP, sem parser nem JSON/YAML manual no adapter. MCP é transporte, não parte do domínio. `AGENTS.md` continua ativo no projeto atual; este protocolo prepara um mecanismo canônico autodescritivo para consumidores futuros, mas não o remove nem declara sua remoção.
 
-Esta fase não implementa handshake/tool MCP, sessões, enforcement das policies, frontend, WebSocket/SSE, LLM, provider, RAG ou 5H.2.
+A exposição do protocolo pelo bootstrap e pela operação estruturada do MCP está descrita em [`agent-protocol-mcp-bootstrap.md`](agent-protocol-mcp-bootstrap.md).
+
+A 5H.1 definiu o contrato canônico; a 5H.2 o expõe por bootstrap e discovery MCP. Ainda não são implementados sessões, enforcement das policies advisory, frontend, WebSocket/SSE, LLM, modos específicos de provider ou RAG.
