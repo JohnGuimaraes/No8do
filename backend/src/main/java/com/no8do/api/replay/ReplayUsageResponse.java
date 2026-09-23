@@ -14,7 +14,8 @@ public record ReplayUsageResponse(
         ReplayUsageResult result,
         ReplayUsageSource source,
         String context,
-        Instant usedAt
+        Instant usedAt,
+        Boolean materiallyUsed
 ) {
     static ReplayUsageResponse from(ReplayUsage usage) {
         return new ReplayUsageResponse(
@@ -28,7 +29,8 @@ public record ReplayUsageResponse(
             usage.getResult(),
             usage.getSource(),
             usage.getContext(),
-            usage.getUsedAt()
+            usage.getUsedAt(),
+            usage.getMateriallyUsed()
         );
     }
 }

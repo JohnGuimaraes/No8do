@@ -53,11 +53,14 @@ public class ReplayUsage {
     @Column(columnDefinition = "text")
     private String context;
 
+    @Column(name = "materially_used")
+    private Boolean materiallyUsed;
+
     @Column(name = "used_at", nullable = false, updatable = false)
     private Instant usedAt;
 
     public ReplayUsage(Replay replay, Project project, User usedBy, int replayVersion,
-            ReplayUsageResult result, ReplayUsageSource source, String context) {
+            ReplayUsageResult result, ReplayUsageSource source, String context, Boolean materiallyUsed) {
         this.replay = replay;
         this.project = project;
         this.usedBy = usedBy;
@@ -65,6 +68,7 @@ public class ReplayUsage {
         this.result = result;
         this.source = source;
         this.context = context;
+        this.materiallyUsed = materiallyUsed;
     }
 
     @PrePersist

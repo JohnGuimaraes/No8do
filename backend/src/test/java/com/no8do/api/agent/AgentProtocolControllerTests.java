@@ -59,6 +59,8 @@ class AgentProtocolControllerTests {
             .andExpect(jsonPath("$.capabilities.capabilities[0].description").isNotEmpty())
             .andExpect(jsonPath("$.capabilities.capabilities[0].readOnly").value(true))
             .andExpect(jsonPath("$.policies.policies[0].enforcement").value("ADVISORY"))
+            .andExpect(jsonPath("$.policies.policies[2].id").value("material-usage-required-for-usage-record"))
+            .andExpect(jsonPath("$.policies.policies[2].enforcement").value("ENFORCED"))
             .andExpect(jsonPath("$.policies.policies[5].id").value("workspace-isolation-required"))
             .andExpect(jsonPath("$.policies.policies[5].enforcement").value("ENFORCED"));
     }

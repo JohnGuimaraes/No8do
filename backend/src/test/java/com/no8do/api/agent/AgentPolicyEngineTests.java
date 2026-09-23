@@ -61,6 +61,32 @@ class AgentPolicyEngineTests {
     }
 
     @Test
+    void enforcedMaterialUsagePolicyRequiresAgentAttestationAndShortEvidenceOnlyForAgentSessions() {
+        UUID workspaceId = UUID.randomUUID();
+        assertMaterialUsageDecision(workspaceId, true, "Aplicado ao corrigir a rotina de importação.", true,
+                AgentPolicyDecisionType.ALLOW);
+        assertMaterialUsageDecision(workspaceId, null, "Aplicado.", true, AgentPolicyDecisionType.DENY);
+        assertMaterialUsageDecision(workspaceId, false, "Aplicado.", true, AgentPolicyDecisionType.DENY);
+        assertMaterialUsageDecision(workspaceId, true, null, true, AgentPolicyDecisionType.DENY);
+        assertMaterialUsageDecision(workspaceId, true, "   ", true, AgentPolicyDecisionType.DENY);
+        assertMaterialUsageDecision(workspaceId, true, "x".repeat(1001), true, AgentPolicyDecisionType.DENY);
+        assertMaterialUsageDecision(workspaceId, null, null, false, AgentPolicyDecisionType.ALLOW);
+    }
+
+    private void assertMaterialUsageDecision(UUID workspaceId, Boolean materiallyUsed, String evidence,
+            boolean withSession, AgentPolicyDecisionType expected) {
+        AgentSession session = withSession ? new AgentSession(UUID.randomUUID(), UUID.randomUUID(), workspaceId,
+                new AgentClientIdentity("test", "1"), AgentTransport.MCP,
+                protocolProvider.current(), "a".repeat(64)) : null;
+        AgentPolicyContext context = new AgentPolicyContext(session, workspaceId, AgentCapability.REPLAY_USAGE_RECORD,
+                null, null, materiallyUsed, evidence);
+        AgentPolicyDecision decision = engine.evaluate(protocolProvider.current().policies(), context).stream()
+                .filter(value -> value.policyId().equals("material-usage-required-for-usage-record"))
+                .findFirst().orElseThrow();
+        assertThat(decision.decision()).isEqualTo(expected);
+    }
+
+    @Test
     void evidenceRequirementAlsoAppliesWithoutAgentSession() {
         AgentPolicyContext context = new AgentPolicyContext(null, UUID.randomUUID(), AgentCapability.REPLAY_CREATE,
                 ReplayStatus.VALIDATED, null);

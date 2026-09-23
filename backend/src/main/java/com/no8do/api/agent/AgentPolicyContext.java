@@ -5,9 +5,15 @@ import com.no8do.api.replay.ReplayStatus;
 import com.no8do.api.replay.ReplayValidationEvidence;
 
 public record AgentPolicyContext(AgentSession session, UUID requestedWorkspaceId, AgentCapability operation,
-        ReplayStatus replayStatus, ReplayValidationEvidence validationEvidence) {
+        ReplayStatus replayStatus, ReplayValidationEvidence validationEvidence,
+        Boolean materiallyUsed, String materialUseEvidence) {
     public AgentPolicyContext(AgentSession session, UUID requestedWorkspaceId, AgentCapability operation) {
-        this(session, requestedWorkspaceId, operation, null, null);
+        this(session, requestedWorkspaceId, operation, null, null, null, null);
+    }
+
+    public AgentPolicyContext(AgentSession session, UUID requestedWorkspaceId, AgentCapability operation,
+            ReplayStatus replayStatus, ReplayValidationEvidence validationEvidence) {
+        this(session, requestedWorkspaceId, operation, replayStatus, validationEvidence, null, null);
     }
 
     public AgentPolicyContext {

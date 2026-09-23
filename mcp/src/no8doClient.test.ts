@@ -65,7 +65,7 @@ test("usa endpoints e corpos corretos para get, create, update e register usage"
   await setup.client.createReplay("w1", { title: "Novo", type: "RECIPE", tags: ["node"], status: "VALIDATED", validationEvidence });
   await setup.client.createReplay("w1", { title: "Sem projeto", type: "RECIPE", projectId: null });
   await setup.client.updateReplay("w1", "r1", { solution: "melhor", validationEvidence });
-  await setup.client.registerReplayUsage("w1", "r1", { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado" });
+  await setup.client.registerReplayUsage("w1", "r1", { result: "SUCCESS", materiallyUsed: true, replayVersion: 1, projectId: null, context: "aplicado" });
   assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays/r1");
   assert.equal(setup.calls[1][1]?.method, "POST");
   assert.deepEqual(JSON.parse(String(setup.calls[1][1]?.body)), { title: "Novo", type: "RECIPE", tags: ["node"], status: "VALIDATED", validationEvidence });
@@ -74,7 +74,7 @@ test("usa endpoints e corpos corretos para get, create, update e register usage"
   assert.deepEqual(JSON.parse(String(setup.calls[3][1]?.body)), { solution: "melhor", validationEvidence });
   assert.equal(setup.calls[4][0], "http://localhost:8080/api/workspaces/w1/replays/r1/usages");
   assert.equal(setup.calls[4][1]?.method, "POST");
-  assert.deepEqual(JSON.parse(String(setup.calls[4][1]?.body)), { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado", source: "MCP" });
+  assert.deepEqual(JSON.parse(String(setup.calls[4][1]?.body)), { result: "SUCCESS", materiallyUsed: true, replayVersion: 1, projectId: null, context: "aplicado", source: "MCP" });
 });
 
 test("força source MCP mesmo diante de entrada não tipada", async () => {

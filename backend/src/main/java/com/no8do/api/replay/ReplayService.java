@@ -189,7 +189,8 @@ public class ReplayService {
             replayVersion,
             request.result(),
             request.source(),
-            normalizeOptionalText(request.context())
+            normalizeOptionalText(request.context()),
+            request.materiallyUsed()
         );
         replayUsageRepository.saveAndFlush(usage);
         ReplayUsageResponse response = ReplayUsageResponse.from(usage);
