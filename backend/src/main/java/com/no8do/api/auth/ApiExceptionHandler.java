@@ -1,5 +1,6 @@
 package com.no8do.api.auth;
 
+import com.no8do.api.agent.AgentCapabilityDeniedException;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -15,6 +16,16 @@ public class ApiExceptionHandler {
         return ResponseEntity
             .status(ex.getStatusCode())
             .body(Map.of("error", ex.getReason()));
+    }
+
+    @ExceptionHandler(AgentCapabilityDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAgentCapabilityDenied(AgentCapabilityDeniedException ex) {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).body(Map.of(
+            "error", "AGENT_CAPABILITY_DENIED",
+            "metadata", Map.of(
+                "sessionId", ex.session().getId(),
+                "runtimeMode", ex.session().getRuntimeMode(),
+                "requiredCapability", ex.requiredCapability().name())));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

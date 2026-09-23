@@ -4,11 +4,11 @@ import { InitializeRequestSchema, type JSONRPCMessage } from "@modelcontextproto
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
-import { compactReplay, No8doClient, type AgentProtocol, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
+import { compactReplay, No8doClient, type AgentProtocol, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 
-export type McpServerContext = { apiUrl: string; token: string; agentProtocol: AgentProtocol; defaultWorkspaceId?: string; transport?: WorkspaceTransport };
+export type McpServerContext = { apiUrl: string; token: string; agentProtocol: AgentProtocol; defaultWorkspaceId?: string; transport?: WorkspaceTransport; agentSessionHeader?: AgentSessionHeader };
 
 /** Adds one registration barrier to stdio initialize; stdio has no SDK-issued session ID. */
 export class StdioAgentSessionTransport implements Transport {
@@ -75,7 +75,7 @@ const mutation = { title: z.string().min(1), type, problem: z.string().optional(
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 
 export function createMcpServer(context: McpServerContext) {
-  const client = new No8doClient(context.apiUrl, context.token);
+  const client = new No8doClient(context.apiUrl, context.token, fetch, context.agentSessionHeader);
   const server = new McpServer({ name: "no8do-replays", version: "0.1.0" }, { instructions: renderAgentProtocolBootstrap(context.agentProtocol) });
   const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId, context.transport);
   const protocolOutput = z.object({
@@ -106,6 +106,29 @@ export function createMcpServer(context: McpServerContext) {
     content: [{ type: "text" as const, text: `No8do Agent Protocol ${context.agentProtocol.protocolName} v${context.agentProtocol.protocolVersion}` }],
     structuredContent: context.agentProtocol as unknown as Record<string, unknown>
   }));
+  const agentContextOutput = z.object({
+    sessionId: z.string().uuid(),
+    clientName: z.string(),
+    clientVersion: z.string(),
+    workspaceId: z.string().uuid().nullable(),
+    transport: z.literal("MCP"),
+    protocolName: z.string(),
+    protocolVersion: z.number().int().positive(),
+    runtimeMode: z.enum(["OFF", "READ_ONLY", "RETRIEVAL", "ASSISTED", "FULL"]),
+    effectiveCapabilities: z.array(z.object({ id: z.string(), description: z.string(), readOnly: z.boolean() })),
+    registeredAt: z.string()
+  });
+  server.registerTool("get_agent_context", {
+    description: "Obtenha o contexto atual desta sessão Agent, incluindo runtime mode e effective capabilities.",
+    inputSchema: {},
+    outputSchema: agentContextOutput
+  }, async () => {
+    const agentContext = await client.getAgentContext();
+    return {
+      content: [{ type: "text" as const, text: `Agent Session ${agentContext.sessionId} (${agentContext.runtimeMode})` }],
+      structuredContent: agentContext as unknown as Record<string, unknown>
+    };
+  });
   server.registerTool("list_replays", { description: "Liste o catálogo de Replays do workspace sem aplicar busca textual.", inputSchema: workspace }, async ({ workspaceId }) => text((await client.listReplays(resolve(workspaceId))).map(compactReplay)));
   server.registerTool("search_replays", { description: "Pesquise conhecimento técnico reutilizável existente antes de resolver novamente ou criar um novo Replay.", inputSchema: { ...workspace, query: z.string().min(1) } }, async ({ workspaceId, query }) => text((await client.searchReplays(resolve(workspaceId), query)).map(compactReplay)));
   server.registerTool("find_reusable_knowledge", { description: "Sugira Replays reutilizáveis por relevância determinística. Revise candidatos antes de atualizar ou criar conteúdo.", inputSchema: { ...workspace, query: z.string().optional(), problem: z.string().optional(), stack: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), type: type.optional() } }, async ({ workspaceId, ...input }) => text({ suggestions: await client.findReusableKnowledge(resolve(workspaceId), input as FindReusableKnowledgeInput) }));

@@ -49,23 +49,26 @@ test("remote MCP protege health e autenticação sem vazar bearer", async () => 
 });
 
 test("Streamable HTTP limita cada instância ao workspace configurado e isola PATs", async () => {
-  const received: Array<{ authorization: string; url: string }> = [];
+  const received: Array<{ authorization: string; url: string; agentSessionId?: string }> = [];
   const api = createServer((request, response) => {
-    received.push({ authorization: request.headers.authorization ?? "", url: request.url ?? "" });
+    received.push({ authorization: request.headers.authorization ?? "", url: request.url ?? "", agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
     response.setHeader("content-type", "application/json");
+    if (request.url === "/api/agent-sessions") return response.end(JSON.stringify({ sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
     response.end(JSON.stringify(request.url === "/api/agent-protocol" ? agentProtocol : []));
   });
   const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId); const url = await listen(service);
   const call = async (token: string, args: Record<string, unknown>) => {
     const client = new Client({ name: "test", version: "1" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
-    const tools = await client.listTools(); assert.equal(tools.tools.length, 14);
+    const tools = await client.listTools(); assert.equal(tools.tools.length, 15);
     const result = await client.callTool({ name: "list_replays", arguments: args }); await client.close(); return result;
   };
   try {
     await Promise.all([call("PAT_A", {}), call("PAT_B", { workspaceId })]);
     assert.deepEqual([...new Set(received.map(({ authorization }) => authorization))].sort(), ["Bearer PAT_A", "Bearer PAT_B"]);
     assert.deepEqual([...new Set(received.map(({ url: requestUrl }) => requestUrl))].sort(), ["/api/agent-protocol", "/api/agent-sessions", `/api/workspaces/${workspaceId}/replays`].sort());
+    assert.ok(received.filter(call => call.url.startsWith("/api/workspaces/")).every(call => call.agentSessionId));
+    assert.equal(received.find(call => call.url === "/api/agent-sessions")?.agentSessionId, undefined);
     const beforeRejectedReplayCalls = received.filter(call => call.url.startsWith("/api/workspaces/")).length;
     const result = await call("PAT_A", { workspaceId: otherWorkspaceId });
     assert.equal(result.isError, true); assert.match(JSON.stringify(result), /Workspace fora do escopo/);
@@ -78,7 +81,7 @@ test("Streamable HTTP propaga 401 e 403 da API sem vazar PAT", async () => {
     const api = createServer((request, response) => {
       response.setHeader("content-type", "application/json");
       if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
-      if (request.url === "/api/agent-sessions") return response.end(JSON.stringify({ sessionId: "session", clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+      if (request.url === "/api/agent-sessions") return response.end(JSON.stringify({ sessionId: "session", clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
       response.writeHead(status); response.end(JSON.stringify({ token: "PAT_SECRET" }));
     });
     const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId); const url = await listen(service);
@@ -89,6 +92,27 @@ test("Streamable HTTP propaga 401 e 403 da API sem vazar PAT", async () => {
       assert.equal(result.isError, true); assert.doesNotMatch(JSON.stringify(result), /PAT_SECRET/); await client.close();
     } finally { await close(service); await close(api); }
   }
+});
+
+test("tool MCP propaga AGENT_CAPABILITY_DENIED sem expor credenciais", async () => {
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const api = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
+    if (request.url === "/api/agent-sessions") return response.end(JSON.stringify({ sessionId, clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    response.writeHead(403);
+    response.end(JSON.stringify({ error: "AGENT_CAPABILITY_DENIED", metadata: { sessionId, runtimeMode: "OFF", requiredCapability: "REPLAY_READ" } }));
+  });
+  const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId); const url = await listen(service);
+  const client = new Client({ name: "test", version: "1" });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: "Bearer PAT_PRIVATE" } } }));
+    const result = await client.callTool({ name: "list_replays", arguments: { workspaceId } });
+    assert.equal(result.isError, true);
+    assert.match(JSON.stringify(result), /AGENT_CAPABILITY_DENIED/);
+    assert.match(JSON.stringify(result), /REPLAY_READ/);
+    assert.doesNotMatch(JSON.stringify(result), /PAT_PRIVATE/);
+  } finally { await client.close(); await close(service); await close(api); }
 });
 
 test("cliente MCP recebe instructions e discovery estruturado do protocolo da API", async () => {
@@ -107,7 +131,7 @@ test("cliente MCP recebe instructions e discovery estruturado do protocolo da AP
     assert.equal(instructions, renderAgentProtocolBootstrap(agentProtocol));
     assert.match(instructions ?? "", /No8do/);
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 14);
+    assert.equal(tools.tools.length, 15);
     assert.deepEqual(tools.tools.find(tool => tool.name === "get_agent_protocol")?.inputSchema?.properties, {});
     const result = await client.callTool({ name: "get_agent_protocol" });
     assert.equal(result.isError, undefined);
@@ -136,14 +160,30 @@ test("cliente MCP recebe instructions e discovery estruturado do protocolo da AP
 
 test("initialize registra uma vez por sessão, preserva clientInfo e cria fingerprint distinto na segunda conexão", async () => {
   const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
+  const toolCalls: Array<{ url: string; agentSessionId?: string }> = [];
+  let runtimeMode = "FULL";
+  const firstAgentSessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const secondAgentSessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const api = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
+    const contextSessionId = [firstAgentSessionId, secondAgentSessionId].find(id => request.url === `/api/agent-sessions/${id}/context`);
+    if (contextSessionId) {
+      toolCalls.push({ url: request.url ?? "", agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
+      return response.end(JSON.stringify({ sessionId: contextSessionId, clientName: "Codex Desktop", clientVersion: "9.8", workspaceId,
+        transport: "MCP", protocolName: agentProtocol.protocolName, protocolVersion: 1, runtimeMode,
+        effectiveCapabilities: agentProtocol.capabilities.capabilities, registeredAt: "2026-01-01T00:00:00Z" }));
+    }
+    if (request.url === `/api/workspaces/${workspaceId}/replays`) {
+      toolCalls.push({ url: request.url, agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
+      return response.end(JSON.stringify([]));
+    }
     if (request.url === "/api/agent-sessions") {
       const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
       const registration = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
       registrations.push({ body: registration, authorization: request.headers.authorization ?? "" });
-      return response.end(JSON.stringify({ sessionId: "public-session", ...registration, protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+      const sessionId = registrations.length === 1 ? firstAgentSessionId : secondAgentSessionId;
+      return response.end(JSON.stringify({ sessionId, ...registration, runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
     }
     return response.end(JSON.stringify([]));
   });
@@ -157,9 +197,19 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
   try {
     const first = await connect();
     assert.equal(first.client.getInstructions(), renderAgentProtocolBootstrap(agentProtocol));
-    assert.equal((await first.client.listTools()).tools.length, 14);
+    assert.equal((await first.client.listTools()).tools.length, 15);
+    const contextTool = (await first.client.listTools()).tools.find(tool => tool.name === "get_agent_context");
+    assert.deepEqual(contextTool?.inputSchema.properties, {});
+    assert.doesNotMatch(JSON.stringify(contextTool?.inputSchema), /sessionId/);
     await first.client.callTool({ name: "get_agent_protocol" });
+    const initialContext = await first.client.callTool({ name: "get_agent_context", arguments: {} });
+    assert.equal((initialContext.structuredContent as { runtimeMode: string } | undefined)?.runtimeMode, "FULL", JSON.stringify(initialContext));
+    runtimeMode = "RETRIEVAL";
+    const refreshedContext = await first.client.callTool({ name: "get_agent_context", arguments: {} });
+    assert.equal((refreshedContext.structuredContent as { runtimeMode: string }).runtimeMode, "RETRIEVAL");
     await first.client.callTool({ name: "list_replays", arguments: {} });
+    assert.equal(toolCalls.length, 3);
+    assert.ok(toolCalls.every(call => call.agentSessionId === firstAgentSessionId));
     assert.equal(registrations.length, 1);
     const firstRegistration = registrations[0]!;
     assert.deepEqual(firstRegistration.body, {

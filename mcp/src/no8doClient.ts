@@ -82,10 +82,32 @@ export type AgentSession = {
   clientVersion: string;
   workspaceId: string | null;
   transport: "MCP";
+  runtimeMode: AgentRuntimeMode;
   protocolName: string;
   protocolVersion: number;
   registeredAt: string;
 };
+
+export type AgentRuntimeMode = "OFF" | "READ_ONLY" | "RETRIEVAL" | "ASSISTED" | "FULL";
+export type AgentSessionContext = {
+  sessionId: string;
+  clientName: string;
+  clientVersion: string;
+  workspaceId: string | null;
+  transport: "MCP";
+  protocolName: string;
+  protocolVersion: number;
+  runtimeMode: AgentRuntimeMode;
+  effectiveCapabilities: AgentCapability[];
+  registeredAt: string;
+};
+
+export class AgentSessionHeader {
+  private sessionId?: string;
+
+  set(sessionId: string): void { this.sessionId = sessionId; }
+  get(): string | undefined { return this.sessionId; }
+}
 
 export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId">>;
 export type ReplayUpdate = Partial<ReplayMutation>;
@@ -97,7 +119,8 @@ export type RegisterReplayUsageMutation = {
 };
 
 export class No8doApiError extends Error {
-  constructor(public readonly status: number) { super(messageForStatus(status)); }
+  constructor(public readonly status: number, message = messageForStatus(status),
+      public readonly metadata?: Record<string, unknown>) { super(message); }
 }
 
 function messageForStatus(status: number): string {
@@ -111,7 +134,8 @@ function messageForStatus(status: number): string {
 
 export class No8doClient {
   private readonly baseUrl: string;
-  constructor(apiUrl: string, private readonly token: string, private readonly fetchImpl: typeof fetch = fetch) {
+  constructor(apiUrl: string, private readonly token: string, private readonly fetchImpl: typeof fetch = fetch,
+      private readonly agentSessionHeader?: AgentSessionHeader) {
     this.baseUrl = apiUrl.replace(/\/+$/, "").replace(/\/api$/, "");
   }
 
@@ -120,6 +144,11 @@ export class No8doClient {
   }
   registerAgentSession(registration: AgentSessionRegistration): Promise<AgentSession> {
     return this.request("/api/agent-sessions", { method: "POST", body: JSON.stringify(registration) });
+  }
+  getAgentContext(): Promise<AgentSessionContext> {
+    const sessionId = this.agentSessionHeader?.get();
+    if (!sessionId) throw new Error("Agent session has not been registered.");
+    return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/context`);
   }
   listReplays(workspaceId: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);
@@ -157,8 +186,28 @@ export class No8doClient {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/usages`, { method: "POST", body: JSON.stringify({ ...body, source: "MCP" }) });
   }
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json", ...init.headers } });
-    if (!response.ok) throw new No8doApiError(response.status);
+    const sessionId = this.agentSessionHeader?.get();
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${this.token}`);
+    headers.set("Content-Type", "application/json");
+    if (sessionId) headers.set("X-No8do-Agent-Session-Id", sessionId);
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
+    if (!response.ok) {
+      let body: { error?: unknown; metadata?: unknown } = {};
+      try { body = await response.clone().json() as typeof body; } catch { /* retain the safe status message */ }
+      const isCapabilityDenied = body.error === "AGENT_CAPABILITY_DENIED";
+      const rawMetadata = isCapabilityDenied && body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+        ? body.metadata as Record<string, unknown> : undefined;
+      const metadata: Record<string, unknown> | undefined = rawMetadata ? {
+        ...(typeof rawMetadata.sessionId === "string" ? { sessionId: rawMetadata.sessionId } : {}),
+        ...(typeof rawMetadata.runtimeMode === "string" ? { runtimeMode: rawMetadata.runtimeMode } : {}),
+        ...(typeof rawMetadata.requiredCapability === "string" ? { requiredCapability: rawMetadata.requiredCapability } : {})
+      } : undefined;
+      const message = isCapabilityDenied
+        ? `AGENT_CAPABILITY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
+        : messageForStatus(response.status);
+      throw new No8doApiError(response.status, message, metadata);
+    }
     return response.json() as Promise<T>;
   }
 }

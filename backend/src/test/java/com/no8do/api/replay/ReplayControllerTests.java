@@ -15,6 +15,13 @@ import com.no8do.api.auth.No8doUserDetails;
 import com.no8do.api.auth.CreatePersonalApiTokenRequest;
 import com.no8do.api.auth.CreatedPersonalApiTokenResponse;
 import com.no8do.api.auth.PersonalApiTokenService;
+import com.no8do.api.agent.AgentRuntimeMode;
+import com.no8do.api.agent.AgentSessionContextService;
+import com.no8do.api.agent.AgentSessionContextInterceptor;
+import com.no8do.api.agent.AgentSessionRegistrationRequest;
+import com.no8do.api.agent.AgentSessionRegistry;
+import com.no8do.api.agent.AgentSessionResponse;
+import com.no8do.api.agent.AgentTransport;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.User;
@@ -33,6 +40,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
@@ -52,6 +60,84 @@ class ReplayControllerTests {
     @Autowired private WorkspaceRepository workspaceRepository;
     @Autowired private WorkspaceMemberRepository workspaceMemberRepository;
     @Autowired private PersonalApiTokenService personalApiTokenService;
+    @Autowired private AgentSessionRegistry agentSessionRegistry;
+    @Autowired private AgentSessionContextService agentSessionContextService;
+
+    @Test
+    void runtimeModeChangeImmediatelyEnforcesReplayCapabilitiesWithoutChangingExistingWorkspaceAuthorization() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        AgentSessionResponse session = agentSessionRegistry.register(owner.getId(), new AgentSessionRegistrationRequest(
+                "Runtime mode test", "1", workspace.getId(), AgentTransport.MCP,
+                java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(UUID.randomUUID().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)))));
+        String sessionId = session.sessionId().toString();
+
+        MvcResult created = mockMvc.perform(create(workspace, owner, createRequest("Runtime guarded", null, null))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
+                .andExpect(status().isOk()).andReturn();
+        UUID replayId = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText());
+        mockMvc.perform(update(workspace, owner, replayId, updateRequest("Updated while full", null)))
+                .andExpect(status().isOk());
+        mockMvc.perform(update(workspace, owner, replayId, updateRequest("Updated while full with session", null))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/api/agent-sessions/{sessionId}/runtime-mode", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"runtimeMode\":\"RETRIEVAL\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.runtimeMode").value("RETRIEVAL"));
+
+        agentSessionContextService.updateRuntimeMode(session.sessionId(), owner.getId(), AgentRuntimeMode.ASSISTED);
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/{replayId}/usages", workspace.getId(), replayId)
+                .with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(update(workspace, owner, replayId, updateRequest("Denied in assisted", null))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.metadata.runtimeMode").value("ASSISTED"))
+                .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_UPDATE"));
+
+        agentSessionContextService.updateRuntimeMode(session.sessionId(), owner.getId(), AgentRuntimeMode.RETRIEVAL);
+
+        mockMvc.perform(create(workspace, owner, createRequest("Denied after downgrade", null, null))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("AGENT_CAPABILITY_DENIED"))
+                .andExpect(jsonPath("$.metadata.sessionId").value(sessionId))
+                .andExpect(jsonPath("$.metadata.runtimeMode").value("RETRIEVAL"))
+                .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_CREATE"));
+        mockMvc.perform(update(workspace, owner, replayId, updateRequest("Denied after downgrade", null))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_UPDATE"));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId())
+                .param("q", "Updated").header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(1)));
+
+        agentSessionContextService.updateRuntimeMode(session.sessionId(), owner.getId(), AgentRuntimeMode.READ_ONLY);
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replayId)
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/search", workspace.getId())
+                .param("q", "Runtime").header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_SEARCH"));
+
+        agentSessionContextService.updateRuntimeMode(session.sessionId(), owner.getId(), AgentRuntimeMode.OFF);
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replayId)
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.metadata.runtimeMode").value("OFF"))
+                .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_READ"));
+    }
 
     @Test
     void ownerAdminAndMemberCanCreateWhileViewerAndOutsiderCannot() throws Exception {

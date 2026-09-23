@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compactReplay, No8doApiError, No8doClient, type AgentProtocol, type Replay } from "./no8doClient.js";
+import { AgentSessionHeader, compactReplay, No8doApiError, No8doClient, type AgentProtocol, type Replay } from "./no8doClient.js";
 
 const replay: Replay = { id: "r1", workspaceId: "w1", projectId: null, title: "Replay", type: "FIX", problem: "p", solution: "s", context: null, tags: ["java"], stack: ["spring"], status: "DRAFT", version: 1, usageCount: 0, successCount: 0, failureCount: 0, lastUsedAt: null, createdBy: "u1", createdByName: "User", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z" };
 
@@ -123,7 +123,7 @@ test("obtém o protocolo canônico global pelo endpoint autenticado sem workspac
 });
 
 test("registra Agent Session com somente a identidade MCP e fingerprint do transporte", async () => {
-  const response = { sessionId: "session-id", clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
+  const response = { sessionId: "session-id", clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", runtimeMode: "FULL", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
   const setup = client(201, response);
   await setup.client.registerAgentSession({ clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
   assert.equal(setup.calls[0]?.[0], "http://localhost:8080/api/agent-sessions");
@@ -131,4 +131,43 @@ test("registra Agent Session com somente a identidade MCP e fingerprint do trans
   assert.deepEqual(JSON.parse(String(setup.calls[0]?.[1]?.body)), { clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
   assert.equal(JSON.stringify(setup.calls[0]?.[1]?.body).includes("PAT"), false);
   assert.equal(JSON.stringify(response).includes("transportSessionFingerprint"), false);
+});
+
+test("anexa session header apenas após initialize e obtém contexto atualizado sem parâmetros", async () => {
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  let mode = "FULL";
+  const calls: Array<{ url: string; headers: Headers }> = [];
+  const sessionHeader = new AgentSessionHeader();
+  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), headers: new Headers(init?.headers) });
+    const body = String(url).endsWith("/context")
+      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], registeredAt: "2026-01-01T00:00:00Z" }
+      : { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", runtimeMode: "FULL", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", fetchImpl, sessionHeader);
+
+  const registered = await client.registerAgentSession({ clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
+  assert.equal(calls[0]?.headers.get("X-No8do-Agent-Session-Id"), null);
+  sessionHeader.set(registered.sessionId);
+  await client.listReplays("workspace");
+  const full = await client.getAgentContext();
+  mode = "RETRIEVAL";
+  const retrieval = await client.getAgentContext();
+  assert.equal(full.runtimeMode, "FULL");
+  assert.equal(retrieval.runtimeMode, "RETRIEVAL");
+  assert.deepEqual(calls.slice(1).map(call => call.headers.get("X-No8do-Agent-Session-Id")), [sessionId, sessionId, sessionId]);
+  assert.equal(calls[2]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/context`);
+});
+
+test("propaga AGENT_CAPABILITY_DENIED e metadata sem expor bearer", async () => {
+  const response = { error: "AGENT_CAPABILITY_DENIED", metadata: { sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", runtimeMode: "OFF", requiredCapability: "REPLAY_READ" } };
+  const setup = client(403, response);
+  await assert.rejects(() => setup.client.getReplay("w1", "r1"), (error: unknown) => {
+    assert.ok(error instanceof No8doApiError);
+    assert.match(error.message, /^AGENT_CAPABILITY_DENIED:/);
+    assert.deepEqual(error.metadata, response.metadata);
+    assert.doesNotMatch(error.message, /secret-value/);
+    return true;
+  });
 });

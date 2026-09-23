@@ -7,7 +7,7 @@ import { once } from "node:events";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createMcpServer, StdioAgentSessionTransport } from "./server.js";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
-import { No8doClient, type AgentProtocol } from "./no8doClient.js";
+import { AgentSessionHeader, No8doClient, type AgentProtocol } from "./no8doClient.js";
 
 const protocol: AgentProtocol = {
   protocolName: "no8do-agent-protocol", protocolVersion: 1, systemName: "No8do", purpose: "Memória técnica",
@@ -34,20 +34,37 @@ function nextMessage(output: PassThrough) {
 
 test("stdio registra no initialize antes de responder, preserva bootstrap e não registra tools novamente", async () => {
   const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
+  const toolHeaders: Array<string | undefined> = [];
+  let runtimeMode = "FULL";
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const api = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(protocol));
+    if (request.url === `/api/agent-sessions/${sessionId}/context`) {
+      const header = request.headers["x-no8do-agent-session-id"];
+      toolHeaders.push(Array.isArray(header) ? header[0] : header);
+      return response.end(JSON.stringify({ sessionId, clientName: "Claude Desktop", clientVersion: "2.4", workspaceId: null,
+        transport: "MCP", protocolName: protocol.protocolName, protocolVersion: 1, runtimeMode,
+        effectiveCapabilities: protocol.capabilities.capabilities, registeredAt: "2026-01-01T00:00:00Z" }));
+    }
+    if (request.url?.includes("/replays")) {
+      const header = request.headers["x-no8do-agent-session-id"];
+      toolHeaders.push(Array.isArray(header) ? header[0] : header);
+      return response.end(JSON.stringify([]));
+    }
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
     registrations.push({ body, authorization: request.headers.authorization ?? "" });
     response.writeHead(201);
-    response.end(JSON.stringify({ sessionId: "backend-id", ...body, protocolName: protocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    response.end(JSON.stringify({ sessionId, ...body, runtimeMode: "FULL", protocolName: protocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
   });
   const apiUrl = await listen(api);
   const input = new PassThrough(); const output = new PassThrough();
-  const server = createMcpServer({ apiUrl, token: "PAT_STDIO_ONLY", agentProtocol: protocol, transport: "stdio" });
+  const agentSessionHeader = new AgentSessionHeader();
+  const server = createMcpServer({ apiUrl, token: "PAT_STDIO_ONLY", agentProtocol: protocol, transport: "stdio", agentSessionHeader });
   const transport = new StdioAgentSessionTransport(new StdioServerTransport(input, output), (clientName, clientVersion, transportSessionFingerprint) =>
-    new No8doClient(apiUrl, "PAT_STDIO_ONLY").registerAgentSession({ clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint }));
+    new No8doClient(apiUrl, "PAT_STDIO_ONLY").registerAgentSession({ clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint })
+      .then(session => { agentSessionHeader.set(session.sessionId); return session; }));
   try {
     const initializeResponse = nextMessage(output);
     await server.connect(transport);
@@ -64,11 +81,28 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     const listToolsResponse = nextMessage(output);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
-    assert.equal(((await listToolsResponse).result as { tools: unknown[] }).tools.length, 14);
+    const tools = ((await listToolsResponse).result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> }).tools;
+    assert.equal(tools.length, 15);
+    const contextTool = tools.find(tool => tool.name === "get_agent_context");
+    assert.deepEqual(contextTool?.inputSchema.properties, {});
+    assert.doesNotMatch(JSON.stringify(contextTool?.inputSchema), /sessionId/);
     const protocolResponse = nextMessage(output);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_agent_protocol", arguments: {} } })}\n`);
     const discovered = await protocolResponse;
     assert.equal((discovered.result as { structuredContent: AgentProtocol }).structuredContent.protocolVersion, 1);
+    const contextResponse = nextMessage(output);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_agent_context", arguments: {} } })}\n`);
+    const firstContext = await contextResponse;
+    assert.equal((firstContext.result as { structuredContent: { runtimeMode: string } }).structuredContent.runtimeMode, "FULL");
+    runtimeMode = "RETRIEVAL";
+    const changedContextResponse = nextMessage(output);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_agent_context", arguments: {} } })}\n`);
+    const changedContext = await changedContextResponse;
+    assert.equal((changedContext.result as { structuredContent: { runtimeMode: string } }).structuredContent.runtimeMode, "RETRIEVAL");
+    const replayResponse = nextMessage(output);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "list_replays", arguments: { workspaceId: "11111111-1111-4111-8111-111111111111" } } })}\n`);
+    await replayResponse;
+    assert.deepEqual(toolHeaders, [sessionId, sessionId, sessionId]);
     assert.equal(registrations.length, 1);
   } finally { await server.close(); await close(api); }
 });

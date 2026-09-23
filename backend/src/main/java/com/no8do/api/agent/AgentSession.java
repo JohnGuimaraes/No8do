@@ -37,6 +37,10 @@ public class AgentSession {
     @Column(nullable = false, length = 30, updatable = false)
     private AgentTransport transport;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "runtime_mode", nullable = false, length = 30)
+    private AgentRuntimeMode runtimeMode = AgentRuntimeMode.FULL;
+
     @Column(name = "protocol_name", nullable = false, length = 160, updatable = false)
     private String protocolName;
 
@@ -57,9 +61,14 @@ public class AgentSession {
         this.clientName = clientIdentity.clientName();
         this.clientVersion = clientIdentity.clientVersion();
         this.transport = transport;
+        this.runtimeMode = AgentRuntimeMode.FULL;
         this.protocolName = protocol.protocolName();
         this.protocolVersion = protocol.protocolVersion();
         this.transportSessionFingerprint = fingerprint;
+    }
+
+    void setRuntimeMode(AgentRuntimeMode runtimeMode) {
+        this.runtimeMode = java.util.Objects.requireNonNull(runtimeMode, "runtimeMode");
     }
 
     @PrePersist
