@@ -141,7 +141,7 @@ test("anexa session header apenas após initialize e obtém contexto atualizado 
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), headers: new Headers(init?.headers) });
     const body = String(url).endsWith("/context")
-      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], registeredAt: "2026-01-01T00:00:00Z" }
+      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], policies: [{ id: "secrets-forbidden", description: "Não salvar segredos", enforcement: "ADVISORY" }], registeredAt: "2026-01-01T00:00:00Z" }
       : { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", runtimeMode: "FULL", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -156,6 +156,7 @@ test("anexa session header apenas após initialize e obtém contexto atualizado 
   const retrieval = await client.getAgentContext();
   assert.equal(full.runtimeMode, "FULL");
   assert.equal(retrieval.runtimeMode, "RETRIEVAL");
+  assert.equal(retrieval.policies[0]?.enforcement, "ADVISORY");
   assert.deepEqual(calls.slice(1).map(call => call.headers.get("X-No8do-Agent-Session-Id")), [sessionId, sessionId, sessionId]);
   assert.equal(calls[2]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/context`);
 });
@@ -168,6 +169,19 @@ test("propaga AGENT_CAPABILITY_DENIED e metadata sem expor bearer", async () => 
     assert.match(error.message, /^AGENT_CAPABILITY_DENIED:/);
     assert.deepEqual(error.metadata, response.metadata);
     assert.doesNotMatch(error.message, /secret-value/);
+    return true;
+  });
+});
+
+test("propaga AGENT_POLICY_DENIED e apenas metadata segura", async () => {
+  const response = { error: "AGENT_POLICY_DENIED", metadata: { sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", policyId: "workspace-isolation-required", reason: "workspace mismatch", fingerprint: "sensitive" } };
+  const setup = client(403, response);
+  await assert.rejects(() => setup.client.listReplays("w1"), (error: unknown) => {
+    assert.ok(error instanceof No8doApiError);
+    assert.equal(error.status, 403);
+    assert.match(error.message, /^AGENT_POLICY_DENIED:/);
+    assert.deepEqual(error.metadata, { sessionId: response.metadata.sessionId, policyId: response.metadata.policyId, reason: response.metadata.reason });
+    assert.doesNotMatch(error.message, /sensitive|no8do_pat_secret-value/);
     return true;
   });
 });

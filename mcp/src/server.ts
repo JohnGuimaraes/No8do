@@ -116,10 +116,11 @@ export function createMcpServer(context: McpServerContext) {
     protocolVersion: z.number().int().positive(),
     runtimeMode: z.enum(["OFF", "READ_ONLY", "RETRIEVAL", "ASSISTED", "FULL"]),
     effectiveCapabilities: z.array(z.object({ id: z.string(), description: z.string(), readOnly: z.boolean() })),
+    policies: z.array(z.object({ id: z.string(), description: z.string(), enforcement: z.enum(["ADVISORY", "ENFORCED"]) })),
     registeredAt: z.string()
   });
   server.registerTool("get_agent_context", {
-    description: "Obtenha o contexto atual desta sessão Agent, incluindo runtime mode e effective capabilities.",
+    description: "Obtenha o contexto atual desta sessão Agent, incluindo runtime mode, effective capabilities e policies.",
     inputSchema: {},
     outputSchema: agentContextOutput
   }, async () => {

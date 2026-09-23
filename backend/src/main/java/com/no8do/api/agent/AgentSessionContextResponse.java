@@ -14,15 +14,17 @@ public record AgentSessionContextResponse(
         int protocolVersion,
         AgentRuntimeMode runtimeMode,
         List<AgentCapability> effectiveCapabilities,
+        List<AgentPolicy> policies,
         Instant registeredAt) {
     public AgentSessionContextResponse {
         effectiveCapabilities = List.copyOf(effectiveCapabilities);
+        policies = List.copyOf(policies);
     }
 
     static AgentSessionContextResponse from(AgentSessionContext context) {
         AgentSession session = context.session();
         return new AgentSessionContextResponse(session.getId(), session.getClientName(), session.getClientVersion(),
                 session.getWorkspaceId(), session.getTransport(), session.getProtocolName(), session.getProtocolVersion(),
-                session.getRuntimeMode(), context.effectiveCapabilities(), session.getRegisteredAt());
+                session.getRuntimeMode(), context.effectiveCapabilities(), context.policies().policies(), session.getRegisteredAt());
     }
 }
