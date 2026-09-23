@@ -50,6 +50,12 @@ public class AgentSession {
     @Column(name = "registered_at", nullable = false, updatable = false)
     private Instant registeredAt;
 
+    @Column(name = "last_seen_at", nullable = false)
+    private Instant lastSeenAt;
+
+    @Column(name = "last_activity_at")
+    private Instant lastActivityAt;
+
     @Column(name = "transport_session_fingerprint", nullable = false, length = 64, updatable = false)
     private String transportSessionFingerprint;
 
@@ -74,5 +80,6 @@ public class AgentSession {
     @PrePersist
     void prePersist() {
         if (registeredAt == null) registeredAt = Instant.now();
+        if (lastSeenAt == null) lastSeenAt = registeredAt;
     }
 }

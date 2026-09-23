@@ -92,6 +92,7 @@ export type AgentSession = {
 };
 
 export type AgentRuntimeMode = "OFF" | "READ_ONLY" | "RETRIEVAL" | "ASSISTED" | "FULL";
+export type AgentPresenceStatus = "CONNECTED" | "ACTIVE" | "IDLE" | "DISCONNECTED";
 export type AgentSessionContext = {
   sessionId: string;
   clientName: string;
@@ -104,7 +105,12 @@ export type AgentSessionContext = {
   effectiveCapabilities: AgentCapability[];
   policies: AgentPolicy[];
   registeredAt: string;
+  presenceStatus: AgentPresenceStatus;
+  lastSeenAt: string;
+  lastActivityAt: string | null;
 };
+
+export type AgentSessionHeartbeat = { sessionId: string; lastSeenAt: string };
 
 export class AgentSessionHeader {
   private sessionId?: string;
@@ -154,6 +160,9 @@ export class No8doClient {
     const sessionId = this.agentSessionHeader?.get();
     if (!sessionId) throw new Error("Agent session has not been registered.");
     return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/context`);
+  }
+  heartbeatAgentSession(sessionId: string): Promise<AgentSessionHeartbeat> {
+    return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/heartbeat`, { method: "POST" });
   }
   listReplays(workspaceId: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);

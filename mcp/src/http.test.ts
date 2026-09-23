@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { AgentSessionHeartbeat } from "./agentSessionHeartbeat.js";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
 import { createRemoteMcpService } from "./http.js";
 import type { AgentProtocol } from "./no8doClient.js";
@@ -146,7 +147,8 @@ test("MCP exige evidência ao criar VALIDATED, aceita evidence em create/update 
     if (request.url === `/api/agent-sessions/${sessionId}/context`) return response.end(JSON.stringify({
       sessionId, clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", protocolName: agentProtocol.protocolName,
       protocolVersion: 1, runtimeMode: "FULL", effectiveCapabilities: agentProtocol.capabilities.capabilities,
-      policies: agentProtocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z"
+      policies: agentProtocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z",
+      presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null
     }));
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
@@ -252,18 +254,31 @@ test("cliente MCP recebe instructions e discovery estruturado do protocolo da AP
 test("initialize registra uma vez por sessão, preserva clientInfo e cria fingerprint distinto na segunda conexão", async () => {
   const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
   const toolCalls: Array<{ url: string; agentSessionId?: string }> = [];
+  const heartbeatCalls: Array<{ url: string; authorization: string; agentSessionId?: string }> = [];
+  const heartbeatTicks: Array<() => void> = [];
+  const stoppedHeartbeats: string[] = [];
+  let resolveHeartbeatRequest!: () => void;
+  const heartbeatReceived = new Promise<void>(resolve => { resolveHeartbeatRequest = resolve; });
   let runtimeMode = "FULL";
   const firstAgentSessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const secondAgentSessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const api = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
+    const heartbeatSessionId = [firstAgentSessionId, secondAgentSessionId].find(id => request.url === `/api/agent-sessions/${id}/heartbeat`);
+    if (heartbeatSessionId) {
+      heartbeatCalls.push({ url: request.url ?? "", authorization: request.headers.authorization ?? "",
+        agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
+      resolveHeartbeatRequest();
+      return response.end(JSON.stringify({ sessionId: heartbeatSessionId, lastSeenAt: "2026-09-23T12:00:00Z" }));
+    }
     const contextSessionId = [firstAgentSessionId, secondAgentSessionId].find(id => request.url === `/api/agent-sessions/${id}/context`);
     if (contextSessionId) {
       toolCalls.push({ url: request.url ?? "", agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
       return response.end(JSON.stringify({ sessionId: contextSessionId, clientName: "Codex Desktop", clientVersion: "9.8", workspaceId,
         transport: "MCP", protocolName: agentProtocol.protocolName, protocolVersion: 1, runtimeMode,
-        effectiveCapabilities: agentProtocol.capabilities.capabilities, policies: agentProtocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z" }));
+        effectiveCapabilities: agentProtocol.capabilities.capabilities, policies: agentProtocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z",
+        presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null }));
     }
     if (request.url === `/api/workspaces/${workspaceId}/replays`) {
       toolCalls.push({ url: request.url, agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
@@ -278,7 +293,11 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     }
     return response.end(JSON.stringify([]));
   });
-  const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId); const url = await listen(service);
+  const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId, (client, agentSessionId) =>
+    new AgentSessionHeartbeat(client, agentSessionId, callback => {
+      heartbeatTicks.push(callback);
+      return () => { stoppedHeartbeats.push(agentSessionId); };
+    })); const url = await listen(service);
   const connect = async () => {
     const client = new Client({ name: "Codex Desktop", version: "9.8" });
     const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: "Bearer PAT_NOT_PERSISTED" } } });
@@ -289,7 +308,11 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     const first = await connect();
     assert.equal(first.client.getInstructions(), renderAgentProtocolBootstrap(agentProtocol));
     assert.equal((await first.client.listTools()).tools.length, 15);
-    const contextTool = (await first.client.listTools()).tools.find(tool => tool.name === "get_agent_context");
+    const tools = (await first.client.listTools()).tools;
+    assert.equal(tools.some(tool => tool.name === "heartbeat"), false);
+    const contextTool = tools.find(tool => tool.name === "get_agent_context");
+    assert.equal(heartbeatTicks.length, 1);
+    assert.equal(heartbeatCalls.length, 0);
     assert.deepEqual(contextTool?.inputSchema.properties, {});
     assert.doesNotMatch(JSON.stringify(contextTool?.inputSchema), /sessionId/);
     await first.client.callTool({ name: "get_agent_protocol" });
@@ -311,6 +334,15 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     assert.equal(firstRegistration.authorization, "Bearer PAT_NOT_PERSISTED");
     assert.doesNotMatch(JSON.stringify(firstRegistration.body), /PAT_NOT_PERSISTED|Authorization|sessionId/);
 
+    heartbeatTicks[0]?.();
+    await heartbeatReceived;
+    assert.deepEqual(heartbeatCalls[0], {
+      url: `/api/agent-sessions/${firstAgentSessionId}/heartbeat`,
+      authorization: "Bearer PAT_NOT_PERSISTED",
+      agentSessionId: undefined
+    });
+    assert.equal(registrations.length, 1);
+
     const initializeEnvelope = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "Codex Desktop", version: "9.8" } } };
     const secondInitialize = await postJson(`${url}/mcp`, { Authorization: "Bearer PAT_NOT_PERSISTED" }, initializeEnvelope);
     assert.equal(secondInitialize.statusCode, 200);
@@ -320,9 +352,49 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     const initialized = await postJson(`${url}/mcp`, { Authorization: "Bearer PAT_NOT_PERSISTED", "mcp-session-id": secondSessionId, "mcp-protocol-version": "2025-03-26" }, { jsonrpc: "2.0", method: "notifications/initialized" });
     assert.equal(initialized.statusCode, 202);
     assert.equal(registrations.length, 2);
+    assert.equal(heartbeatTicks.length, 2);
     assert.notEqual(registrations[0]?.body.transportSessionFingerprint, registrations[1]?.body.transportSessionFingerprint);
     assert.equal(registrations[1]?.body.transportSessionFingerprint, createHash("sha256").update(secondSessionId!, "utf8").digest("hex"));
-  } finally { await close(service); await close(api); }
+
+    const closedSession = await fetch(`${url}/mcp`, { method: "DELETE", headers: {
+      Authorization: "Bearer PAT_NOT_PERSISTED", "mcp-session-id": first.transport.sessionId!, "mcp-protocol-version": "2025-03-26"
+    } });
+    assert.equal(closedSession.status, 200);
+    assert.deepEqual(stoppedHeartbeats, [firstAgentSessionId]);
+    const closedSecondSession = await fetch(`${url}/mcp`, { method: "DELETE", headers: {
+      Authorization: "Bearer PAT_NOT_PERSISTED", "mcp-session-id": secondSessionId, "mcp-protocol-version": "2025-03-26"
+    } });
+    assert.equal(closedSecondSession.status, 200);
+    assert.deepEqual(stoppedHeartbeats, [firstAgentSessionId, secondAgentSessionId]);
+  } finally {
+    await close(service);
+    await close(api);
+  }
+});
+
+test("fechar o servidor HTTP encerra heartbeat de sessões ainda abertas", async () => {
+  const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const stopped: string[] = [];
+  const api = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
+    if (request.url === "/api/agent-sessions") return response.end(JSON.stringify({ sessionId, clientName: "Codex", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    return response.end(JSON.stringify([]));
+  });
+  const apiUrl = await listen(api);
+  const service = createRemoteMcpService(apiUrl, workspaceId, (client, id) =>
+    new AgentSessionHeartbeat(client, id, () => () => { stopped.push(id); }));
+  const url = await listen(service);
+  const client = new Client({ name: "shutdown-test", version: "1" });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: "Bearer PAT_SHUTDOWN" } } }));
+    await close(service);
+    assert.deepEqual(stopped, [sessionId]);
+  } finally {
+    if (service.listening) await close(service);
+    await client.close();
+    await close(api);
+  }
 });
 
 test("falha de registro impede resposta de initialize bem-sucedida", async () => {
