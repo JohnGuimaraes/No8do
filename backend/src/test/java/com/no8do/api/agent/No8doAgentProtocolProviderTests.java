@@ -79,7 +79,10 @@ class No8doAgentProtocolProviderTests {
         });
         assertThat(policy("workspace-isolation-required").enforcement()).isEqualTo(AgentPolicyEnforcement.ENFORCED);
         assertThat(policy("evidence-required-for-validated").enforcement()).isEqualTo(AgentPolicyEnforcement.ENFORCED);
-        assertThat(manifest.policies()).filteredOn(policy -> !List.of("workspace-isolation-required", "evidence-required-for-validated").contains(policy.id()))
+        assertThat(policy("material-usage-required-for-usage-record").enforcement()).isEqualTo(AgentPolicyEnforcement.ENFORCED);
+        assertThat(policy("material-usage-required-for-usage-record").description())
+                .isEqualTo("Agent ReplayUsage requires explicit material-use attestation and persisted application evidence.");
+        assertThat(manifest.policies()).filteredOn(policy -> !List.of("workspace-isolation-required", "evidence-required-for-validated", "material-usage-required-for-usage-record").contains(policy.id()))
                 .extracting(AgentPolicy::enforcement).containsOnly(AgentPolicyEnforcement.ADVISORY);
         assertThatThrownBy(() -> manifest.policies().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> new AgentPolicyManifest(List.of(

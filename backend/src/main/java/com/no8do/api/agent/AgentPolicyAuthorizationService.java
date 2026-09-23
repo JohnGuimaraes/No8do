@@ -26,6 +26,16 @@ public class AgentPolicyAuthorizationService {
 
     public void requireAllowed(UUID requestedWorkspaceId, AgentCapability operation, ReplayStatus replayStatus,
             ReplayValidationEvidence validationEvidence) {
+        requireAllowed(requestedWorkspaceId, operation, replayStatus, validationEvidence, null, null);
+    }
+
+    public void requireReplayUsageAllowed(UUID requestedWorkspaceId, AgentCapability operation,
+            Boolean materiallyUsed, String materialUseEvidence) {
+        requireAllowed(requestedWorkspaceId, operation, null, null, materiallyUsed, materialUseEvidence);
+    }
+
+    private void requireAllowed(UUID requestedWorkspaceId, AgentCapability operation, ReplayStatus replayStatus,
+            ReplayValidationEvidence validationEvidence, Boolean materiallyUsed, String materialUseEvidence) {
         RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
         AgentSessionContext context = null;
         if (attributes instanceof ServletRequestAttributes servletAttributes) {
@@ -34,7 +44,7 @@ public class AgentPolicyAuthorizationService {
             if (value instanceof AgentSessionContext resolvedContext) context = resolvedContext;
         }
         AgentPolicyContext policyContext = new AgentPolicyContext(context == null ? null : context.session(),
-                requestedWorkspaceId, operation, replayStatus, validationEvidence);
+                requestedWorkspaceId, operation, replayStatus, validationEvidence, materiallyUsed, materialUseEvidence);
         var manifest = protocolProvider.current().policies();
         var decisions = policyEngine.evaluate(manifest, policyContext);
         for (AgentPolicyDecision decision : decisions) {

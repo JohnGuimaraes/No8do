@@ -18,7 +18,7 @@ const agentProtocol: AgentProtocol = {
   purpose: "Memória técnica reutilizável",
   replayGuidance: { summary: "Bootstrap fixture", searchBeforeNonTrivialWork: true, preferExistingKnowledge: true, searchBeforeCreate: true, recordUsageOnlyWhenMateriallyUsed: true, validatedRequiresEvidence: true, avoidTrivialKnowledge: true, avoidDuplicateKnowledge: true, neverStoreSecrets: true, neverStoreCredentials: true, avoidDiscardedAttempts: true },
   capabilities: { capabilities: [{ id: "REPLAY_CREATE", description: "Create Replays", readOnly: false }, { id: "REPLAY_SEARCH", description: "Search Replays", readOnly: true }] },
-  policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence for validated status", enforcement: "ENFORCED" }, { id: "material-usage", description: "Record material usage only", enforcement: "ADVISORY" }, { id: "workspace-isolation-required", description: "Isolate workspaces", enforcement: "ENFORCED" }] }
+  policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence for validated status", enforcement: "ENFORCED" }, { id: "material-usage-required-for-usage-record", description: "Agent ReplayUsage requires explicit material-use attestation and persisted application evidence.", enforcement: "ENFORCED" }, { id: "workspace-isolation-required", description: "Isolate workspaces", enforcement: "ENFORCED" }] }
 };
 async function listen(server: ReturnType<typeof createServer>) { server.listen(0, "127.0.0.1"); await once(server, "listening"); return `http://127.0.0.1:${(server.address() as { port: number }).port}`; }
 async function close(server: ReturnType<typeof createServer>) { const closed = once(server, "close"); server.close(); server.closeAllConnections(); await closed; }
@@ -155,6 +155,10 @@ test("MCP exige evidência ao criar VALIDATED, aceita evidence em create/update 
       response.writeHead(403);
       return response.end(JSON.stringify({ error: "AGENT_POLICY_DENIED", metadata: { sessionId, policyId: "evidence-required-for-validated", reason: "evidence required" } }));
     }
+    if (request.url?.endsWith("/usages") && (body.materiallyUsed !== true || typeof body.context !== "string" || !body.context.trim())) {
+      response.writeHead(403);
+      return response.end(JSON.stringify({ error: "AGENT_POLICY_DENIED", metadata: { sessionId, policyId: "material-usage-required-for-usage-record", reason: "attestation and evidence required" } }));
+    }
     return response.end(JSON.stringify({ id: "replay-1", ...body }));
   });
   const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId); const url = await listen(service);
@@ -165,10 +169,16 @@ test("MCP exige evidência ao criar VALIDATED, aceita evidence em create/update 
     const tools = (await client.listTools()).tools;
     assert.ok(tools.find(tool => tool.name === "create_replay")?.inputSchema.properties?.validationEvidence);
     assert.ok(tools.find(tool => tool.name === "update_replay")?.inputSchema.properties?.validationEvidence);
+    const usageTool = tools.find(tool => tool.name === "register_replay_usage");
+    assert.ok(usageTool?.inputSchema.properties?.materiallyUsed);
+    assert.ok(usageTool?.inputSchema.properties?.context);
+    assert.match(usageTool?.description ?? "", /somente após aplicar materialmente/);
     const protocol = await client.callTool({ name: "get_agent_protocol" });
     assert.equal((protocol.structuredContent as AgentProtocol).policies.policies.find(policy => policy.id === "evidence-required-for-validated")?.enforcement, "ENFORCED");
+    assert.equal((protocol.structuredContent as AgentProtocol).policies.policies.find(policy => policy.id === "material-usage-required-for-usage-record")?.enforcement, "ENFORCED");
     const context = await client.callTool({ name: "get_agent_context", arguments: {} });
     assert.equal((context.structuredContent as { policies: AgentProtocol["policies"]["policies"] }).policies.find(policy => policy.id === "evidence-required-for-validated")?.enforcement, "ENFORCED");
+    assert.equal((context.structuredContent as { policies: AgentProtocol["policies"]["policies"] }).policies.find(policy => policy.id === "material-usage-required-for-usage-record")?.enforcement, "ENFORCED");
 
     const denied = await client.callTool({ name: "create_replay", arguments: { workspaceId, title: "No evidence", type: "FIX", status: "VALIDATED" } });
     assert.equal(denied.isError, true);
@@ -181,6 +191,17 @@ test("MCP exige evidência ao criar VALIDATED, aceita evidence em create/update 
     const updated = await client.callTool({ name: "update_replay", arguments: { workspaceId, replayId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "VALIDATED", validationEvidence: evidence } });
     assert.equal(updated.isError, undefined);
     assert.deepEqual(mutations[beforeUpdate]?.body.validationEvidence, evidence);
+    const usageArgs = { workspaceId, replayId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", result: "SUCCESS" as const };
+    const missingUsage = await client.callTool({ name: "register_replay_usage", arguments: usageArgs });
+    assert.equal(missingUsage.isError, true);
+    assert.match(JSON.stringify(missingUsage), /AGENT_POLICY_DENIED/);
+    assert.match(JSON.stringify(missingUsage), /material-usage-required-for-usage-record/);
+    const falseUsage = await client.callTool({ name: "register_replay_usage", arguments: { ...usageArgs, materiallyUsed: false, context: "Aplicado" } });
+    assert.equal(falseUsage.isError, true);
+    const beforeValidUsage = mutations.length;
+    const validUsage = await client.callTool({ name: "register_replay_usage", arguments: { ...usageArgs, materiallyUsed: true, context: "Aplicado ao corrigir a migração de importação." } });
+    assert.equal(validUsage.isError, undefined);
+    assert.deepEqual(mutations[beforeValidUsage]?.body, { result: "SUCCESS", materiallyUsed: true, context: "Aplicado ao corrigir a migração de importação.", source: "MCP" });
   } finally { await client.close(); await close(service); await close(api); }
 });
 
@@ -216,7 +237,7 @@ test("cliente MCP recebe instructions e discovery estruturado do protocolo da AP
     const capabilityIds = structuredProtocol.capabilities.capabilities.map(capability => capability.id);
     const policyIds = structuredProtocol.policies.policies.map(policy => policy.id);
     assert.deepEqual(capabilityIds, ["REPLAY_CREATE", "REPLAY_SEARCH"]);
-    assert.deepEqual(policyIds, ["evidence-required-for-validated", "material-usage", "workspace-isolation-required"]);
+    assert.deepEqual(policyIds, ["evidence-required-for-validated", "material-usage-required-for-usage-record", "workspace-isolation-required"]);
     assert.equal(new Set(capabilityIds).size, capabilityIds.length);
     assert.equal(new Set(policyIds).size, policyIds.length);
     assert.equal(structuredProtocol.policies.policies[0]?.enforcement, "ENFORCED");

@@ -93,7 +93,7 @@ class ReplayControllerTests {
                 .with(user(new No8doUserDetails(owner))).with(csrf())
                 .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\"}"))
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\",\"materiallyUsed\":true,\"context\":\"Applied by the agent during the verified replay change.\"}"))
                 .andExpect(status().isOk());
         mockMvc.perform(update(workspace, owner, replayId, updateRequest("Denied in assisted", null))
                 .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
@@ -763,6 +763,59 @@ class ReplayControllerTests {
             .andExpect(jsonPath("$[1].source").value("MANUAL"));
 
         org.assertj.core.api.Assertions.assertThat(replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replay.getId())).hasSize(2);
+    }
+
+    @Test
+    void agentSessionReplayUsageRequiresAndPersistsMaterialUseAttestationAndEvidence() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay replay = replay(workspace, owner, "Replay aplicado por agente");
+        AgentSessionResponse session = agentSessionRegistry.register(owner.getId(), new AgentSessionRegistrationRequest(
+                "Material usage test", "1", workspace.getId(), AgentTransport.MCP,
+                java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(UUID.randomUUID().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)))));
+        String sessionId = session.sessionId().toString();
+        String path = "/api/workspaces/{workspaceId}/replays/{replayId}/usages";
+
+        mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\"}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error").value("AGENT_POLICY_DENIED"))
+            .andExpect(jsonPath("$.metadata.policyId").value("material-usage-required-for-usage-record"));
+
+        mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\",\"materiallyUsed\":false,\"context\":\"Aplicado.\"}"))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.metadata.policyId").value("material-usage-required-for-usage-record"));
+
+        mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\",\"materiallyUsed\":true}"))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.metadata.policyId").value("material-usage-required-for-usage-record"));
+
+        mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\",\"materiallyUsed\":true,\"context\":\"   \"}"))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.metadata.policyId").value("material-usage-required-for-usage-record"));
+
+        mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\",\"materiallyUsed\":true,\"context\":\"Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos.\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.materiallyUsed").value(true))
+            .andExpect(jsonPath("$.context").value("Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos."));
+
+        ReplayUsage persisted = replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replay.getId()).getFirst();
+        org.assertj.core.api.Assertions.assertThat(persisted.getMateriallyUsed()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(persisted.getContext()).isEqualTo("Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos.");
+        mockMvc.perform(get(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$[0].materiallyUsed").value(true))
+            .andExpect(jsonPath("$[0].context").value("Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos."));
+
+        mockMvc.perform(registerUsage(workspace, owner, replay.getId(),
+                new RegisterReplayUsageRequest(null, null, ReplayUsageResult.UNKNOWN, ReplayUsageSource.MANUAL, "Uso manual legado")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.materiallyUsed").value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test

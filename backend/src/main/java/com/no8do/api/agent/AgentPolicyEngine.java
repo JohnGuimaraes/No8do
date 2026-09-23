@@ -34,6 +34,19 @@ public final class AgentPolicyEngine {
             return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.DENY,
                     "Replay VALIDATED exige evidência persistida com resumo e método válidos.");
         }
+        if (policy.id().equals("material-usage-required-for-usage-record")) {
+            if (context.session() == null || context.operation() != AgentCapability.REPLAY_USAGE_RECORD) {
+                return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.ALLOW,
+                        "A policy de uso material é aplicada a ReplayUsage registrado por AgentSession.");
+            }
+            if (Boolean.TRUE.equals(context.materiallyUsed()) && context.materialUseEvidence() != null
+                    && !context.materialUseEvidence().isBlank() && context.materialUseEvidence().length() <= 1000) {
+                return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.ALLOW,
+                        "Agent ReplayUsage requires explicit material-use attestation and persisted application evidence.");
+            }
+            return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.DENY,
+                    "Agent ReplayUsage requires explicit material-use attestation and persisted application evidence.");
+        }
         return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.ALLOW,
                 "Nenhuma condição objetiva disponível para esta policy nesta fase.");
     }

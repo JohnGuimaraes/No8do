@@ -36,7 +36,7 @@ public final class No8doAgentProtocolProvider {
                 new AgentPolicy("credentials-forbidden", "Não armazene credenciais em conhecimento reutilizável.", AgentPolicyEnforcement.ADVISORY),
                 new AgentPolicy("semantic-duplicate-check-before-create", "Verifique conhecimento equivalente antes de criar um Replay.", AgentPolicyEnforcement.ADVISORY),
                 new AgentPolicy("evidence-required-for-validated", "Use VALIDATED somente quando houver evidência adequada.", AgentPolicyEnforcement.ENFORCED),
-                new AgentPolicy("material-usage-required-for-usage-record", "Registre uso somente quando o Replay influenciar materialmente o trabalho.", AgentPolicyEnforcement.ADVISORY)));
+                new AgentPolicy("material-usage-required-for-usage-record", "Agent ReplayUsage requires explicit material-use attestation and persisted application evidence.", AgentPolicyEnforcement.ENFORCED)));
         return new No8doAgentProtocol("no8do-agent-protocol", 1, "No8do",
                 "Camada de memória e conhecimento técnico reutilizável para agentes.", guidance, capabilities, policies);
     }

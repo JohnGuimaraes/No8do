@@ -41,6 +41,12 @@ public class ReplayController {
         policyAuthorizationService.requireAllowed(workspaceId, capabilities[0]);
     }
 
+    private void requireReplayUsageAccess(UUID workspaceId, RegisterReplayUsageRequest request) {
+        capabilityAuthorizationService.require(AgentCapability.REPLAY_USAGE_RECORD);
+        policyAuthorizationService.requireReplayUsageAllowed(workspaceId, AgentCapability.REPLAY_USAGE_RECORD,
+                request.materiallyUsed(), request.context());
+    }
+
     @GetMapping
     public List<ReplayResponse> list(@PathVariable UUID workspaceId, @AuthenticationPrincipal No8doUserDetails currentUser) {
         requireReplayAccess(workspaceId, AgentCapability.REPLAY_CATALOG_LIST);
@@ -117,7 +123,7 @@ public class ReplayController {
     @PostMapping("/{replayId}/usages")
     public ReplayUsageResponse registerUsage(@PathVariable UUID workspaceId, @PathVariable UUID replayId,
             @AuthenticationPrincipal No8doUserDetails currentUser, @Valid @RequestBody RegisterReplayUsageRequest request) {
-        requireReplayAccess(workspaceId, AgentCapability.REPLAY_USAGE_RECORD);
+        requireReplayUsageAccess(workspaceId, request);
         return replayService.registerUsage(workspaceId, replayId, currentUser.user().getId(), request);
     }
 

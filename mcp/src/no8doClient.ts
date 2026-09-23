@@ -15,6 +15,7 @@ export interface ReplayUsage {
   result: ReplayUsageResult;
   source: ReplayUsageSource;
   context?: string | null;
+  materiallyUsed?: boolean | null;
   usedAt: string;
 }
 
@@ -116,6 +117,7 @@ export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Repla
 export type ReplayUpdate = Partial<ReplayMutation>;
 export type RegisterReplayUsageMutation = {
   result: ReplayUsageResult;
+  materiallyUsed?: boolean;
   projectId?: string | null;
   replayVersion?: number;
   context?: string | null;
