@@ -8,6 +8,23 @@ O `AgentPolicyEngine` avalia a lista canônica publicada pelo `No8doAgentProtoco
 
 `material-usage-required-for-usage-record` é ENFORCED somente para `ReplayUsage` com AgentSession válida. Exige a declaração `materiallyUsed=true` e conteúdo curto não blank em `context`, campo existente que é persistido e exposto no histórico e reutilizado como evidência de aplicação. Uma coluna nullable persiste a declaração; dados históricos permanecem null e legíveis. Isso é uma attestation explícita do agente, não uma verificação semântica ou prova de que a aplicação externa realmente ocorreu. Sem AgentSession, o comportamento manual/automação atual permanece inalterado.
 
+## Enforcement atual
+
+**ENFORCED**
+
+- Isolamento de workspace: a sessão não pode operar em workspace diferente do associado; membership e RBAC continuam sendo verificados separadamente.
+- Evidência de validação: Replay com estado efetivo `VALIDATED` exige evidência com resumo e método válidos no create/update.
+- Uso material de Replay: `ReplayUsage` de AgentSession exige `materiallyUsed=true` e contexto curto não vazio, persistidos junto ao registro.
+
+**ADVISORY**
+
+- Verificação de duplicatas semânticas;
+- proibição de segredos;
+- proibição de credenciais;
+- demais regras comportamentais sem garantia técnica integral no backend.
+
+`ADVISORY` não significa irrelevante: a orientação continua válida para agentes e clientes, mas o servidor ainda não consegue garantir a regra integralmente. O detector de duplicatas existente é uma consulta independente; o fluxo de criação não o executa como bloqueio. Não há scanners integrados de segredos ou credenciais.
+
 Ordem: autenticação → ownership da AgentSession → capability → policy → autorização de workspace/RBAC → domínio. Denial de policy retorna HTTP 403 com `AGENT_POLICY_DENIED`, separado de `AGENT_CAPABILITY_DENIED`.
 
 Segredos, credenciais e duplicidade semântica continuam ADVISORY. Fases futuras podem implementar suas condições objetivas sem alterar indevidamente o status das policies. Profiles configuráveis, presence/realtime, frontend, RAG e plugin/skill estão fora de escopo. Consulte também [Replay Validation Evidence](replay-validation-evidence.md).
