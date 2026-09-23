@@ -3,6 +3,8 @@ package com.no8do.api.agent;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -53,12 +55,13 @@ class AgentSessionControllerTests {
         MvcResult result = mockMvc.perform(post("/api/agent-sessions").with(user(new No8doUserDetails(user))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(request(UUID.randomUUID().toString()).replace("\"transport\":\"MCP\",",
-                        "\"transport\":\"MCP\",\"protocolName\":\"spoofed\",\"protocolVersion\":99,\"registeredAt\":\"2000-01-01T00:00:00Z\",")))
+                        "\"transport\":\"MCP\",\"runtimeMode\":\"OFF\",\"protocolName\":\"spoofed\",\"protocolVersion\":99,\"registeredAt\":\"2000-01-01T00:00:00Z\",")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.clientName").value("Codex Desktop"))
                 .andExpect(jsonPath("$.clientVersion").value("9.8"))
                 .andExpect(jsonPath("$.workspaceId").doesNotExist())
                 .andExpect(jsonPath("$.transport").value("MCP"))
+                .andExpect(jsonPath("$.runtimeMode").value("FULL"))
                 .andExpect(jsonPath("$.protocolName").value(protocolProvider.current().protocolName()))
                 .andExpect(jsonPath("$.protocolVersion").value(protocolProvider.current().protocolVersion()))
                 .andExpect(jsonPath("$.registeredAt").isNotEmpty())
@@ -72,6 +75,66 @@ class AgentSessionControllerTests {
         org.assertj.core.api.Assertions.assertThat(response.has("transportSessionFingerprint")).isFalse();
         org.assertj.core.api.Assertions.assertThat(response.has("userId")).isFalse();
         org.assertj.core.api.Assertions.assertThat(session.getTransportSessionFingerprint()).isEqualTo(FINGERPRINT);
+        org.assertj.core.api.Assertions.assertThat(session.getRuntimeMode()).isEqualTo(AgentRuntimeMode.FULL);
+    }
+
+    @Test
+    void contextIsOwnerScopedAndRuntimeModeChangesOnlyTheSelectedSession() throws Exception {
+        User owner = userRepository.save(new User("runtime-owner", "runtime-owner@example.test", "hash"));
+        User other = userRepository.save(new User("runtime-other", "runtime-other@example.test", "hash"));
+        String firstId = register(owner, "b".repeat(64));
+        String secondId = register(owner, "c".repeat(64));
+
+        mockMvc.perform(get("/api/agent-sessions/{sessionId}/context", firstId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(firstId))
+                .andExpect(jsonPath("$.runtimeMode").value("FULL"))
+                .andExpect(jsonPath("$.effectiveCapabilities").isArray())
+                .andExpect(jsonPath("$.effectiveCapabilities.length()").value(15));
+
+        mockMvc.perform(patch("/api/agent-sessions/{sessionId}/runtime-mode", firstId)
+                .with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"runtimeMode\":\"RETRIEVAL\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runtimeMode").value("RETRIEVAL"))
+                .andExpect(jsonPath("$.effectiveCapabilities[?(@.id == 'REPLAY_SEARCH')]").exists())
+                .andExpect(jsonPath("$.effectiveCapabilities[?(@.id == 'REPLAY_CREATE')]").doesNotExist());
+
+        mockMvc.perform(get("/api/agent-sessions/{sessionId}/context", firstId)
+                .with(user(new No8doUserDetails(other))))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/agent-sessions/{sessionId}/runtime-mode", firstId)
+                .with(user(new No8doUserDetails(other))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"runtimeMode\":\"OFF\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/agent-sessions/{sessionId}/context", secondId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.runtimeMode").value("FULL"));
+    }
+
+    @Test
+    void sessionHeaderRequiresTheSameAuthenticatedOwnerAndCannotReplaceAuthentication() throws Exception {
+        User owner = userRepository.save(new User("header-owner", "header-owner@example.test", "hash"));
+        User other = userRepository.save(new User("header-other", "header-other@example.test", "hash"));
+        String sessionId = register(owner, "d".repeat(64));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", UUID.randomUUID())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(other))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Agent session access denied"));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", UUID.randomUUID())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private String register(User owner, String fingerprint) throws Exception {
+        String request = request(null).replace(FINGERPRINT, fingerprint);
+        MvcResult result = mockMvc.perform(post("/api/agent-sessions").with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(request)).andExpect(status().isCreated()).andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("sessionId").asText();
     }
 
     @Test

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { InitializeRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { No8doApiError, No8doClient } from "./no8doClient.js";
+import { AgentSessionHeader, No8doApiError, No8doClient } from "./no8doClient.js";
 import { createMcpServer } from "./server.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 import { requireRemoteWorkspaceId } from "./workspace.js";
@@ -43,20 +43,22 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
         return json(response, 400, { error: "A new MCP connection must begin with initialize." });
       }
       const agentProtocol = await new No8doClient(apiUrl, token).getAgentProtocol();
-      const server = createMcpServer({ apiUrl, token, agentProtocol, defaultWorkspaceId: scopedWorkspaceId, transport: "http" });
+      const agentSessionHeader = new AgentSessionHeader();
+      const server = createMcpServer({ apiUrl, token, agentProtocol, defaultWorkspaceId: scopedWorkspaceId, transport: "http", agentSessionHeader });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,
         enableJsonResponse: true,
         onsessioninitialized: async (createdSessionId) => {
           const clientInfo = initialize.data.params.clientInfo;
           const client = new No8doClient(apiUrl, token);
-          await client.registerAgentSession({
+          const registeredSession = await client.registerAgentSession({
             clientName: clientInfo.name,
             clientVersion: clientInfo.version,
             workspaceId: scopedWorkspaceId ?? null,
             transport: "MCP",
             transportSessionFingerprint: fingerprintTransportSession(createdSessionId)
           });
+          agentSessionHeader.set(registeredSession.sessionId);
           sessions.set(createdSessionId, { transport, server, token });
         },
         onsessionclosed: (closedSessionId) => { sessions.delete(closedSessionId); }
