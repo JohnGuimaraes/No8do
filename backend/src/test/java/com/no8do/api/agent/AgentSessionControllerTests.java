@@ -91,7 +91,9 @@ class AgentSessionControllerTests {
                 .andExpect(jsonPath("$.sessionId").value(firstId))
                 .andExpect(jsonPath("$.runtimeMode").value("FULL"))
                 .andExpect(jsonPath("$.effectiveCapabilities").isArray())
-                .andExpect(jsonPath("$.effectiveCapabilities.length()").value(15));
+                .andExpect(jsonPath("$.effectiveCapabilities.length()").value(15))
+                .andExpect(jsonPath("$.policies[?(@.id == 'workspace-isolation-required')].enforcement").value("ENFORCED"))
+                .andExpect(jsonPath("$.policies[?(@.id == 'secrets-forbidden')].enforcement").value("ADVISORY"));
 
         mockMvc.perform(patch("/api/agent-sessions/{sessionId}/runtime-mode", firstId)
                 .with(user(new No8doUserDetails(owner))).with(csrf())

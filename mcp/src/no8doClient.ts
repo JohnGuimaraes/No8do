@@ -99,6 +99,7 @@ export type AgentSessionContext = {
   protocolVersion: number;
   runtimeMode: AgentRuntimeMode;
   effectiveCapabilities: AgentCapability[];
+  policies: AgentPolicy[];
   registeredAt: string;
 };
 
@@ -196,16 +197,23 @@ export class No8doClient {
       let body: { error?: unknown; metadata?: unknown } = {};
       try { body = await response.clone().json() as typeof body; } catch { /* retain the safe status message */ }
       const isCapabilityDenied = body.error === "AGENT_CAPABILITY_DENIED";
-      const rawMetadata = isCapabilityDenied && body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+      const isPolicyDenied = body.error === "AGENT_POLICY_DENIED";
+      const rawMetadata = (isCapabilityDenied || isPolicyDenied) && body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
         ? body.metadata as Record<string, unknown> : undefined;
-      const metadata: Record<string, unknown> | undefined = rawMetadata ? {
+      const metadata: Record<string, unknown> | undefined = rawMetadata ? isPolicyDenied ? {
+        ...(typeof rawMetadata.sessionId === "string" ? { sessionId: rawMetadata.sessionId } : {}),
+        ...(typeof rawMetadata.policyId === "string" ? { policyId: rawMetadata.policyId } : {}),
+        ...(typeof rawMetadata.reason === "string" ? { reason: rawMetadata.reason } : {})
+      } : {
         ...(typeof rawMetadata.sessionId === "string" ? { sessionId: rawMetadata.sessionId } : {}),
         ...(typeof rawMetadata.runtimeMode === "string" ? { runtimeMode: rawMetadata.runtimeMode } : {}),
         ...(typeof rawMetadata.requiredCapability === "string" ? { requiredCapability: rawMetadata.requiredCapability } : {})
       } : undefined;
       const message = isCapabilityDenied
         ? `AGENT_CAPABILITY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
-        : messageForStatus(response.status);
+        : isPolicyDenied
+          ? `AGENT_POLICY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
+          : messageForStatus(response.status);
       throw new No8doApiError(response.status, message, metadata);
     }
     return response.json() as Promise<T>;

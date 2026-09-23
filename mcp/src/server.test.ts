@@ -45,7 +45,7 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
       toolHeaders.push(Array.isArray(header) ? header[0] : header);
       return response.end(JSON.stringify({ sessionId, clientName: "Claude Desktop", clientVersion: "2.4", workspaceId: null,
         transport: "MCP", protocolName: protocol.protocolName, protocolVersion: 1, runtimeMode,
-        effectiveCapabilities: protocol.capabilities.capabilities, registeredAt: "2026-01-01T00:00:00Z" }));
+        effectiveCapabilities: protocol.capabilities.capabilities, policies: protocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z" }));
     }
     if (request.url?.includes("/replays")) {
       const header = request.headers["x-no8do-agent-session-id"];
@@ -94,6 +94,7 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_agent_context", arguments: {} } })}\n`);
     const firstContext = await contextResponse;
     assert.equal((firstContext.result as { structuredContent: { runtimeMode: string } }).structuredContent.runtimeMode, "FULL");
+    assert.deepEqual((firstContext.result as { structuredContent: { policies: unknown } }).structuredContent.policies, protocol.policies.policies);
     runtimeMode = "RETRIEVAL";
     const changedContextResponse = nextMessage(output);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "get_agent_context", arguments: {} } })}\n`);

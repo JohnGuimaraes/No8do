@@ -140,6 +140,59 @@ class ReplayControllerTests {
     }
 
     @Test
+    void enforcedWorkspacePolicyDeniesSessionWorkspaceMismatchBeforeNormalWorkspaceAuthorization() throws Exception {
+        Workspace sessionWorkspace = workspace();
+        Workspace requestedWorkspace = workspace();
+        User owner = member(sessionWorkspace, WorkspaceRole.OWNER);
+        workspaceMemberRepository.saveAndFlush(new WorkspaceMember(requestedWorkspace, owner, WorkspaceRole.OWNER));
+        AgentSessionResponse session = agentSessionRegistry.register(owner.getId(), new AgentSessionRegistrationRequest(
+                "Policy test", "1", sessionWorkspace.getId(), AgentTransport.MCP,
+                java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(UUID.randomUUID().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)))));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", requestedWorkspace.getId())
+                .with(user(new No8doUserDetails(owner)))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, session.sessionId()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("AGENT_POLICY_DENIED"))
+                .andExpect(jsonPath("$.metadata.sessionId").value(session.sessionId().toString()))
+                .andExpect(jsonPath("$.metadata.policyId").value("workspace-isolation-required"))
+                .andExpect(jsonPath("$.metadata.reason").isNotEmpty())
+                .andExpect(jsonPath("$.metadata.transportSessionFingerprint").doesNotExist());
+    }
+
+    @Test
+    void workspacePolicyAllowsMatchingAndNullScopedSessionsThenExistingRbacStillDecides() throws Exception {
+        Workspace scopedWorkspace = workspace();
+        Workspace otherWorkspace = workspace();
+        User viewer = member(scopedWorkspace, WorkspaceRole.VIEWER);
+        workspaceMemberRepository.saveAndFlush(new WorkspaceMember(otherWorkspace, viewer, WorkspaceRole.VIEWER));
+        AgentSessionResponse scopedSession = registerAgentSession(viewer, scopedWorkspace.getId());
+        AgentSessionResponse unscopedSession = registerAgentSession(viewer, null);
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", scopedWorkspace.getId())
+                .with(user(new No8doUserDetails(viewer)))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, scopedSession.sessionId()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", otherWorkspace.getId())
+                .with(user(new No8doUserDetails(viewer)))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, unscopedSession.sessionId()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(create(scopedWorkspace, viewer, createRequest("RBAC preservado", null, null))
+                .header(AgentSessionContextInterceptor.HEADER_NAME, scopedSession.sessionId()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.not("AGENT_POLICY_DENIED")));
+    }
+
+    private AgentSessionResponse registerAgentSession(User owner, UUID workspaceId) throws Exception {
+        return agentSessionRegistry.register(owner.getId(), new AgentSessionRegistrationRequest(
+                "Policy test", "1", workspaceId, AgentTransport.MCP,
+                java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(UUID.randomUUID().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)))));
+    }
+
+    @Test
     void ownerAdminAndMemberCanCreateWhileViewerAndOutsiderCannot() throws Exception {
         Workspace workspace = workspace();
         User owner = member(workspace, WorkspaceRole.OWNER);

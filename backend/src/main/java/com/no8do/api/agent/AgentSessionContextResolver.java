@@ -27,7 +27,8 @@ public final class AgentSessionContextResolver {
         if (!session.getUserId().equals(authenticatedUserId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agent session access denied");
         }
+        No8doAgentProtocol protocol = protocolProvider.current();
         return new AgentSessionContext(session,
-                capabilityResolver.resolve(protocolProvider.current(), session.getRuntimeMode()));
+                capabilityResolver.resolve(protocol, session.getRuntimeMode()), protocol.policies());
     }
 }

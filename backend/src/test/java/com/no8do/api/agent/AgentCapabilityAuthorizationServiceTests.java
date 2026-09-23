@@ -42,7 +42,7 @@ class AgentCapabilityAuthorizationServiceTests {
     @Test
     void deniedErrorContainsSafeSessionMetadata() {
         AgentSession session = session(AgentRuntimeMode.OFF);
-        attach(new AgentSessionContext(session, List.of()));
+        attach(context(session, List.of()));
         assertThatThrownBy(() -> authorization.require(AgentCapability.REPLAY_READ))
                 .isInstanceOfSatisfying(AgentCapabilityDeniedException.class, exception -> {
                     assertThat(exception.getMessage()).isEqualTo("AGENT_CAPABILITY_DENIED");
@@ -54,7 +54,7 @@ class AgentCapabilityAuthorizationServiceTests {
 
     private void require(AgentRuntimeMode mode, List<AgentCapability> capabilities,
             AgentCapability required, boolean allowed) {
-        attach(new AgentSessionContext(session(mode), capabilities));
+        attach(context(session(mode), capabilities));
         if (allowed) assertThatCode(() -> authorization.require(required)).doesNotThrowAnyException();
         else assertThatThrownBy(() -> authorization.require(required)).isInstanceOf(AgentCapabilityDeniedException.class);
     }
@@ -71,5 +71,10 @@ class AgentCapabilityAuthorizationServiceTests {
                 new No8doAgentProtocolProvider().current(), "a".repeat(64));
         session.setRuntimeMode(mode);
         return session;
+    }
+
+    private AgentSessionContext context(AgentSession session, List<AgentCapability> capabilities) {
+        No8doAgentProtocol protocol = new No8doAgentProtocolProvider().current();
+        return new AgentSessionContext(session, capabilities, protocol.policies());
     }
 }
