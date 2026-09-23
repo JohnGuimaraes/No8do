@@ -29,7 +29,7 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws IOException {
-        if (isHeartbeat(handler)) return true;
+        if (isSessionLifecycleEndpoint(handler)) return true;
         String rawSessionId = request.getHeader(HEADER_NAME);
         if (rawSessionId == null) return true;
         if (rawSessionId.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
@@ -47,15 +47,30 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
         }
         AgentSessionContext context = contextResolver.resolve(sessionId, principal.user().getId());
+        if (context.disconnectedAt() != null) {
+            if (isGetContext(handler)) {
+                request.setAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE, context);
+                return true;
+            }
+            throw new AgentSessionDisconnectedException(sessionId);
+        }
         presenceService.touchActivity(sessionId, principal.user().getId());
         context = contextResolver.resolve(sessionId, principal.user().getId());
+        if (context.disconnectedAt() != null) throw new AgentSessionDisconnectedException(sessionId);
         request.setAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE, context);
         return true;
     }
 
-    private boolean isHeartbeat(Object handler) {
+    private boolean isSessionLifecycleEndpoint(Object handler) {
         return handler instanceof HandlerMethod method
                 && AgentSessionController.class.isAssignableFrom(method.getBeanType())
-                && method.getMethod().getName().equals("heartbeat");
+                && (method.getMethod().getName().equals("heartbeat")
+                    || method.getMethod().getName().equals("disconnect"));
+    }
+
+    private boolean isGetContext(Object handler) {
+        return handler instanceof HandlerMethod method
+                && AgentSessionController.class.isAssignableFrom(method.getBeanType())
+                && method.getMethod().getName().equals("getContext");
     }
 }

@@ -56,6 +56,9 @@ public class AgentSession {
     @Column(name = "last_activity_at")
     private Instant lastActivityAt;
 
+    @Column(name = "disconnected_at")
+    private Instant disconnectedAt;
+
     @Column(name = "transport_session_fingerprint", nullable = false, length = 64, updatable = false)
     private String transportSessionFingerprint;
 

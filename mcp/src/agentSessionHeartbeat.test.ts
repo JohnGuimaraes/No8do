@@ -39,6 +39,59 @@ test("heartbeat começa em intervalo único, usa API e para sem manter processo 
   assert.equal(cleanups, 1);
 });
 
+test("close para o heartbeat antes de enviar disconnect uma única vez e com timeout", async () => {
+  const events: string[] = [];
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const sessionHeader = new AgentSessionHeader();
+  sessionHeader.set(sessionId);
+  const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", (async (url, init) => {
+    requests.push({ url: String(url), init });
+    events.push("disconnect");
+    return new Response(JSON.stringify({ disconnectedAt: "2026-09-23T12:00:00Z" }), { status: 200 });
+  }) as typeof fetch, sessionHeader);
+  let tick: (() => void) | undefined;
+  let schedules = 0;
+  const heartbeat = new AgentSessionHeartbeat(client, sessionId, callback => {
+    schedules++;
+    tick = callback;
+    return () => { events.push("stop"); };
+  });
+
+  heartbeat.start();
+  await Promise.all([heartbeat.close(), heartbeat.close()]);
+  tick?.();
+  await flush();
+  heartbeat.start();
+
+  assert.deepEqual(events, ["stop", "disconnect"]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/disconnect`);
+  assert.equal(requests[0]?.init?.method, "POST");
+  assert.equal(requests[0]?.init?.body, undefined);
+  assert.equal(requests[0]?.init?.signal instanceof AbortSignal, true);
+  assert.equal((requests[0]?.init?.signal as AbortSignal).aborted, false);
+  assert.equal(schedules, 1);
+});
+
+test("falha no disconnect é absorvida após parar o heartbeat", async () => {
+  const events: string[] = [];
+  const failures: Array<{ error: unknown; operation: string }> = [];
+  const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", (async () => {
+    events.push("disconnect");
+    return new Response(JSON.stringify({ error: "unavailable" }), { status: 503 });
+  }) as typeof fetch);
+  const heartbeat = new AgentSessionHeartbeat(client, sessionId, () => () => { events.push("stop"); },
+    (error, operation) => failures.push({ error, operation }));
+  heartbeat.start();
+
+  await heartbeat.close();
+  await heartbeat.close();
+
+  assert.deepEqual(events, ["stop", "disconnect"]);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]?.operation, "disconnect");
+});
+
 test("falha isolada é registrada e tick posterior tenta novamente", async () => {
   let calls = 0;
   const errors: unknown[] = [];

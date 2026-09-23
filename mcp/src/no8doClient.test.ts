@@ -142,7 +142,7 @@ test("anexa session header apenas após initialize e obtém contexto atualizado 
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), headers: new Headers(init?.headers) });
     const body = String(url).endsWith("/context")
-      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], policies: [{ id: "secrets-forbidden", description: "Não salvar segredos", enforcement: "ADVISORY" }], registeredAt: "2026-01-01T00:00:00Z", presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null }
+      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], policies: [{ id: "secrets-forbidden", description: "Não salvar segredos", enforcement: "ADVISORY" }], registeredAt: "2026-01-01T00:00:00Z", presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null, disconnectedAt: null }
       : { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", runtimeMode: "FULL", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -205,6 +205,19 @@ test("propaga AGENT_POLICY_DENIED e apenas metadata segura", async () => {
     assert.match(error.message, /^AGENT_POLICY_DENIED:/);
     assert.deepEqual(error.metadata, { sessionId: response.metadata.sessionId, policyId: response.metadata.policyId, reason: response.metadata.reason });
     assert.doesNotMatch(error.message, /sensitive|no8do_pat_secret-value/);
+    return true;
+  });
+});
+
+test("propaga AGENT_SESSION_DISCONNECTED e filtra metadata sensível", async () => {
+  const response = { error: "AGENT_SESSION_DISCONNECTED", metadata: { sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", fingerprint: "PRIVATE_FINGERPRINT" } };
+  const setup = client(409, response);
+  await assert.rejects(() => setup.client.getReplay("w1", "r1"), (error: unknown) => {
+    assert.ok(error instanceof No8doApiError);
+    assert.equal(error.status, 409);
+    assert.match(error.message, /^AGENT_SESSION_DISCONNECTED:/);
+    assert.deepEqual(error.metadata, { sessionId: response.metadata.sessionId });
+    assert.doesNotMatch(error.message, /PRIVATE_FINGERPRINT|no8do_pat_secret-value/);
     return true;
   });
 });
