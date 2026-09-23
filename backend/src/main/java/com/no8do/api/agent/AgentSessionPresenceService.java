@@ -12,10 +12,15 @@ import org.springframework.web.server.ResponseStatusException;
 public class AgentSessionPresenceService {
     private final AgentSessionRepository repository;
     private final Clock clock;
+    private final AgentEventFactory eventFactory;
+    private final AgentEventPublisher eventPublisher;
 
-    public AgentSessionPresenceService(AgentSessionRepository repository, Clock clock) {
+    public AgentSessionPresenceService(AgentSessionRepository repository, Clock clock,
+            AgentEventFactory eventFactory, AgentEventPublisher eventPublisher) {
         this.repository = repository;
         this.clock = clock;
+        this.eventFactory = eventFactory;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -44,7 +49,10 @@ public class AgentSessionPresenceService {
         AgentSession session = requireOwned(sessionId, authenticatedUserId);
         if (session.getDisconnectedAt() != null) return session.getDisconnectedAt();
         Instant now = clock.instant();
-        if (repository.updateDisconnectedAtIfAbsent(sessionId, authenticatedUserId, now) == 1) return now;
+        if (repository.updateDisconnectedAtIfAbsent(sessionId, authenticatedUserId, now) == 1) {
+            eventPublisher.publish(eventFactory.disconnected(session));
+            return now;
+        }
         session = requireOwned(sessionId, authenticatedUserId);
         if (session.getDisconnectedAt() != null) return session.getDisconnectedAt();
         throw notFound();

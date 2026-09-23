@@ -3,7 +3,15 @@ package com.no8do.api.agent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -13,14 +21,20 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 class AgentCapabilityAuthorizationServiceTests {
-    private final AgentCapabilityAuthorizationService authorization = new AgentCapabilityAuthorizationService();
+    private final AgentEventPublisher eventPublisher = mock(AgentEventPublisher.class);
+    private final AgentCapabilityAuthorizationService authorization = new AgentCapabilityAuthorizationService(
+            new AgentEventFactory(Clock.fixed(Instant.parse("2026-09-23T12:00:00Z"), ZoneOffset.UTC)), eventPublisher);
 
     @AfterEach
-    void clearRequestContext() { RequestContextHolder.resetRequestAttributes(); }
+    void clearRequestContext() {
+        RequestContextHolder.resetRequestAttributes();
+        clearInvocations(eventPublisher);
+    }
 
     @Test
     void requestsWithoutAgentSessionKeepExistingAuthorizationFlow() {
         assertThatCode(() -> authorization.require(AgentCapability.REPLAY_CREATE)).doesNotThrowAnyException();
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
@@ -50,6 +64,10 @@ class AgentCapabilityAuthorizationServiceTests {
                     assertThat(exception.session().getRuntimeMode()).isEqualTo(AgentRuntimeMode.OFF);
                     assertThat(exception.requiredCapability()).isEqualTo(AgentCapability.REPLAY_READ);
                 });
+        verify(eventPublisher).publish(argThat(event -> event.type() == AgentEventType.CAPABILITY_DENIED
+                && event.sessionId().equals(session.getId())
+                && event.metadata().equals(new AgentEventMetadata.CapabilityDenied(
+                        AgentCapability.REPLAY_READ, AgentRuntimeMode.OFF))));
     }
 
     private void require(AgentRuntimeMode mode, List<AgentCapability> capabilities,

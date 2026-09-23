@@ -13,11 +13,16 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 public class AgentPolicyAuthorizationService {
     private final AgentPolicyEngine policyEngine;
     private final No8doAgentProtocolProvider protocolProvider;
+    private final AgentEventFactory eventFactory;
+    private final AgentEventPublisher eventPublisher;
 
     public AgentPolicyAuthorizationService(AgentPolicyEngine policyEngine,
-            No8doAgentProtocolProvider protocolProvider) {
+            No8doAgentProtocolProvider protocolProvider, AgentEventFactory eventFactory,
+            AgentEventPublisher eventPublisher) {
         this.policyEngine = policyEngine;
         this.protocolProvider = protocolProvider;
+        this.eventFactory = eventFactory;
+        this.eventPublisher = eventPublisher;
     }
 
     public void requireAllowed(UUID requestedWorkspaceId, AgentCapability operation) {
@@ -52,6 +57,7 @@ public class AgentPolicyAuthorizationService {
                     .filter(candidate -> candidate.id().equals(decision.policyId())).findFirst().orElseThrow();
             if (policy.enforcement() == AgentPolicyEnforcement.ENFORCED
                     && decision.decision() == AgentPolicyDecisionType.DENY) {
+                if (context != null) eventPublisher.publish(eventFactory.policyDenied(context.session(), decision));
                 throw new AgentPolicyDeniedException(context == null ? null : context.session(), decision);
             }
         }
