@@ -37,6 +37,10 @@ server:
   port: ${SERVER_PORT:8080}
 
 no8do:
+  agent:
+    presence:
+      active-window: 2m
+      disconnect-timeout: 5m
   google:
     client-id: ${NO8DO_GOOGLE_CLIENT_ID:}
     client-secret: ${NO8DO_GOOGLE_CLIENT_SECRET:}

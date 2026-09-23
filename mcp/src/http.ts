@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { InitializeRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { AgentSessionHeartbeat } from "./agentSessionHeartbeat.js";
 import { AgentSessionHeader, No8doApiError, No8doClient } from "./no8doClient.js";
 import { createMcpServer } from "./server.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 import { requireRemoteWorkspaceId } from "./workspace.js";
 
-type RemoteSession = { transport: StreamableHTTPServerTransport; server: ReturnType<typeof createMcpServer>; token: string };
+type RemoteSession = { transport: StreamableHTTPServerTransport; server: ReturnType<typeof createMcpServer>; token: string; heartbeat: AgentSessionHeartbeat };
+export type HeartbeatFactory = (client: No8doClient, agentSessionId: string) => AgentSessionHeartbeat;
 function bearer(request: IncomingMessage): string | undefined {
   const value = request.headers.authorization;
   return value && /^Bearer\s+\S+$/i.test(value) ? value.slice(value.indexOf(" ") + 1) : undefined;
@@ -15,10 +17,12 @@ function bearer(request: IncomingMessage): string | undefined {
 function json(response: ServerResponse, status: number, value: object) { response.writeHead(status, { "content-type": "application/json" }); response.end(JSON.stringify(value)); }
 async function body(request: IncomingMessage): Promise<unknown> { const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk)); return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined; }
 
-export function createRemoteMcpService(apiUrl: string, workspaceId: string | undefined): Server {
+export function createRemoteMcpService(apiUrl: string, workspaceId: string | undefined,
+  heartbeatFactory: HeartbeatFactory = (client, agentSessionId) => new AgentSessionHeartbeat(client, agentSessionId)): Server {
   const scopedWorkspaceId = requireRemoteWorkspaceId(workspaceId);
   const sessions = new Map<string, RemoteSession>();
-  return createServer(async (request, response) => {
+  const heartbeats = new Set<AgentSessionHeartbeat>();
+  const service = createServer(async (request, response) => {
     if (request.url === "/health" && request.method === "GET") return json(response, 200, { status: "ok" });
     if (request.url !== "/mcp") return json(response, 404, { error: "Not found" });
     const token = bearer(request);
@@ -59,9 +63,17 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
             transportSessionFingerprint: fingerprintTransportSession(createdSessionId)
           });
           agentSessionHeader.set(registeredSession.sessionId);
-          sessions.set(createdSessionId, { transport, server, token });
+          const heartbeat = heartbeatFactory(client, registeredSession.sessionId);
+          sessions.set(createdSessionId, { transport, server, token, heartbeat });
+          heartbeats.add(heartbeat);
+          heartbeat.start();
         },
-        onsessionclosed: (closedSessionId) => { sessions.delete(closedSessionId); }
+        onsessionclosed: (closedSessionId) => {
+          const session = sessions.get(closedSessionId);
+          session?.heartbeat.stop();
+          if (session) heartbeats.delete(session.heartbeat);
+          sessions.delete(closedSessionId);
+        }
       });
       await server.connect(transport);
       await transport.handleRequest(request, response, parsedBody);
@@ -73,6 +85,13 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
       json(response, 500, { error: "Internal server error" });
     }
   });
+  service.on("close", () => {
+    for (const session of sessions.values()) session.heartbeat.stop();
+    for (const heartbeat of heartbeats) heartbeat.stop();
+    heartbeats.clear();
+    sessions.clear();
+  });
+  return service;
 }
 
 if (process.argv[1]?.endsWith("/http.js") || process.argv[1]?.endsWith("\\http.js")) {

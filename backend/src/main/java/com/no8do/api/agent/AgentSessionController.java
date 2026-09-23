@@ -18,10 +18,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class AgentSessionController {
     private final AgentSessionRegistry registry;
     private final AgentSessionContextService contextService;
+    private final AgentSessionPresenceService presenceService;
 
-    public AgentSessionController(AgentSessionRegistry registry, AgentSessionContextService contextService) {
+    public AgentSessionController(AgentSessionRegistry registry, AgentSessionContextService contextService,
+            AgentSessionPresenceService presenceService) {
         this.registry = registry;
         this.contextService = contextService;
+        this.presenceService = presenceService;
     }
 
     @PostMapping
@@ -29,6 +32,13 @@ public class AgentSessionController {
     public AgentSessionResponse register(@AuthenticationPrincipal No8doUserDetails principal,
             @Valid @RequestBody AgentSessionRegistrationRequest request) {
         return registry.register(principal.user().getId(), request);
+    }
+
+    @PostMapping("/{sessionId}/heartbeat")
+    public AgentSessionHeartbeatResponse heartbeat(@PathVariable java.util.UUID sessionId,
+            @AuthenticationPrincipal No8doUserDetails principal) {
+        return new AgentSessionHeartbeatResponse(sessionId,
+                presenceService.heartbeat(sessionId, principal.user().getId()));
     }
 
     @GetMapping("/{sessionId}/context")

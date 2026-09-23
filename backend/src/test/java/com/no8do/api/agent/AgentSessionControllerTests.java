@@ -65,17 +65,82 @@ class AgentSessionControllerTests {
                 .andExpect(jsonPath("$.protocolName").value(protocolProvider.current().protocolName()))
                 .andExpect(jsonPath("$.protocolVersion").value(protocolProvider.current().protocolVersion()))
                 .andExpect(jsonPath("$.registeredAt").isNotEmpty())
+                .andExpect(jsonPath("$.lastActivityAt").doesNotExist())
                 .andReturn();
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString());
         UUID sessionId = UUID.fromString(response.get("sessionId").asText());
         AgentSession session = sessionRepository.findById(sessionId).orElseThrow();
         org.assertj.core.api.Assertions.assertThat(session.getUserId()).isEqualTo(user.getId());
         org.assertj.core.api.Assertions.assertThat(session.getWorkspaceId()).isNull();
+        org.assertj.core.api.Assertions.assertThat(session.getLastSeenAt()).isEqualTo(session.getRegisteredAt());
+        org.assertj.core.api.Assertions.assertThat(session.getLastActivityAt()).isNull();
         org.assertj.core.api.Assertions.assertThat(response.get("registeredAt").asText()).isNotEqualTo("2000-01-01T00:00:00Z");
         org.assertj.core.api.Assertions.assertThat(response.has("transportSessionFingerprint")).isFalse();
         org.assertj.core.api.Assertions.assertThat(response.has("userId")).isFalse();
         org.assertj.core.api.Assertions.assertThat(session.getTransportSessionFingerprint()).isEqualTo(FINGERPRINT);
         org.assertj.core.api.Assertions.assertThat(session.getRuntimeMode()).isEqualTo(AgentRuntimeMode.FULL);
+    }
+
+    @Test
+    void heartbeatUsesServerTimeChangesOnlyLastSeenAndRequiresSessionOwnership() throws Exception {
+        User owner = userRepository.save(new User("heartbeat-owner", "heartbeat-owner@example.test", "hash"));
+        User other = userRepository.save(new User("heartbeat-other", "heartbeat-other@example.test", "hash"));
+        String sessionId = register(owner, "e".repeat(64));
+        AgentSession before = sessionRepository.findById(UUID.fromString(sessionId)).orElseThrow();
+        String clientTimestamp = "2000-01-01T00:00:00Z";
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/heartbeat", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lastSeenAt\":\"" + clientTimestamp + "\",\"lastActivityAt\":\"" + clientTimestamp + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value(sessionId))
+                .andExpect(jsonPath("$.lastSeenAt").isNotEmpty())
+                .andExpect(jsonPath("$.lastSeenAt").value(org.hamcrest.Matchers.not(clientTimestamp)));
+
+        AgentSession after = sessionRepository.findById(UUID.fromString(sessionId)).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(after.getLastSeenAt()).isAfterOrEqualTo(before.getLastSeenAt());
+        org.assertj.core.api.Assertions.assertThat(after.getLastActivityAt()).isNull();
+        org.assertj.core.api.Assertions.assertThat(after.getRuntimeMode()).isEqualTo(AgentRuntimeMode.FULL);
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/heartbeat", sessionId).with(user(new No8doUserDetails(other))).with(csrf()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/heartbeat", sessionId).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void authenticatedAgentSessionRequestsTouchActivityButHeartbeatDoesNotAndHeaderlessRequestDoesNotTouch() throws Exception {
+        User owner = userRepository.save(new User("activity-owner", "activity-owner@example.test", "hash"));
+        String sessionId = register(owner, "f".repeat(64));
+        UUID id = UUID.fromString(sessionId);
+
+        mockMvc.perform(get("/api/agent-protocol").header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk());
+        AgentSession active = sessionRepository.findById(id).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(active.getLastActivityAt()).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(active.getLastSeenAt()).isEqualTo(active.getLastActivityAt());
+
+        mockMvc.perform(get("/api/agent-sessions/{sessionId}/context", sessionId)
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.presenceStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.lastActivityAt").isNotEmpty())
+                .andExpect(jsonPath("$.lastSeenAt").isNotEmpty());
+        active = sessionRepository.findById(id).orElseThrow();
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/heartbeat", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf()))
+                .andExpect(status().isOk());
+        AgentSession afterHeartbeat = sessionRepository.findById(id).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(afterHeartbeat.getLastActivityAt()).isEqualTo(active.getLastActivityAt());
+
+        mockMvc.perform(get("/api/agent-protocol").with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk());
+        AgentSession withoutSessionHeader = sessionRepository.findById(id).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(withoutSessionHeader.getLastSeenAt()).isEqualTo(afterHeartbeat.getLastSeenAt());
+        org.assertj.core.api.Assertions.assertThat(withoutSessionHeader.getLastActivityAt()).isEqualTo(afterHeartbeat.getLastActivityAt());
     }
 
     @Test
@@ -93,7 +158,10 @@ class AgentSessionControllerTests {
                 .andExpect(jsonPath("$.effectiveCapabilities").isArray())
                 .andExpect(jsonPath("$.effectiveCapabilities.length()").value(15))
                 .andExpect(jsonPath("$.policies[?(@.id == 'workspace-isolation-required')].enforcement").value("ENFORCED"))
-                .andExpect(jsonPath("$.policies[?(@.id == 'secrets-forbidden')].enforcement").value("ADVISORY"));
+                .andExpect(jsonPath("$.policies[?(@.id == 'secrets-forbidden')].enforcement").value("ADVISORY"))
+                .andExpect(jsonPath("$.presenceStatus").value("CONNECTED"))
+                .andExpect(jsonPath("$.lastSeenAt").isNotEmpty())
+                .andExpect(jsonPath("$.lastActivityAt").doesNotExist());
 
         mockMvc.perform(patch("/api/agent-sessions/{sessionId}/runtime-mode", firstId)
                 .with(user(new No8doUserDetails(owner))).with(csrf())

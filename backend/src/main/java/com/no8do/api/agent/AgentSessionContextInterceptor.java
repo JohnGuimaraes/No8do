@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.UUID;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,14 +18,18 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
     public static final String HEADER_NAME = "X-No8do-Agent-Session-Id";
 
     private final AgentSessionContextResolver contextResolver;
+    private final AgentSessionPresenceService presenceService;
 
-    public AgentSessionContextInterceptor(AgentSessionContextResolver contextResolver) {
+    public AgentSessionContextInterceptor(AgentSessionContextResolver contextResolver,
+            AgentSessionPresenceService presenceService) {
         this.contextResolver = contextResolver;
+        this.presenceService = presenceService;
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws IOException {
+        if (isHeartbeat(handler)) return true;
         String rawSessionId = request.getHeader(HEADER_NAME);
         if (rawSessionId == null) return true;
         if (rawSessionId.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
@@ -42,7 +47,15 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
         }
         AgentSessionContext context = contextResolver.resolve(sessionId, principal.user().getId());
+        presenceService.touchActivity(sessionId, principal.user().getId());
+        context = contextResolver.resolve(sessionId, principal.user().getId());
         request.setAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE, context);
         return true;
+    }
+
+    private boolean isHeartbeat(Object handler) {
+        return handler instanceof HandlerMethod method
+                && AgentSessionController.class.isAssignableFrom(method.getBeanType())
+                && method.getMethod().getName().equals("heartbeat");
     }
 }

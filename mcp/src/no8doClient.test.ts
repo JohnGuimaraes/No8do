@@ -142,7 +142,7 @@ test("anexa session header apenas após initialize e obtém contexto atualizado 
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), headers: new Headers(init?.headers) });
     const body = String(url).endsWith("/context")
-      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], policies: [{ id: "secrets-forbidden", description: "Não salvar segredos", enforcement: "ADVISORY" }], registeredAt: "2026-01-01T00:00:00Z" }
+      ? { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, runtimeMode: mode, effectiveCapabilities: [], policies: [{ id: "secrets-forbidden", description: "Não salvar segredos", enforcement: "ADVISORY" }], registeredAt: "2026-01-01T00:00:00Z", presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null }
       : { sessionId, clientName: "Codex", clientVersion: "1", workspaceId: null, transport: "MCP", runtimeMode: "FULL", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -160,6 +160,28 @@ test("anexa session header apenas após initialize e obtém contexto atualizado 
   assert.equal(retrieval.policies[0]?.enforcement, "ADVISORY");
   assert.deepEqual(calls.slice(1).map(call => call.headers.get("X-No8do-Agent-Session-Id")), [sessionId, sessionId, sessionId]);
   assert.equal(calls[2]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/context`);
+});
+
+test("heartbeat usa POST autenticado e sessionId interno sem body de timestamp", async () => {
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const sessionHeader = new AgentSessionHeader();
+  sessionHeader.set(sessionId);
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify({ sessionId, lastSeenAt: "2026-09-23T12:00:00Z" }), { status: 200 });
+  }) as typeof fetch;
+  const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", fetchImpl, sessionHeader);
+
+  await client.heartbeatAgentSession(sessionId);
+
+  assert.equal(calls[0]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/heartbeat`);
+  assert.equal(calls[0]?.init?.method, "POST");
+  assert.equal(calls[0]?.init?.body, undefined);
+  const headers = new Headers(calls[0]?.init?.headers);
+  assert.equal(headers.get("Authorization"), "Bearer PAT_PRIVATE");
+  assert.equal(headers.get("X-No8do-Agent-Session-Id"), sessionId);
+  assert.doesNotMatch(JSON.stringify(calls[0]?.init), /PAT_PRIVATE/);
 });
 
 test("propaga AGENT_CAPABILITY_DENIED e metadata sem expor bearer", async () => {

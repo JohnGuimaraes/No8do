@@ -4,7 +4,7 @@ import { InitializeRequestSchema, type JSONRPCMessage } from "@modelcontextproto
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
-import { compactReplay, No8doClient, type AgentProtocol, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate, type ReplayValidationEvidence } from "./no8doClient.js";
+import { compactReplay, No8doClient, type AgentProtocol, type AgentSession, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate, type ReplayValidationEvidence } from "./no8doClient.js";
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 
@@ -19,10 +19,13 @@ export class StdioAgentSessionTransport implements Transport {
   private initializeRequestId?: string | number;
   private clientInfo?: { name: string; version: string };
   private registrationAttempted = false;
+  private closed = false;
 
   constructor(
     private readonly delegate: Transport,
-    private readonly register: (clientName: string, clientVersion: string, fingerprint: string) => Promise<unknown>
+    private readonly register: (clientName: string, clientVersion: string, fingerprint: string) => Promise<AgentSession>,
+    private readonly onRegistered: (session: AgentSession) => void = () => {},
+    private readonly onClosed: () => void = () => {}
   ) {
     delegate.onmessage = (message, extra) => {
       const initialize = InitializeRequestSchema.safeParse(message);
@@ -32,7 +35,7 @@ export class StdioAgentSessionTransport implements Transport {
       }
       this.messageHandler?.(message, extra);
     };
-    delegate.onclose = () => this.closeHandler?.();
+    delegate.onclose = () => this.handleClose();
     delegate.onerror = (error) => this.errorHandler?.(error);
   }
 
@@ -44,7 +47,10 @@ export class StdioAgentSessionTransport implements Transport {
   set onerror(handler: ((error: Error) => void) | undefined) { this.errorHandler = handler; }
 
   start(): Promise<void> { return this.delegate.start(); }
-  close(): Promise<void> { return this.delegate.close(); }
+  async close(): Promise<void> {
+    try { await this.delegate.close(); }
+    finally { this.handleClose(); }
+  }
 
   async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
     if (this.initializeRequestId !== undefined && !this.registrationAttempted && "id" in message
@@ -52,7 +58,8 @@ export class StdioAgentSessionTransport implements Transport {
       this.registrationAttempted = true;
       try {
         if (!this.clientInfo) throw new Error("MCP initialize clientInfo is unavailable.");
-        await this.register(this.clientInfo.name, this.clientInfo.version, fingerprintTransportSession(this.sessionId));
+        const session = await this.register(this.clientInfo.name, this.clientInfo.version, fingerprintTransportSession(this.sessionId));
+        this.onRegistered(session);
       } catch {
         await this.delegate.send({
           jsonrpc: "2.0",
@@ -64,6 +71,13 @@ export class StdioAgentSessionTransport implements Transport {
       }
     }
     await this.delegate.send(message, options);
+  }
+
+  private handleClose(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.onClosed();
+    this.closeHandler?.();
   }
 }
 const type = z.enum(["FIX", "PATTERN", "RECIPE", "SNIPPET", "DECISION", "PROCEDURE", "CHECKLIST", "TROUBLESHOOTING", "PROMPT", "REFERENCE"]);
@@ -119,7 +133,10 @@ export function createMcpServer(context: McpServerContext) {
     runtimeMode: z.enum(["OFF", "READ_ONLY", "RETRIEVAL", "ASSISTED", "FULL"]),
     effectiveCapabilities: z.array(z.object({ id: z.string(), description: z.string(), readOnly: z.boolean() })),
     policies: z.array(z.object({ id: z.string(), description: z.string(), enforcement: z.enum(["ADVISORY", "ENFORCED"]) })),
-    registeredAt: z.string()
+    registeredAt: z.string(),
+    presenceStatus: z.enum(["CONNECTED", "ACTIVE", "IDLE", "DISCONNECTED"]),
+    lastSeenAt: z.string(),
+    lastActivityAt: z.string().nullable()
   });
   server.registerTool("get_agent_context", {
     description: "Obtenha o contexto atual desta sessão Agent, incluindo runtime mode, effective capabilities e policies.",

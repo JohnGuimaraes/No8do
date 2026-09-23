@@ -5,6 +5,7 @@ import { createServer, type Server } from "node:http";
 import test from "node:test";
 import { once } from "node:events";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { AgentSessionHeartbeat } from "./agentSessionHeartbeat.js";
 import { createMcpServer, StdioAgentSessionTransport } from "./server.js";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
 import { AgentSessionHeader, No8doClient, type AgentProtocol } from "./no8doClient.js";
@@ -35,17 +36,29 @@ function nextMessage(output: PassThrough) {
 test("stdio registra no initialize antes de responder, preserva bootstrap e não registra tools novamente", async () => {
   const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
   const toolHeaders: Array<string | undefined> = [];
+  const heartbeatCalls: Array<{ url: string; authorization: string; agentSessionId?: string }> = [];
+  const heartbeatTicks: Array<() => void> = [];
+  const stoppedHeartbeats: string[] = [];
+  let resolveHeartbeatRequest!: () => void;
+  const heartbeatReceived = new Promise<void>(resolve => { resolveHeartbeatRequest = resolve; });
   let runtimeMode = "FULL";
   const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const api = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(protocol));
+    if (request.url === `/api/agent-sessions/${sessionId}/heartbeat`) {
+      heartbeatCalls.push({ url: request.url, authorization: request.headers.authorization ?? "",
+        agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
+      resolveHeartbeatRequest();
+      return response.end(JSON.stringify({ sessionId, lastSeenAt: "2026-09-23T12:00:00Z" }));
+    }
     if (request.url === `/api/agent-sessions/${sessionId}/context`) {
       const header = request.headers["x-no8do-agent-session-id"];
       toolHeaders.push(Array.isArray(header) ? header[0] : header);
       return response.end(JSON.stringify({ sessionId, clientName: "Claude Desktop", clientVersion: "2.4", workspaceId: null,
         transport: "MCP", protocolName: protocol.protocolName, protocolVersion: 1, runtimeMode,
-        effectiveCapabilities: protocol.capabilities.capabilities, policies: protocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z" }));
+        effectiveCapabilities: protocol.capabilities.capabilities, policies: protocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z",
+        presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null }));
     }
     if (request.url?.includes("/replays")) {
       const header = request.headers["x-no8do-agent-session-id"];
@@ -62,12 +75,22 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
   const input = new PassThrough(); const output = new PassThrough();
   const agentSessionHeader = new AgentSessionHeader();
   const server = createMcpServer({ apiUrl, token: "PAT_STDIO_ONLY", agentProtocol: protocol, transport: "stdio", agentSessionHeader });
+  let heartbeat: AgentSessionHeartbeat | undefined;
   const transport = new StdioAgentSessionTransport(new StdioServerTransport(input, output), (clientName, clientVersion, transportSessionFingerprint) =>
     new No8doClient(apiUrl, "PAT_STDIO_ONLY").registerAgentSession({ clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint })
-      .then(session => { agentSessionHeader.set(session.sessionId); return session; }));
+      .then(session => session),
+    session => {
+      assert.equal(registrations.length, 1);
+      agentSessionHeader.set(session.sessionId);
+      heartbeat = new AgentSessionHeartbeat(new No8doClient(apiUrl, "PAT_STDIO_ONLY", fetch, agentSessionHeader), session.sessionId,
+        callback => { heartbeatTicks.push(callback); return () => { stoppedHeartbeats.push(session.sessionId); }; });
+      heartbeat.start();
+    },
+    () => heartbeat?.stop());
   try {
     const initializeResponse = nextMessage(output);
     await server.connect(transport);
+    assert.equal(heartbeatTicks.length, 0);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "Claude Desktop", version: "2.4" } } })}\n`);
     const initialized = await initializeResponse;
     assert.equal((initialized.result as Record<string, unknown>).instructions, renderAgentProtocolBootstrap(protocol));
@@ -77,6 +100,13 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     });
     assert.equal(registrations[0]?.authorization, "Bearer PAT_STDIO_ONLY");
     assert.doesNotMatch(JSON.stringify(registrations[0]?.body), /PAT_STDIO_ONLY|sessionId/);
+    assert.equal(heartbeatTicks.length, 1);
+    assert.equal(heartbeatCalls.length, 0);
+    heartbeatTicks[0]?.();
+    await heartbeatReceived;
+    assert.deepEqual(heartbeatCalls[0], {
+      url: `/api/agent-sessions/${sessionId}/heartbeat`, authorization: "Bearer PAT_STDIO_ONLY", agentSessionId: sessionId
+    });
 
     input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     const listToolsResponse = nextMessage(output);
@@ -105,7 +135,11 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     await replayResponse;
     assert.deepEqual(toolHeaders, [sessionId, sessionId, sessionId]);
     assert.equal(registrations.length, 1);
-  } finally { await server.close(); await close(api); }
+  } finally {
+    await server.close();
+    assert.deepEqual(stoppedHeartbeats, [sessionId]);
+    await close(api);
+  }
 });
 
 test("stdio falha initialize explicitamente quando registro backend falha", async () => {

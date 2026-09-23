@@ -1,7 +1,7 @@
 package com.no8do.api.agent;
 
 import com.no8do.api.workspace.WorkspaceAuthorizationService;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -13,13 +13,15 @@ public class AgentSessionRegistry {
     private final AgentSessionRepository repository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final No8doAgentProtocolProvider protocolProvider;
+    private final Clock clock;
 
     public AgentSessionRegistry(AgentSessionRepository repository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
-            No8doAgentProtocolProvider protocolProvider) {
+            No8doAgentProtocolProvider protocolProvider, Clock clock) {
         this.repository = repository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.protocolProvider = protocolProvider;
+        this.clock = clock;
     }
 
     @Transactional
@@ -31,7 +33,7 @@ public class AgentSessionRegistry {
         No8doAgentProtocol protocol = protocolProvider.current();
         repository.insertIfAbsent(UUID.randomUUID(), authenticatedUserId, request.workspaceId(),
                 clientIdentity.clientName(), clientIdentity.clientVersion(), request.transport().name(), protocol.protocolName(),
-                protocol.protocolVersion(), Instant.now(), request.transportSessionFingerprint());
+                protocol.protocolVersion(), clock.instant(), request.transportSessionFingerprint());
         AgentSession session = repository.findByTransportAndTransportSessionFingerprint(
                 request.transport(), request.transportSessionFingerprint()).orElseThrow();
         if (!session.getUserId().equals(authenticatedUserId)

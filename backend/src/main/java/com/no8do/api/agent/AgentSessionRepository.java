@@ -6,18 +6,29 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID> {
     Optional<AgentSession> findByTransportAndTransportSessionFingerprint(AgentTransport transport, String fingerprint);
     long countByTransportAndTransportSessionFingerprint(AgentTransport transport, String fingerprint);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt where id = :sessionId and user_id = :userId", nativeQuery = true)
+    int updateLastSeenAt(@Param("sessionId") UUID sessionId, @Param("userId") UUID userId,
+            @Param("lastSeenAt") Instant lastSeenAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt, last_activity_at = :lastSeenAt where id = :sessionId and user_id = :userId", nativeQuery = true)
+    int updateActivityTimestamps(@Param("sessionId") UUID sessionId, @Param("userId") UUID userId,
+            @Param("lastSeenAt") Instant lastSeenAt);
+
     @Modifying
     @Query(value = """
         insert into agent_sessions (id, user_id, workspace_id, client_name, client_version, transport,
-            protocol_name, protocol_version, registered_at, transport_session_fingerprint)
+            protocol_name, protocol_version, registered_at, last_seen_at, last_activity_at, transport_session_fingerprint)
         values (:id, :userId, :workspaceId, :clientName, :clientVersion, :transport,
-            :protocolName, :protocolVersion, :registeredAt, :fingerprint)
+            :protocolName, :protocolVersion, :registeredAt, :registeredAt, null, :fingerprint)
         on conflict (transport, transport_session_fingerprint) do nothing
         """, nativeQuery = true)
     int insertIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId,
