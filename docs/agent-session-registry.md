@@ -1,0 +1,9 @@
+# Agent Session Registry
+
+No8do distingue **User** (conta autenticada), **Client** (software MCP declarado em `initialize.params.clientInfo`) e **Session** (uma conexão MCP). Cada conexão HTTP stateful recebe um registro automático antes da resposta de initialize; chamadas subsequentes reutilizam essa sessão, sem criar registros adicionais.
+
+O usuário vem exclusivamente do principal autenticado pelo Spring Security. `workspaceId` é opcional e, quando presente, o backend valida membership. O transporte é `MCP`; o servidor obtém `protocolName` e `protocolVersion` de `No8doAgentProtocolProvider`, e define `registeredAt` no momento da gravação.
+
+O MCP calcula SHA-256 em UTF-8 sobre a identidade estável da conexão: no Streamable HTTP, o ID emitido pelo SDK; no stdio, como o SDK não emite ID, um UUID efêmero mantido pelo adaptador daquela instância de transporte. O fingerprint hexadecimal serve apenas para correlação e idempotência; não autentica nem autoriza. A identidade bruta permanece apenas no mecanismo de transporte em memória; não é enviada ao backend, persistida, devolvida pela API ou registrada em logs. Nenhuma credencial é gravada na entidade ou na resposta. A unicidade por transporte/fingerprint torna repetição idempotente e conflitos de identidade são rejeitados.
+
+Uma linha registra que a sessão foi criada, não que permanece conectada. Ainda não há presence, estado online/offline, heartbeat ou status. O registro é a base persistente necessária para as próximas fases de Runtime Modes.

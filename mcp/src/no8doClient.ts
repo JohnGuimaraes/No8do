@@ -69,6 +69,23 @@ export type AgentProtocol = {
   capabilities: { capabilities: AgentCapability[] };
   policies: { policies: AgentPolicy[] };
 };
+export type AgentSessionRegistration = {
+  clientName: string;
+  clientVersion: string;
+  workspaceId: string | null;
+  transport: "MCP";
+  transportSessionFingerprint: string;
+};
+export type AgentSession = {
+  sessionId: string;
+  clientName: string;
+  clientVersion: string;
+  workspaceId: string | null;
+  transport: "MCP";
+  protocolName: string;
+  protocolVersion: number;
+  registeredAt: string;
+};
 
 export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId">>;
 export type ReplayUpdate = Partial<ReplayMutation>;
@@ -100,6 +117,9 @@ export class No8doClient {
 
   getAgentProtocol(): Promise<AgentProtocol> {
     return this.request("/api/agent-protocol");
+  }
+  registerAgentSession(registration: AgentSessionRegistration): Promise<AgentSession> {
+    return this.request("/api/agent-sessions", { method: "POST", body: JSON.stringify(registration) });
   }
   listReplays(workspaceId: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);
