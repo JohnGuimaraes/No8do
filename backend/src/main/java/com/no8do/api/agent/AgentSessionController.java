@@ -41,6 +41,13 @@ public class AgentSessionController {
                 presenceService.heartbeat(sessionId, principal.user().getId()));
     }
 
+    @PostMapping("/{sessionId}/disconnect")
+    public AgentSessionContextResponse disconnect(@PathVariable java.util.UUID sessionId,
+            @AuthenticationPrincipal No8doUserDetails principal) {
+        presenceService.disconnect(sessionId, principal.user().getId());
+        return contextService.getContext(sessionId, principal.user().getId());
+    }
+
     @GetMapping("/{sessionId}/context")
     public AgentSessionContextResponse getContext(@PathVariable java.util.UUID sessionId,
             @AuthenticationPrincipal No8doUserDetails principal) {

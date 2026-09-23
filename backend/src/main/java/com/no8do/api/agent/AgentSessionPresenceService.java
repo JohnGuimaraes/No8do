@@ -20,17 +20,34 @@ public class AgentSessionPresenceService {
 
     @Transactional
     public Instant heartbeat(UUID sessionId, UUID authenticatedUserId) {
-        requireOwned(sessionId, authenticatedUserId);
+        requireConnected(requireOwned(sessionId, authenticatedUserId));
         Instant now = clock.instant();
-        if (repository.updateLastSeenAt(sessionId, authenticatedUserId, now) != 1) throw notFound();
+        if (repository.updateLastSeenAt(sessionId, authenticatedUserId, now) != 1) {
+            requireConnected(requireOwned(sessionId, authenticatedUserId));
+            throw notFound();
+        }
         return now;
     }
 
     @Transactional
     public void touchActivity(UUID sessionId, UUID authenticatedUserId) {
-        requireOwned(sessionId, authenticatedUserId);
+        requireConnected(requireOwned(sessionId, authenticatedUserId));
         Instant now = clock.instant();
-        if (repository.updateActivityTimestamps(sessionId, authenticatedUserId, now) != 1) throw notFound();
+        if (repository.updateActivityTimestamps(sessionId, authenticatedUserId, now) != 1) {
+            requireConnected(requireOwned(sessionId, authenticatedUserId));
+            throw notFound();
+        }
+    }
+
+    @Transactional
+    public Instant disconnect(UUID sessionId, UUID authenticatedUserId) {
+        AgentSession session = requireOwned(sessionId, authenticatedUserId);
+        if (session.getDisconnectedAt() != null) return session.getDisconnectedAt();
+        Instant now = clock.instant();
+        if (repository.updateDisconnectedAtIfAbsent(sessionId, authenticatedUserId, now) == 1) return now;
+        session = requireOwned(sessionId, authenticatedUserId);
+        if (session.getDisconnectedAt() != null) return session.getDisconnectedAt();
+        throw notFound();
     }
 
     private AgentSession requireOwned(UUID sessionId, UUID authenticatedUserId) {
@@ -39,6 +56,10 @@ public class AgentSessionPresenceService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agent session access denied");
         }
         return session;
+    }
+
+    private static void requireConnected(AgentSession session) {
+        if (session.getDisconnectedAt() != null) throw new AgentSessionDisconnectedException(session.getId());
     }
 
     private static ResponseStatusException notFound() {

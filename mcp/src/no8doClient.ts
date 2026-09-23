@@ -108,6 +108,7 @@ export type AgentSessionContext = {
   presenceStatus: AgentPresenceStatus;
   lastSeenAt: string;
   lastActivityAt: string | null;
+  disconnectedAt: string | null;
 };
 
 export type AgentSessionHeartbeat = { sessionId: string; lastSeenAt: string };
@@ -164,6 +165,12 @@ export class No8doClient {
   heartbeatAgentSession(sessionId: string): Promise<AgentSessionHeartbeat> {
     return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/heartbeat`, { method: "POST" });
   }
+  disconnectAgentSession(sessionId: string): Promise<AgentSessionContext> {
+    return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/disconnect`, {
+      method: "POST",
+      signal: AbortSignal.timeout(2_000)
+    });
+  }
   listReplays(workspaceId: string): Promise<Replay[]> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);
   }
@@ -211,21 +218,22 @@ export class No8doClient {
       try { body = await response.clone().json() as typeof body; } catch { /* retain the safe status message */ }
       const isCapabilityDenied = body.error === "AGENT_CAPABILITY_DENIED";
       const isPolicyDenied = body.error === "AGENT_POLICY_DENIED";
-      const rawMetadata = (isCapabilityDenied || isPolicyDenied) && body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+      const isSessionDisconnected = body.error === "AGENT_SESSION_DISCONNECTED";
+      const rawMetadata = (isCapabilityDenied || isPolicyDenied || isSessionDisconnected) && body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
         ? body.metadata as Record<string, unknown> : undefined;
-      const metadata: Record<string, unknown> | undefined = rawMetadata ? isPolicyDenied ? {
+      const metadata: Record<string, unknown> | undefined = rawMetadata ? {
         ...(typeof rawMetadata.sessionId === "string" ? { sessionId: rawMetadata.sessionId } : {}),
-        ...(typeof rawMetadata.policyId === "string" ? { policyId: rawMetadata.policyId } : {}),
-        ...(typeof rawMetadata.reason === "string" ? { reason: rawMetadata.reason } : {})
-      } : {
-        ...(typeof rawMetadata.sessionId === "string" ? { sessionId: rawMetadata.sessionId } : {}),
-        ...(typeof rawMetadata.runtimeMode === "string" ? { runtimeMode: rawMetadata.runtimeMode } : {}),
-        ...(typeof rawMetadata.requiredCapability === "string" ? { requiredCapability: rawMetadata.requiredCapability } : {})
+        ...(isPolicyDenied && typeof rawMetadata.policyId === "string" ? { policyId: rawMetadata.policyId } : {}),
+        ...(isPolicyDenied && typeof rawMetadata.reason === "string" ? { reason: rawMetadata.reason } : {}),
+        ...(isCapabilityDenied && typeof rawMetadata.runtimeMode === "string" ? { runtimeMode: rawMetadata.runtimeMode } : {}),
+        ...(isCapabilityDenied && typeof rawMetadata.requiredCapability === "string" ? { requiredCapability: rawMetadata.requiredCapability } : {})
       } : undefined;
       const message = isCapabilityDenied
         ? `AGENT_CAPABILITY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
         : isPolicyDenied
           ? `AGENT_POLICY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
+          : isSessionDisconnected
+            ? `AGENT_SESSION_DISCONNECTED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
           : messageForStatus(response.status);
       throw new No8doApiError(response.status, message, metadata);
     }

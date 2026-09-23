@@ -19,7 +19,8 @@ export class StdioAgentSessionTransport implements Transport {
   private initializeRequestId?: string | number;
   private clientInfo?: { name: string; version: string };
   private registrationAttempted = false;
-  private closed = false;
+  private closePromise?: Promise<void>;
+  private delegateClosePromise?: Promise<void>;
 
   constructor(
     private readonly delegate: Transport,
@@ -35,7 +36,7 @@ export class StdioAgentSessionTransport implements Transport {
       }
       this.messageHandler?.(message, extra);
     };
-    delegate.onclose = () => this.handleClose();
+    delegate.onclose = () => { void this.handleClose(); };
     delegate.onerror = (error) => this.errorHandler?.(error);
   }
 
@@ -47,9 +48,14 @@ export class StdioAgentSessionTransport implements Transport {
   set onerror(handler: ((error: Error) => void) | undefined) { this.errorHandler = handler; }
 
   start(): Promise<void> { return this.delegate.start(); }
-  async close(): Promise<void> {
-    try { await this.delegate.close(); }
-    finally { this.handleClose(); }
+  close(): Promise<void> {
+    if (this.delegateClosePromise) return this.delegateClosePromise;
+    if (this.closePromise) return this.closePromise;
+    this.delegateClosePromise = (async () => {
+      try { await this.delegate.close(); }
+      finally { await this.handleClose(); }
+    })();
+    return this.delegateClosePromise;
   }
 
   async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
@@ -73,11 +79,14 @@ export class StdioAgentSessionTransport implements Transport {
     await this.delegate.send(message, options);
   }
 
-  private handleClose(): void {
-    if (this.closed) return;
-    this.closed = true;
-    this.onClosed();
-    this.closeHandler?.();
+  private handleClose(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closePromise = Promise.resolve()
+      .then(() => this.onClosed())
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => this.closeHandler?.());
+    return this.closePromise;
   }
 }
 const type = z.enum(["FIX", "PATTERN", "RECIPE", "SNIPPET", "DECISION", "PROCEDURE", "CHECKLIST", "TROUBLESHOOTING", "PROMPT", "REFERENCE"]);
@@ -136,7 +145,8 @@ export function createMcpServer(context: McpServerContext) {
     registeredAt: z.string(),
     presenceStatus: z.enum(["CONNECTED", "ACTIVE", "IDLE", "DISCONNECTED"]),
     lastSeenAt: z.string(),
-    lastActivityAt: z.string().nullable()
+    lastActivityAt: z.string().nullable(),
+    disconnectedAt: z.string().nullable()
   });
   server.registerTool("get_agent_context", {
     description: "Obtenha o contexto atual desta sessão Agent, incluindo runtime mode, effective capabilities e policies.",

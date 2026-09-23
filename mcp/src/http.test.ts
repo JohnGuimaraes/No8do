@@ -148,7 +148,7 @@ test("MCP exige evidência ao criar VALIDATED, aceita evidence em create/update 
       sessionId, clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", protocolName: agentProtocol.protocolName,
       protocolVersion: 1, runtimeMode: "FULL", effectiveCapabilities: agentProtocol.capabilities.capabilities,
       policies: agentProtocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z",
-      presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null
+      presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null, disconnectedAt: null
     }));
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
@@ -255,6 +255,8 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
   const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
   const toolCalls: Array<{ url: string; agentSessionId?: string }> = [];
   const heartbeatCalls: Array<{ url: string; authorization: string; agentSessionId?: string }> = [];
+  const disconnectCalls: string[] = [];
+  const lifecycleEvents: string[] = [];
   const heartbeatTicks: Array<() => void> = [];
   const stoppedHeartbeats: string[] = [];
   let resolveHeartbeatRequest!: () => void;
@@ -272,13 +274,19 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
       resolveHeartbeatRequest();
       return response.end(JSON.stringify({ sessionId: heartbeatSessionId, lastSeenAt: "2026-09-23T12:00:00Z" }));
     }
+    const disconnectSessionId = [firstAgentSessionId, secondAgentSessionId].find(id => request.url === `/api/agent-sessions/${id}/disconnect`);
+    if (disconnectSessionId) {
+      disconnectCalls.push(disconnectSessionId);
+      lifecycleEvents.push(`disconnect:${disconnectSessionId}`);
+      return response.end(JSON.stringify({ sessionId: disconnectSessionId, presenceStatus: "DISCONNECTED", disconnectedAt: "2026-09-23T12:00:00Z" }));
+    }
     const contextSessionId = [firstAgentSessionId, secondAgentSessionId].find(id => request.url === `/api/agent-sessions/${id}/context`);
     if (contextSessionId) {
       toolCalls.push({ url: request.url ?? "", agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
       return response.end(JSON.stringify({ sessionId: contextSessionId, clientName: "Codex Desktop", clientVersion: "9.8", workspaceId,
         transport: "MCP", protocolName: agentProtocol.protocolName, protocolVersion: 1, runtimeMode,
         effectiveCapabilities: agentProtocol.capabilities.capabilities, policies: agentProtocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z",
-        presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null }));
+        presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null, disconnectedAt: null }));
     }
     if (request.url === `/api/workspaces/${workspaceId}/replays`) {
       toolCalls.push({ url: request.url, agentSessionId: request.headers["x-no8do-agent-session-id"] as string | undefined });
@@ -296,7 +304,7 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
   const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId, (client, agentSessionId) =>
     new AgentSessionHeartbeat(client, agentSessionId, callback => {
       heartbeatTicks.push(callback);
-      return () => { stoppedHeartbeats.push(agentSessionId); };
+      return () => { stoppedHeartbeats.push(agentSessionId); lifecycleEvents.push(`stop:${agentSessionId}`); };
     })); const url = await listen(service);
   const connect = async () => {
     const client = new Client({ name: "Codex Desktop", version: "9.8" });
@@ -310,6 +318,7 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     assert.equal((await first.client.listTools()).tools.length, 15);
     const tools = (await first.client.listTools()).tools;
     assert.equal(tools.some(tool => tool.name === "heartbeat"), false);
+    assert.equal(tools.some(tool => tool.name === "disconnect"), false);
     const contextTool = tools.find(tool => tool.name === "get_agent_context");
     assert.equal(heartbeatTicks.length, 1);
     assert.equal(heartbeatCalls.length, 0);
@@ -318,6 +327,7 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     await first.client.callTool({ name: "get_agent_protocol" });
     const initialContext = await first.client.callTool({ name: "get_agent_context", arguments: {} });
     assert.equal((initialContext.structuredContent as { runtimeMode: string } | undefined)?.runtimeMode, "FULL", JSON.stringify(initialContext));
+    assert.equal((initialContext.structuredContent as { disconnectedAt: string | null }).disconnectedAt, null);
     assert.deepEqual((initialContext.structuredContent as { policies: unknown }).policies, agentProtocol.policies.policies);
     runtimeMode = "RETRIEVAL";
     const refreshedContext = await first.client.callTool({ name: "get_agent_context", arguments: {} });
@@ -361,11 +371,18 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
     } });
     assert.equal(closedSession.status, 200);
     assert.deepEqual(stoppedHeartbeats, [firstAgentSessionId]);
+    assert.deepEqual(disconnectCalls, [firstAgentSessionId]);
+    assert.deepEqual(lifecycleEvents, [`stop:${firstAgentSessionId}`, `disconnect:${firstAgentSessionId}`]);
     const closedSecondSession = await fetch(`${url}/mcp`, { method: "DELETE", headers: {
       Authorization: "Bearer PAT_NOT_PERSISTED", "mcp-session-id": secondSessionId, "mcp-protocol-version": "2025-03-26"
     } });
     assert.equal(closedSecondSession.status, 200);
     assert.deepEqual(stoppedHeartbeats, [firstAgentSessionId, secondAgentSessionId]);
+    assert.deepEqual(disconnectCalls, [firstAgentSessionId, secondAgentSessionId]);
+    assert.deepEqual(lifecycleEvents, [
+      `stop:${firstAgentSessionId}`, `disconnect:${firstAgentSessionId}`,
+      `stop:${secondAgentSessionId}`, `disconnect:${secondAgentSessionId}`
+    ]);
   } finally {
     await close(service);
     await close(api);
@@ -375,24 +392,34 @@ test("initialize registra uma vez por sessão, preserva clientInfo e cria finger
 test("fechar o servidor HTTP encerra heartbeat de sessões ainda abertas", async () => {
   const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const stopped: string[] = [];
+  const events: string[] = [];
+  let resolveDisconnected!: () => void;
+  const disconnected = new Promise<void>(resolve => { resolveDisconnected = resolve; });
   const api = createServer((request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
     if (request.url === "/api/agent-sessions") return response.end(JSON.stringify({ sessionId, clientName: "Codex", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    if (request.url === `/api/agent-sessions/${sessionId}/disconnect`) {
+      events.push("disconnect");
+      resolveDisconnected();
+      return response.end(JSON.stringify({ sessionId, presenceStatus: "DISCONNECTED", disconnectedAt: "2026-09-23T12:00:00Z" }));
+    }
     return response.end(JSON.stringify([]));
   });
   const apiUrl = await listen(api);
   const service = createRemoteMcpService(apiUrl, workspaceId, (client, id) =>
-    new AgentSessionHeartbeat(client, id, () => () => { stopped.push(id); }));
+    new AgentSessionHeartbeat(client, id, () => () => { stopped.push(id); events.push("stop"); }));
   const url = await listen(service);
   const client = new Client({ name: "shutdown-test", version: "1" });
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: "Bearer PAT_SHUTDOWN" } } }));
     await close(service);
+    await disconnected;
     assert.deepEqual(stopped, [sessionId]);
+    assert.deepEqual(events, ["stop", "disconnect"]);
   } finally {
     if (service.listening) await close(service);
-    await client.close();
+    await client.close().catch(() => undefined);
     await close(api);
   }
 });

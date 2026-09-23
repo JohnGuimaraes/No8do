@@ -37,6 +37,8 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
   const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
   const toolHeaders: Array<string | undefined> = [];
   const heartbeatCalls: Array<{ url: string; authorization: string; agentSessionId?: string }> = [];
+  const lifecycleEvents: string[] = [];
+  const disconnectCalls: string[] = [];
   const heartbeatTicks: Array<() => void> = [];
   const stoppedHeartbeats: string[] = [];
   let resolveHeartbeatRequest!: () => void;
@@ -52,13 +54,18 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
       resolveHeartbeatRequest();
       return response.end(JSON.stringify({ sessionId, lastSeenAt: "2026-09-23T12:00:00Z" }));
     }
+    if (request.url === `/api/agent-sessions/${sessionId}/disconnect`) {
+      disconnectCalls.push(sessionId);
+      lifecycleEvents.push("disconnect");
+      return response.end(JSON.stringify({ sessionId, presenceStatus: "DISCONNECTED", disconnectedAt: "2026-09-23T12:00:00Z" }));
+    }
     if (request.url === `/api/agent-sessions/${sessionId}/context`) {
       const header = request.headers["x-no8do-agent-session-id"];
       toolHeaders.push(Array.isArray(header) ? header[0] : header);
       return response.end(JSON.stringify({ sessionId, clientName: "Claude Desktop", clientVersion: "2.4", workspaceId: null,
         transport: "MCP", protocolName: protocol.protocolName, protocolVersion: 1, runtimeMode,
         effectiveCapabilities: protocol.capabilities.capabilities, policies: protocol.policies.policies, registeredAt: "2026-01-01T00:00:00Z",
-        presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null }));
+        presenceStatus: "CONNECTED", lastSeenAt: "2026-01-01T00:00:00Z", lastActivityAt: null, disconnectedAt: null }));
     }
     if (request.url?.includes("/replays")) {
       const header = request.headers["x-no8do-agent-session-id"];
@@ -83,10 +90,10 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
       assert.equal(registrations.length, 1);
       agentSessionHeader.set(session.sessionId);
       heartbeat = new AgentSessionHeartbeat(new No8doClient(apiUrl, "PAT_STDIO_ONLY", fetch, agentSessionHeader), session.sessionId,
-        callback => { heartbeatTicks.push(callback); return () => { stoppedHeartbeats.push(session.sessionId); }; });
+        callback => { heartbeatTicks.push(callback); return () => { stoppedHeartbeats.push(session.sessionId); lifecycleEvents.push("stop"); }; });
       heartbeat.start();
     },
-    () => heartbeat?.stop());
+    async () => { await heartbeat?.close(); lifecycleEvents.push("cleanup"); });
   try {
     const initializeResponse = nextMessage(output);
     await server.connect(transport);
@@ -124,6 +131,7 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_agent_context", arguments: {} } })}\n`);
     const firstContext = await contextResponse;
     assert.equal((firstContext.result as { structuredContent: { runtimeMode: string } }).structuredContent.runtimeMode, "FULL");
+    assert.equal((firstContext.result as { structuredContent: { disconnectedAt: string | null } }).structuredContent.disconnectedAt, null);
     assert.deepEqual((firstContext.result as { structuredContent: { policies: unknown } }).structuredContent.policies, protocol.policies.policies);
     runtimeMode = "RETRIEVAL";
     const changedContextResponse = nextMessage(output);
@@ -137,7 +145,10 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     assert.equal(registrations.length, 1);
   } finally {
     await server.close();
+    await transport.close();
     assert.deepEqual(stoppedHeartbeats, [sessionId]);
+    assert.deepEqual(disconnectCalls, [sessionId]);
+    assert.deepEqual(lifecycleEvents, ["stop", "disconnect", "cleanup"]);
     await close(api);
   }
 });

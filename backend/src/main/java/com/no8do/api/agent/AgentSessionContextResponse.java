@@ -3,6 +3,7 @@ package com.no8do.api.agent;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 public record AgentSessionContextResponse(
         UUID sessionId,
@@ -18,7 +19,8 @@ public record AgentSessionContextResponse(
         Instant registeredAt,
         AgentPresenceStatus presenceStatus,
         Instant lastSeenAt,
-        Instant lastActivityAt) {
+        Instant lastActivityAt,
+        @JsonInclude(JsonInclude.Include.ALWAYS) Instant disconnectedAt) {
     public AgentSessionContextResponse {
         effectiveCapabilities = List.copyOf(effectiveCapabilities);
         policies = List.copyOf(policies);
@@ -29,6 +31,6 @@ public record AgentSessionContextResponse(
         return new AgentSessionContextResponse(session.getId(), session.getClientName(), session.getClientVersion(),
                 session.getWorkspaceId(), session.getTransport(), session.getProtocolName(), session.getProtocolVersion(),
                 session.getRuntimeMode(), context.effectiveCapabilities(), context.policies().policies(), session.getRegisteredAt(),
-                context.presenceStatus(), context.lastSeenAt(), context.lastActivityAt());
+                context.presenceStatus(), context.lastSeenAt(), context.lastActivityAt(), context.disconnectedAt());
     }
 }

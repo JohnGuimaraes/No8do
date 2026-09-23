@@ -14,14 +14,19 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID
     long countByTransportAndTransportSessionFingerprint(AgentTransport transport, String fingerprint);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt where id = :sessionId and user_id = :userId", nativeQuery = true)
+    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt where id = :sessionId and user_id = :userId and disconnected_at is null", nativeQuery = true)
     int updateLastSeenAt(@Param("sessionId") UUID sessionId, @Param("userId") UUID userId,
             @Param("lastSeenAt") Instant lastSeenAt);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt, last_activity_at = :lastSeenAt where id = :sessionId and user_id = :userId", nativeQuery = true)
+    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt, last_activity_at = :lastSeenAt where id = :sessionId and user_id = :userId and disconnected_at is null", nativeQuery = true)
     int updateActivityTimestamps(@Param("sessionId") UUID sessionId, @Param("userId") UUID userId,
             @Param("lastSeenAt") Instant lastSeenAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update agent_sessions set disconnected_at = :disconnectedAt where id = :sessionId and user_id = :userId and disconnected_at is null", nativeQuery = true)
+    int updateDisconnectedAtIfAbsent(@Param("sessionId") UUID sessionId, @Param("userId") UUID userId,
+            @Param("disconnectedAt") Instant disconnectedAt);
 
     @Modifying
     @Query(value = """

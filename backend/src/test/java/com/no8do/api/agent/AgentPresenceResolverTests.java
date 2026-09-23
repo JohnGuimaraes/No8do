@@ -36,6 +36,15 @@ class AgentPresenceResolverTests {
     }
 
     @Test
+    void explicitDisconnectTakesPriorityOverRecentHeartbeatAndActivity() {
+        Instant disconnectedAt = NOW.minusSeconds(1);
+        assertThat(resolver.resolve(NOW.minus(Duration.ofHours(1)), NOW, NOW, disconnectedAt, NOW, THRESHOLDS))
+                .isEqualTo(AgentPresenceStatus.DISCONNECTED);
+        assertThat(resolver.resolve(NOW.minus(Duration.ofHours(1)), NOW, NOW, null, NOW, THRESHOLDS))
+                .isEqualTo(AgentPresenceStatus.ACTIVE);
+    }
+
+    @Test
     void defaultsAreConservativeAndInvalidThresholdsFailClearly() {
         AgentPresenceProperties defaults = new AgentPresenceProperties(null, null);
         assertThat(defaults.activeWindow()).isEqualTo(Duration.ofMinutes(2));

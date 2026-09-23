@@ -74,6 +74,7 @@ class AgentSessionControllerTests {
         org.assertj.core.api.Assertions.assertThat(session.getWorkspaceId()).isNull();
         org.assertj.core.api.Assertions.assertThat(session.getLastSeenAt()).isEqualTo(session.getRegisteredAt());
         org.assertj.core.api.Assertions.assertThat(session.getLastActivityAt()).isNull();
+        org.assertj.core.api.Assertions.assertThat(session.getDisconnectedAt()).isNull();
         org.assertj.core.api.Assertions.assertThat(response.get("registeredAt").asText()).isNotEqualTo("2000-01-01T00:00:00Z");
         org.assertj.core.api.Assertions.assertThat(response.has("transportSessionFingerprint")).isFalse();
         org.assertj.core.api.Assertions.assertThat(response.has("userId")).isFalse();
@@ -161,7 +162,8 @@ class AgentSessionControllerTests {
                 .andExpect(jsonPath("$.policies[?(@.id == 'secrets-forbidden')].enforcement").value("ADVISORY"))
                 .andExpect(jsonPath("$.presenceStatus").value("CONNECTED"))
                 .andExpect(jsonPath("$.lastSeenAt").isNotEmpty())
-                .andExpect(jsonPath("$.lastActivityAt").doesNotExist());
+                .andExpect(jsonPath("$.lastActivityAt").doesNotExist())
+                .andExpect(jsonPath("$.disconnectedAt").value(org.hamcrest.Matchers.nullValue()));
 
         mockMvc.perform(patch("/api/agent-sessions/{sessionId}/runtime-mode", firstId)
                 .with(user(new No8doUserDetails(owner))).with(csrf())
@@ -198,6 +200,69 @@ class AgentSessionControllerTests {
         mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", UUID.randomUUID())
                 .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void disconnectIsOwnerScopedIdempotentTerminalAndPreservesContextAndNormalRequests() throws Exception {
+        User owner = userRepository.save(new User("disconnect-owner", "disconnect-owner@example.test", "hash"));
+        User other = userRepository.save(new User("disconnect-other", "disconnect-other@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Disconnected session scope"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.MEMBER));
+        String sessionId = register(owner, "9".repeat(64));
+        UUID id = UUID.fromString(sessionId);
+        AgentSession before = sessionRepository.findById(id).orElseThrow();
+        String forgedClientTimestamp = "2000-01-01T00:00:00Z";
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/disconnect", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"disconnectedAt\":\"" + forgedClientTimestamp + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.presenceStatus").value("DISCONNECTED"))
+                .andExpect(jsonPath("$.disconnectedAt").isNotEmpty())
+                .andExpect(jsonPath("$.disconnectedAt").value(org.hamcrest.Matchers.not(forgedClientTimestamp)));
+        AgentSession disconnected = sessionRepository.findById(id).orElseThrow();
+        java.time.Instant firstDisconnectedAt = disconnected.getDisconnectedAt();
+        java.time.Instant lastSeenBeforeClosedHeartBeat = disconnected.getLastSeenAt();
+        org.assertj.core.api.Assertions.assertThat(firstDisconnectedAt).isNotNull().isAfterOrEqualTo(before.getRegisteredAt());
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/disconnect", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.presenceStatus").value("DISCONNECTED"))
+                .andExpect(jsonPath("$.disconnectedAt").value(firstDisconnectedAt.toString()));
+        org.assertj.core.api.Assertions.assertThat(sessionRepository.findById(id).orElseThrow().getDisconnectedAt())
+                .isEqualTo(firstDisconnectedAt);
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/disconnect", sessionId)
+                .with(user(new No8doUserDetails(other))).with(csrf()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/disconnect", sessionId).with(csrf()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/heartbeat", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("AGENT_SESSION_DISCONNECTED"));
+        org.assertj.core.api.Assertions.assertThat(sessionRepository.findById(id).orElseThrow().getLastSeenAt())
+                .isEqualTo(lastSeenBeforeClosedHeartBeat);
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("AGENT_SESSION_DISCONNECTED"));
+        mockMvc.perform(get("/api/agent-sessions/{sessionId}/context", sessionId)
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.presenceStatus").value("DISCONNECTED"))
+                .andExpect(jsonPath("$.disconnectedAt").value(firstDisconnectedAt.toString()));
+        org.assertj.core.api.Assertions.assertThat(sessionRepository.findById(id).orElseThrow().getLastActivityAt()).isNull();
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk());
+        org.assertj.core.api.Assertions.assertThat(sessionRepository.findById(id).orElseThrow().getDisconnectedAt())
+                .isEqualTo(firstDisconnectedAt);
     }
 
     private String register(User owner, String fingerprint) throws Exception {

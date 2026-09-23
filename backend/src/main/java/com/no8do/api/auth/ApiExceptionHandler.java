@@ -2,6 +2,7 @@ package com.no8do.api.auth;
 
 import com.no8do.api.agent.AgentCapabilityDeniedException;
 import com.no8do.api.agent.AgentPolicyDeniedException;
+import com.no8do.api.agent.AgentSessionDisconnectedException;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -38,6 +39,13 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).body(Map.of(
             "error", "AGENT_POLICY_DENIED",
             "metadata", metadata));
+    }
+
+    @ExceptionHandler(AgentSessionDisconnectedException.class)
+    public ResponseEntity<Map<String, Object>> handleAgentSessionDisconnected(AgentSessionDisconnectedException ex) {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(Map.of(
+            "error", "AGENT_SESSION_DISCONNECTED",
+            "metadata", Map.of("sessionId", ex.sessionId())));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

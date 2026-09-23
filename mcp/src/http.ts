@@ -22,6 +22,15 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
   const scopedWorkspaceId = requireRemoteWorkspaceId(workspaceId);
   const sessions = new Map<string, RemoteSession>();
   const heartbeats = new Set<AgentSessionHeartbeat>();
+  const closeSession = async (sessionId: string) => {
+    const session = sessions.get(sessionId);
+    if (!session) return;
+    try { await session.heartbeat.close(); }
+    finally {
+      sessions.delete(sessionId);
+      heartbeats.delete(session.heartbeat);
+    }
+  };
   const service = createServer(async (request, response) => {
     if (request.url === "/health" && request.method === "GET") return json(response, 200, { status: "ok" });
     if (request.url !== "/mcp") return json(response, 404, { error: "Not found" });
@@ -68,11 +77,8 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
           heartbeats.add(heartbeat);
           heartbeat.start();
         },
-        onsessionclosed: (closedSessionId) => {
-          const session = sessions.get(closedSessionId);
-          session?.heartbeat.stop();
-          if (session) heartbeats.delete(session.heartbeat);
-          sessions.delete(closedSessionId);
+        onsessionclosed: async (closedSessionId) => {
+          await closeSession(closedSessionId);
         }
       });
       await server.connect(transport);
@@ -86,10 +92,7 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
     }
   });
   service.on("close", () => {
-    for (const session of sessions.values()) session.heartbeat.stop();
-    for (const heartbeat of heartbeats) heartbeat.stop();
-    heartbeats.clear();
-    sessions.clear();
+    for (const sessionId of [...sessions.keys()]) void closeSession(sessionId);
   });
   return service;
 }

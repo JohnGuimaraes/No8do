@@ -39,6 +39,7 @@ public final class AgentSessionContextResolver {
         return new AgentSessionContext(session,
                 capabilityResolver.resolve(protocol, session.getRuntimeMode()), protocol.policies(),
                 presenceResolver.resolve(session.getRegisteredAt(), session.getLastSeenAt(), session.getLastActivityAt(),
-                        clock.instant(), presenceProperties), session.getLastSeenAt(), session.getLastActivityAt());
+                        session.getDisconnectedAt(), clock.instant(), presenceProperties), session.getLastSeenAt(),
+                session.getLastActivityAt(), session.getDisconnectedAt());
     }
 }
