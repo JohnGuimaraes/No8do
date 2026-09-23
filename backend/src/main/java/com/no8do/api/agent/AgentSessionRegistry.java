@@ -1,0 +1,46 @@
+package com.no8do.api.agent;
+
+import com.no8do.api.workspace.WorkspaceAuthorizationService;
+import java.time.Instant;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class AgentSessionRegistry {
+    private final AgentSessionRepository repository;
+    private final WorkspaceAuthorizationService workspaceAuthorizationService;
+    private final No8doAgentProtocolProvider protocolProvider;
+
+    public AgentSessionRegistry(AgentSessionRepository repository,
+            WorkspaceAuthorizationService workspaceAuthorizationService,
+            No8doAgentProtocolProvider protocolProvider) {
+        this.repository = repository;
+        this.workspaceAuthorizationService = workspaceAuthorizationService;
+        this.protocolProvider = protocolProvider;
+    }
+
+    @Transactional
+    public AgentSessionResponse register(UUID authenticatedUserId, AgentSessionRegistrationRequest request) {
+        AgentClientIdentity clientIdentity = request.clientIdentity();
+        if (request.workspaceId() != null) {
+            workspaceAuthorizationService.requireWorkspaceMember(request.workspaceId(), authenticatedUserId);
+        }
+        No8doAgentProtocol protocol = protocolProvider.current();
+        repository.insertIfAbsent(UUID.randomUUID(), authenticatedUserId, request.workspaceId(),
+                clientIdentity.clientName(), clientIdentity.clientVersion(), request.transport().name(), protocol.protocolName(),
+                protocol.protocolVersion(), Instant.now(), request.transportSessionFingerprint());
+        AgentSession session = repository.findByTransportAndTransportSessionFingerprint(
+                request.transport(), request.transportSessionFingerprint()).orElseThrow();
+        if (!session.getUserId().equals(authenticatedUserId)
+                || !java.util.Objects.equals(session.getWorkspaceId(), request.workspaceId())
+                || !session.getClientName().equals(clientIdentity.clientName())
+                || !session.getClientVersion().equals(clientIdentity.clientVersion())
+                || session.getTransport() != request.transport()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Transport session identity conflicts with registration");
+        }
+        return AgentSessionResponse.from(session);
+    }
+}

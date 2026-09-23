@@ -1,10 +1,71 @@
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { InitializeRequestSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
 import { compactReplay, No8doClient, type AgentProtocol, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
+import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 
 export type McpServerContext = { apiUrl: string; token: string; agentProtocol: AgentProtocol; defaultWorkspaceId?: string; transport?: WorkspaceTransport };
+
+/** Adds one registration barrier to stdio initialize; stdio has no SDK-issued session ID. */
+export class StdioAgentSessionTransport implements Transport {
+  readonly sessionId = randomUUID();
+  private messageHandler: Transport["onmessage"] = undefined;
+  private closeHandler?: () => void;
+  private errorHandler?: (error: Error) => void;
+  private initializeRequestId?: string | number;
+  private clientInfo?: { name: string; version: string };
+  private registrationAttempted = false;
+
+  constructor(
+    private readonly delegate: Transport,
+    private readonly register: (clientName: string, clientVersion: string, fingerprint: string) => Promise<unknown>
+  ) {
+    delegate.onmessage = (message, extra) => {
+      const initialize = InitializeRequestSchema.safeParse(message);
+      if (initialize.success && "id" in message) {
+        this.initializeRequestId = message.id;
+        this.clientInfo = initialize.data.params.clientInfo;
+      }
+      this.messageHandler?.(message, extra);
+    };
+    delegate.onclose = () => this.closeHandler?.();
+    delegate.onerror = (error) => this.errorHandler?.(error);
+  }
+
+  get onmessage(): Transport["onmessage"] { return this.messageHandler; }
+  set onmessage(handler: Transport["onmessage"]) { this.messageHandler = handler; }
+  get onclose(): (() => void) | undefined { return this.closeHandler; }
+  set onclose(handler: (() => void) | undefined) { this.closeHandler = handler; }
+  get onerror(): ((error: Error) => void) | undefined { return this.errorHandler; }
+  set onerror(handler: ((error: Error) => void) | undefined) { this.errorHandler = handler; }
+
+  start(): Promise<void> { return this.delegate.start(); }
+  close(): Promise<void> { return this.delegate.close(); }
+
+  async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+    if (this.initializeRequestId !== undefined && !this.registrationAttempted && "id" in message
+        && "result" in message && message.id === this.initializeRequestId) {
+      this.registrationAttempted = true;
+      try {
+        if (!this.clientInfo) throw new Error("MCP initialize clientInfo is unavailable.");
+        await this.register(this.clientInfo.name, this.clientInfo.version, fingerprintTransportSession(this.sessionId));
+      } catch {
+        await this.delegate.send({
+          jsonrpc: "2.0",
+          id: this.initializeRequestId,
+          error: { code: -32000, message: "Falha ao registrar a sessão MCP no No8do." }
+        });
+        await this.delegate.close();
+        return;
+      }
+    }
+    await this.delegate.send(message, options);
+  }
+}
 const type = z.enum(["FIX", "PATTERN", "RECIPE", "SNIPPET", "DECISION", "PROCEDURE", "CHECKLIST", "TROUBLESHOOTING", "PROMPT", "REFERENCE"]);
 const status = z.enum(["DRAFT", "VALIDATED", "DEPRECATED"]);
 const usageResult = z.enum(["SUCCESS", "FAILURE", "UNKNOWN"]);

@@ -121,3 +121,14 @@ test("obtém o protocolo canônico global pelo endpoint autenticado sem workspac
   assert.equal(setup.calls[0][1]?.method, undefined);
   assert.equal(new Headers(setup.calls[0][1]?.headers).get("Authorization"), "Bearer no8do_pat_secret-value");
 });
+
+test("registra Agent Session com somente a identidade MCP e fingerprint do transporte", async () => {
+  const response = { sessionId: "session-id", clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", protocolName: "no8do-agent-protocol", protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" };
+  const setup = client(201, response);
+  await setup.client.registerAgentSession({ clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
+  assert.equal(setup.calls[0]?.[0], "http://localhost:8080/api/agent-sessions");
+  assert.equal(setup.calls[0]?.[1]?.method, "POST");
+  assert.deepEqual(JSON.parse(String(setup.calls[0]?.[1]?.body)), { clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
+  assert.equal(JSON.stringify(setup.calls[0]?.[1]?.body).includes("PAT"), false);
+  assert.equal(JSON.stringify(response).includes("transportSessionFingerprint"), false);
+});
