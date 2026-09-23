@@ -2,6 +2,7 @@ package com.no8do.api.agent;
 
 import com.no8do.api.auth.No8doUserDetails;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -19,12 +21,30 @@ public class AgentSessionController {
     private final AgentSessionRegistry registry;
     private final AgentSessionContextService contextService;
     private final AgentSessionPresenceService presenceService;
+    private final AgentSessionDiscoveryService discoveryService;
 
     public AgentSessionController(AgentSessionRegistry registry, AgentSessionContextService contextService,
-            AgentSessionPresenceService presenceService) {
+            AgentSessionPresenceService presenceService, AgentSessionDiscoveryService discoveryService) {
         this.registry = registry;
         this.contextService = contextService;
         this.presenceService = presenceService;
+        this.discoveryService = discoveryService;
+    }
+
+    @GetMapping
+    public AgentSessionPageResponse list(@AuthenticationPrincipal No8doUserDetails principal,
+            @RequestParam(required = false) UUID workspaceId,
+            @RequestParam(required = false) AgentRuntimeMode runtimeMode,
+            @RequestParam(required = false) String clientName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return discoveryService.list(principal.user().getId(), workspaceId, runtimeMode, clientName, page, size);
+    }
+
+    @GetMapping("/{sessionId}")
+    public AgentSessionSummaryResponse get(@PathVariable UUID sessionId,
+            @AuthenticationPrincipal No8doUserDetails principal) {
+        return discoveryService.get(sessionId, principal.user().getId());
     }
 
     @PostMapping
