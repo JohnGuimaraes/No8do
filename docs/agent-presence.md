@@ -18,3 +18,11 @@ No MCP, o DELETE da sessão Streamable HTTP (`onsessionclosed`) e o evento públ
 Os limites são configuráveis em `no8do.agent.presence`. Os defaults conservadores são `active-window: 2m` e `disconnect-timeout: 5m`, com a validação obrigatória `active-window < disconnect-timeout`. Igualdade ao limite ainda é considerada recente; a expiração ocorre quando o limite é ultrapassado. Não há job periódico: o status é derivado quando consultado, inclusive em `get_agent_context`, sem congelar o valor do `initialize`.
 
 Ainda não há realtime (SSE/WebSocket), revoke, status `REVOKED`, histórico de eventos ou lista global de sessões.
+
+## Session Discovery
+
+`GET /api/agent-sessions` lista de forma paginada somente sessões do usuário autenticado, em ordem decrescente por `registeredAt` e, em caso de empate, por ID. O tamanho padrão é 20 e o máximo é 100. Os filtros disponíveis são `workspaceId`, `runtimeMode` e `clientName` (correspondência parcial sem distinção entre maiúsculas e minúsculas). Ao informar `workspaceId`, a membership é validada antes da consulta; isso não amplia a listagem para sessões de colegas. A consulta e os filtros são executados no banco.
+
+`GET /api/agent-sessions/{sessionId}` retorna os detalhes operacionais somente ao dono da sessão. A resposta inclui identidade do cliente, workspace, transporte, protocolo, runtime mode, timestamps e `presenceStatus`; não inclui fingerprint de transporte nem credenciais ou identificadores MCP brutos.
+
+O status de presença é recalculado em cada resposta por `AgentPresenceResolver`, usando o `Clock` e os limites configurados. Ele não é persistido. Não há filtro `presenceStatus` nesta fase: como o status depende do horário da consulta e dos limites configuráveis, evitar uma tradução SQL parcialmente correta é preferível a carregar sessões em memória ou divergir do resolver. Também não há visibilidade de sessões de terceiros por membership, endpoint global ou realtime.

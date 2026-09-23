@@ -3,13 +3,27 @@ package com.no8do.api.agent;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID> {
+    @Query("""
+        select session from AgentSession session
+        where session.userId = :userId
+          and (:workspaceId is null or session.workspaceId = :workspaceId)
+          and (:runtimeMode is null or session.runtimeMode = :runtimeMode)
+          and (:clientName = '' or lower(session.clientName) like lower(concat('%', :clientName, '%')))
+        """)
+    Page<AgentSession> findOwnedForDiscovery(@Param("userId") UUID userId,
+            @Param("workspaceId") UUID workspaceId, @Param("runtimeMode") AgentRuntimeMode runtimeMode,
+            @Param("clientName") String clientName, Pageable pageable);
+
+    Optional<AgentSession> findByIdAndUserId(UUID id, UUID userId);
+
     Optional<AgentSession> findByTransportAndTransportSessionFingerprint(AgentTransport transport, String fingerprint);
     long countByTransportAndTransportSessionFingerprint(AgentTransport transport, String fingerprint);
 
