@@ -3,7 +3,12 @@ package com.no8do.api.replay;
 import com.no8do.api.agent.AgentCapability;
 import com.no8do.api.agent.AgentCapabilityAuthorizationService;
 import com.no8do.api.agent.AgentPolicyAuthorizationService;
+import com.no8do.api.agent.AgentEventFactory;
+import com.no8do.api.agent.AgentEventPublisher;
+import com.no8do.api.agent.AgentSessionContext;
+import com.no8do.api.agent.AgentSessionContextResolver;
 import com.no8do.api.auth.No8doUserDetails;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -26,14 +31,19 @@ public class ReplayController {
     private final ReplayRelationService replayRelationService;
     private final AgentCapabilityAuthorizationService capabilityAuthorizationService;
     private final AgentPolicyAuthorizationService policyAuthorizationService;
+    private final AgentEventFactory eventFactory;
+    private final AgentEventPublisher eventPublisher;
 
     public ReplayController(ReplayService replayService, ReplayRelationService replayRelationService,
             AgentCapabilityAuthorizationService capabilityAuthorizationService,
-            AgentPolicyAuthorizationService policyAuthorizationService) {
+            AgentPolicyAuthorizationService policyAuthorizationService, AgentEventFactory eventFactory,
+            AgentEventPublisher eventPublisher) {
         this.replayService = replayService;
         this.replayRelationService = replayRelationService;
         this.capabilityAuthorizationService = capabilityAuthorizationService;
         this.policyAuthorizationService = policyAuthorizationService;
+        this.eventFactory = eventFactory;
+        this.eventPublisher = eventPublisher;
     }
 
     private void requireReplayAccess(UUID workspaceId, AgentCapability... capabilities) {
@@ -122,9 +132,16 @@ public class ReplayController {
 
     @PostMapping("/{replayId}/usages")
     public ReplayUsageResponse registerUsage(@PathVariable UUID workspaceId, @PathVariable UUID replayId,
-            @AuthenticationPrincipal No8doUserDetails currentUser, @Valid @RequestBody RegisterReplayUsageRequest request) {
+            @AuthenticationPrincipal No8doUserDetails currentUser, @Valid @RequestBody RegisterReplayUsageRequest request,
+            HttpServletRequest servletRequest) {
         requireReplayUsageAccess(workspaceId, request);
-        return replayService.registerUsage(workspaceId, replayId, currentUser.user().getId(), request);
+        ReplayUsageResponse response = replayService.registerUsage(workspaceId, replayId, currentUser.user().getId(), request);
+        Object contextValue = servletRequest.getAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE);
+        if (contextValue instanceof AgentSessionContext context) {
+            eventPublisher.publish(eventFactory.replayUsageRecorded(context.session(), response.replayId(),
+                    response.replayVersion(), response.result()));
+        }
+        return response;
     }
 
     @GetMapping("/{replayId}/usages")

@@ -14,14 +14,19 @@ public class AgentSessionRegistry {
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final No8doAgentProtocolProvider protocolProvider;
     private final Clock clock;
+    private final AgentEventFactory eventFactory;
+    private final AgentEventPublisher eventPublisher;
 
     public AgentSessionRegistry(AgentSessionRepository repository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
-            No8doAgentProtocolProvider protocolProvider, Clock clock) {
+            No8doAgentProtocolProvider protocolProvider, Clock clock, AgentEventFactory eventFactory,
+            AgentEventPublisher eventPublisher) {
         this.repository = repository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.protocolProvider = protocolProvider;
         this.clock = clock;
+        this.eventFactory = eventFactory;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -31,7 +36,7 @@ public class AgentSessionRegistry {
             workspaceAuthorizationService.requireWorkspaceMember(request.workspaceId(), authenticatedUserId);
         }
         No8doAgentProtocol protocol = protocolProvider.current();
-        repository.insertIfAbsent(UUID.randomUUID(), authenticatedUserId, request.workspaceId(),
+        int inserted = repository.insertIfAbsent(UUID.randomUUID(), authenticatedUserId, request.workspaceId(),
                 clientIdentity.clientName(), clientIdentity.clientVersion(), request.transport().name(), protocol.protocolName(),
                 protocol.protocolVersion(), clock.instant(), request.transportSessionFingerprint());
         AgentSession session = repository.findByTransportAndTransportSessionFingerprint(
@@ -43,6 +48,7 @@ public class AgentSessionRegistry {
                 || session.getTransport() != request.transport()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Transport session identity conflicts with registration");
         }
+        if (inserted == 1) eventPublisher.publish(eventFactory.connected(session));
         return AgentSessionResponse.from(session);
     }
 }

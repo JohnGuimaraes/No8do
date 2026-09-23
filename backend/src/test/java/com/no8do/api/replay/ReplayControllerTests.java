@@ -22,6 +22,7 @@ import com.no8do.api.agent.AgentSessionRegistrationRequest;
 import com.no8do.api.agent.AgentSessionRegistry;
 import com.no8do.api.agent.AgentSessionResponse;
 import com.no8do.api.agent.AgentTransport;
+import com.no8do.api.agent.AgentEventPublisher;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.User;
@@ -41,7 +42,12 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.transaction.annotation.Transactional;
+import org.mockito.ArgumentCaptor;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -62,6 +68,7 @@ class ReplayControllerTests {
     @Autowired private PersonalApiTokenService personalApiTokenService;
     @Autowired private AgentSessionRegistry agentSessionRegistry;
     @Autowired private AgentSessionContextService agentSessionContextService;
+    @MockBean private AgentEventPublisher agentEventPublisher;
 
     @Test
     void runtimeModeChangeImmediatelyEnforcesReplayCapabilitiesWithoutChangingExistingWorkspaceAuthorization() throws Exception {
@@ -775,6 +782,7 @@ class ReplayControllerTests {
                 java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                         .digest(UUID.randomUUID().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)))));
         String sessionId = session.sessionId().toString();
+        clearInvocations(agentEventPublisher);
         String path = "/api/workspaces/{workspaceId}/replays/{replayId}/usages";
 
         mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
@@ -806,16 +814,38 @@ class ReplayControllerTests {
             .andExpect(jsonPath("$.materiallyUsed").value(true))
             .andExpect(jsonPath("$.context").value("Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos."));
 
+        ArgumentCaptor<com.no8do.api.agent.AgentEvent> policyEvent = ArgumentCaptor.forClass(com.no8do.api.agent.AgentEvent.class);
+        verify(agentEventPublisher, org.mockito.Mockito.times(5)).publish(policyEvent.capture());
+        org.assertj.core.api.Assertions.assertThat(policyEvent.getAllValues())
+                .filteredOn(event -> event.type() == com.no8do.api.agent.AgentEventType.POLICY_DENIED)
+                .hasSize(4);
+        clearInvocations(agentEventPublisher);
         ReplayUsage persisted = replayUsageRepository.findByReplayIdOrderByUsedAtDesc(replay.getId()).getFirst();
         org.assertj.core.api.Assertions.assertThat(persisted.getMateriallyUsed()).isTrue();
         org.assertj.core.api.Assertions.assertThat(persisted.getContext()).isEqualTo("Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos.");
+        mockMvc.perform(post(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"result\":\"SUCCESS\",\"source\":\"MCP\",\"materiallyUsed\":true,\"context\":\"Uso confirmado.\"}"))
+            .andExpect(status().isOk());
+        ArgumentCaptor<com.no8do.api.agent.AgentEvent> usageEvent = ArgumentCaptor.forClass(com.no8do.api.agent.AgentEvent.class);
+        verify(agentEventPublisher).publish(usageEvent.capture());
+        org.assertj.core.api.Assertions.assertThat(usageEvent.getValue().type())
+                .isEqualTo(com.no8do.api.agent.AgentEventType.REPLAY_USAGE_RECORDED);
+        org.assertj.core.api.Assertions.assertThat(usageEvent.getValue().metadata()).isEqualTo(
+                new com.no8do.api.agent.AgentEventMetadata.ReplayUsageRecorded(replay.getId(), 1, ReplayUsageResult.SUCCESS));
         mockMvc.perform(get(path, workspace.getId(), replay.getId()).with(user(new No8doUserDetails(owner))))
             .andExpect(status().isOk()).andExpect(jsonPath("$[0].materiallyUsed").value(true))
-            .andExpect(jsonPath("$[0].context").value("Aplicado ao adaptar a rotina de importação para preservar a ordem de eventos."));
+            .andExpect(jsonPath("$[0].context").value("Uso confirmado."));
 
         mockMvc.perform(registerUsage(workspace, owner, replay.getId(),
                 new RegisterReplayUsageRequest(null, null, ReplayUsageResult.UNKNOWN, ReplayUsageSource.MANUAL, "Uso manual legado")))
             .andExpect(status().isOk()).andExpect(jsonPath("$.materiallyUsed").value(org.hamcrest.Matchers.nullValue()));
+        mockMvc.perform(registerUsage(workspace, owner, replay.getId(),
+                new RegisterReplayUsageRequest(null, null, ReplayUsageResult.UNKNOWN, ReplayUsageSource.MANUAL, "Uso manual sem sessão")))
+            .andExpect(status().isOk());
+        clearInvocations(agentEventPublisher);
+        clearInvocations(agentEventPublisher);
+        verifyNoInteractions(agentEventPublisher);
     }
 
     @Test
