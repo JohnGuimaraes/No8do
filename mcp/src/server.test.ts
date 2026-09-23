@@ -12,7 +12,7 @@ import { AgentSessionHeader, No8doClient, type AgentProtocol } from "./no8doClie
 const protocol: AgentProtocol = {
   protocolName: "no8do-agent-protocol", protocolVersion: 1, systemName: "No8do", purpose: "Memória técnica",
   replayGuidance: { summary: "Pesquise conhecimento reutilizável.", searchBeforeNonTrivialWork: true, preferExistingKnowledge: true, searchBeforeCreate: true, recordUsageOnlyWhenMateriallyUsed: true, validatedRequiresEvidence: true, avoidTrivialKnowledge: true, avoidDuplicateKnowledge: true, neverStoreSecrets: true, neverStoreCredentials: true, avoidDiscardedAttempts: true },
-  capabilities: { capabilities: [] }, policies: { policies: [] }
+  capabilities: { capabilities: [] }, policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence", enforcement: "ENFORCED" }] }
 };
 
 async function listen(server: Server) { server.listen(0, "127.0.0.1"); await once(server, "listening"); return `http://127.0.0.1:${(server.address() as { port: number }).port}`; }

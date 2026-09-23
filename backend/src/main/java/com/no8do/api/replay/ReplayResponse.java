@@ -26,8 +26,18 @@ public record ReplayResponse(
         UUID createdBy,
         String createdByName,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        ReplayValidationEvidence validationEvidence
 ) {
+    public ReplayResponse(UUID id, UUID workspaceId, UUID projectId, String projectName, String title,
+            ReplayType type, String problem, String solution, String context, List<String> tags, List<String> stack,
+            ReplayStatus status, int version, int usageCount, int successCount, int failureCount,
+            Instant lastUsedAt, UUID createdBy, String createdByName, Instant createdAt, Instant updatedAt) {
+        this(id, workspaceId, projectId, projectName, title, type, problem, solution, context, tags, stack, status,
+                version, usageCount, successCount, failureCount, lastUsedAt, createdBy, createdByName, createdAt,
+                updatedAt, null);
+    }
+
     static ReplayResponse from(Replay replay) {
         return new ReplayResponse(
             replay.getId(),
@@ -40,7 +50,7 @@ public record ReplayResponse(
             replay.getUsageCount(), replay.getSuccessCount(), replay.getFailureCount(), replay.getLastUsedAt(),
             replay.getCreatedBy() == null ? null : replay.getCreatedBy().getId(),
             replay.getCreatedBy() == null ? "Usuário excluído" : replay.getCreatedBy().getName(),
-            replay.getCreatedAt(), replay.getUpdatedAt()
+            replay.getCreatedAt(), replay.getUpdatedAt(), replay.getValidationEvidence()
         );
     }
 }

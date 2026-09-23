@@ -14,5 +14,11 @@ public record CreateReplayRequest(
         List<String> tags,
         List<String> stack,
         ReplayStatus status,
-        UUID projectId
-) {}
+        UUID projectId,
+        ReplayValidationEvidence validationEvidence
+) {
+    public CreateReplayRequest(String title, ReplayType type, String problem, String solution, String context,
+            List<String> tags, List<String> stack, ReplayStatus status, UUID projectId) {
+        this(title, type, problem, solution, context, tags, stack, status, projectId, null);
+    }
+}

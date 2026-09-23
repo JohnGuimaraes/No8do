@@ -77,6 +77,11 @@ public class Replay {
     @Setter
     private ReplayStatus status;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "validation_evidence", columnDefinition = "jsonb")
+    @Setter
+    private ReplayValidationEvidence validationEvidence;
+
     @Column(nullable = false)
     private int version;
 

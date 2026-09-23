@@ -17,6 +17,7 @@ public class UpdateReplayRequest {
     private List<String> stack;
     private ReplayStatus status;
     private UUID projectId;
+    private ReplayValidationEvidence validationEvidence;
     private boolean titlePresent;
     private boolean typePresent;
     private boolean problemPresent;
@@ -26,6 +27,7 @@ public class UpdateReplayRequest {
     private boolean stackPresent;
     private boolean statusPresent;
     private boolean projectIdPresent;
+    private boolean validationEvidencePresent;
 
     public UpdateReplayRequest() {}
 
@@ -51,6 +53,7 @@ public class UpdateReplayRequest {
     @JsonProperty("stack") public List<String> stack() { return stack; }
     @JsonProperty("status") public ReplayStatus status() { return status; }
     @JsonProperty("projectId") public UUID projectId() { return projectId; }
+    @JsonProperty("validationEvidence") public ReplayValidationEvidence validationEvidence() { return validationEvidence; }
 
     @JsonSetter("title") public void setTitle(String value) { title = value; titlePresent = true; }
     @JsonSetter("type") public void setType(ReplayType value) { type = value; typePresent = true; }
@@ -61,6 +64,7 @@ public class UpdateReplayRequest {
     @JsonSetter("stack") public void setStack(List<String> value) { stack = value; stackPresent = true; }
     @JsonSetter("status") public void setStatus(ReplayStatus value) { status = value; statusPresent = true; }
     @JsonSetter("projectId") public void setProjectId(UUID value) { projectId = value; projectIdPresent = true; }
+    @JsonSetter("validationEvidence") public void setValidationEvidence(ReplayValidationEvidence value) { validationEvidence = value; validationEvidencePresent = true; }
 
     @JsonIgnore public boolean hasTitle() { return titlePresent; }
     @JsonIgnore public boolean hasType() { return typePresent; }
@@ -71,4 +75,5 @@ public class UpdateReplayRequest {
     @JsonIgnore public boolean hasStack() { return stackPresent; }
     @JsonIgnore public boolean hasStatus() { return statusPresent; }
     @JsonIgnore public boolean hasProjectId() { return projectIdPresent; }
+    @JsonIgnore public boolean hasValidationEvidence() { return validationEvidencePresent; }
 }

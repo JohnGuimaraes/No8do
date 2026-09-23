@@ -223,7 +223,80 @@ class ReplayControllerTests {
         mockMvc.perform(create(workspace, owner, createRequest("Com projeto", project.getId(), ReplayStatus.VALIDATED)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.projectId").value(project.getId().toString()))
-            .andExpect(jsonPath("$.status").value("VALIDATED"));
+            .andExpect(jsonPath("$.status").value("VALIDATED"))
+            .andExpect(jsonPath("$.validationEvidence.summary").value("Validação confirmada"));
+    }
+
+    @Test
+    void createValidatedRequiresEvidenceAndPersistsItInReplayAndVersion() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        CreateReplayRequest withoutEvidence = new CreateReplayRequest("Sem evidência", ReplayType.FIX, "Problema",
+                "Solução", "Contexto", List.of(), List.of(), ReplayStatus.VALIDATED, null, null);
+
+        mockMvc.perform(create(workspace, owner, withoutEvidence))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("AGENT_POLICY_DENIED"))
+                .andExpect(jsonPath("$.metadata.sessionId").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.metadata.policyId").value("evidence-required-for-validated"));
+
+        ReplayValidationEvidence evidence = validEvidence();
+        MvcResult created = mockMvc.perform(create(workspace, owner, new CreateReplayRequest("Com evidência",
+                ReplayType.FIX, "Problema", "Solução", "Contexto", List.of(), List.of(), ReplayStatus.VALIDATED,
+                null, evidence)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.validationEvidence.summary").value(evidence.summary()))
+                .andReturn();
+        UUID replayId = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText());
+        org.assertj.core.api.Assertions.assertThat(replayRepository.findById(replayId).orElseThrow().getValidationEvidence())
+                .isEqualTo(evidence);
+        org.assertj.core.api.Assertions.assertThat(replayVersionRepository.findByReplayIdOrderByVersionDesc(replayId))
+                .singleElement().extracting(ReplayVersion::getValidationEvidence).isEqualTo(evidence);
+    }
+
+    @Test
+    void updateDraftToValidatedNeedsEvidenceAndSnapshotsEvidenceWhileLegacyValidatedRemainsReadable() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay replay = replay(workspace, owner, "Promoção controlada");
+
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"VALIDATED\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("AGENT_POLICY_DENIED"))
+                .andExpect(jsonPath("$.metadata.policyId").value("evidence-required-for-validated"));
+
+        ReplayValidationEvidence evidence = validEvidence();
+        mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("status", "VALIDATED", "validationEvidence", evidence))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.validationEvidence.method").value(evidence.method()));
+        org.assertj.core.api.Assertions.assertThat(replayVersionRepository.findByReplayIdOrderByVersionDesc(replay.getId()))
+                .filteredOn(version -> version.getStatus() == ReplayStatus.VALIDATED)
+                .singleElement().extracting(ReplayVersion::getValidationEvidence).isEqualTo(evidence);
+    }
+
+    @Test
+    void historicalValidatedReplayWithoutEvidenceRemainsReadable() throws Exception {
+        Workspace workspace = workspace();
+        User owner = member(workspace, WorkspaceRole.OWNER);
+        Replay replay = replay(workspace, owner, "Histórico legado");
+        replay.setStatus(ReplayStatus.VALIDATED);
+        replayRepository.saveAndFlush(replay);
+        replayVersionRepository.saveAndFlush(new ReplayVersion(replay, owner));
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("VALIDATED"))
+                .andExpect(jsonPath("$.validationEvidence").value(org.hamcrest.Matchers.nullValue()));
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}/versions/1", workspace.getId(), replay.getId())
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("VALIDATED"))
+                .andExpect(jsonPath("$.validationEvidence").value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test
@@ -385,6 +458,8 @@ class ReplayControllerTests {
         User owner = member(workspace, WorkspaceRole.OWNER);
         Project project = project(workspace, owner);
         Replay replay = detailedReplay(workspace, owner, project);
+        replay.setValidationEvidence(validEvidence());
+        replayRepository.save(replay);
 
         mockMvc.perform(patch("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replay.getId())
                 .with(user(new No8doUserDetails(owner))).with(csrf()).contentType(MediaType.APPLICATION_JSON)
@@ -735,12 +810,20 @@ class ReplayControllerTests {
 
     private CreateReplayRequest createRequest(String title, UUID projectId, ReplayStatus status) {
         return new CreateReplayRequest(title, ReplayType.FIX, "Problema", "Solução", "Contexto",
-            List.of("foreign-key", "foreign-key", " "), List.of("PostgreSQL"), status, projectId);
+            List.of("foreign-key", "foreign-key", " "), List.of("PostgreSQL"), status, projectId,
+            status == ReplayStatus.VALIDATED ? validEvidence() : null);
     }
 
     private UpdateReplayRequest updateRequest(String title, UUID projectId) {
-        return new UpdateReplayRequest(title, ReplayType.PATTERN, "Problema atualizado", "Solução atualizada", "Contexto atualizado",
-            List.of("tag"), List.of("Spring Boot"), ReplayStatus.VALIDATED, projectId);
+        UpdateReplayRequest request = new UpdateReplayRequest(title, ReplayType.PATTERN, "Problema atualizado",
+            "Solução atualizada", "Contexto atualizado", List.of("tag"), List.of("Spring Boot"),
+            ReplayStatus.VALIDATED, projectId);
+        request.setValidationEvidence(validEvidence());
+        return request;
+    }
+
+    private ReplayValidationEvidence validEvidence() {
+        return new ReplayValidationEvidence("Validação confirmada", "testes automatizados", null);
     }
 
     private Replay replay(Workspace workspace, User createdBy, String title) {
