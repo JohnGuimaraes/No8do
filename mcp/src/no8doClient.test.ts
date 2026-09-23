@@ -60,17 +60,18 @@ test("lista retorna erro seguro para PAT inválido ou revogado", async () => {
 
 test("usa endpoints e corpos corretos para get, create, update e register usage", async () => {
   const setup = client();
+  const validationEvidence = { summary: "Validação aprovada", method: "testes automatizados", reference: "ci://run/123" };
   await setup.client.getReplay("w1", "r1");
-  await setup.client.createReplay("w1", { title: "Novo", type: "RECIPE", tags: ["node"] });
+  await setup.client.createReplay("w1", { title: "Novo", type: "RECIPE", tags: ["node"], status: "VALIDATED", validationEvidence });
   await setup.client.createReplay("w1", { title: "Sem projeto", type: "RECIPE", projectId: null });
-  await setup.client.updateReplay("w1", "r1", { solution: "melhor" });
+  await setup.client.updateReplay("w1", "r1", { solution: "melhor", validationEvidence });
   await setup.client.registerReplayUsage("w1", "r1", { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado" });
   assert.equal(setup.calls[0][0], "http://localhost:8080/api/workspaces/w1/replays/r1");
   assert.equal(setup.calls[1][1]?.method, "POST");
-  assert.deepEqual(JSON.parse(String(setup.calls[1][1]?.body)), { title: "Novo", type: "RECIPE", tags: ["node"] });
+  assert.deepEqual(JSON.parse(String(setup.calls[1][1]?.body)), { title: "Novo", type: "RECIPE", tags: ["node"], status: "VALIDATED", validationEvidence });
   assert.deepEqual(JSON.parse(String(setup.calls[2][1]?.body)), { title: "Sem projeto", type: "RECIPE" });
   assert.equal(setup.calls[3][1]?.method, "PATCH");
-  assert.deepEqual(JSON.parse(String(setup.calls[3][1]?.body)), { solution: "melhor" });
+  assert.deepEqual(JSON.parse(String(setup.calls[3][1]?.body)), { solution: "melhor", validationEvidence });
   assert.equal(setup.calls[4][0], "http://localhost:8080/api/workspaces/w1/replays/r1/usages");
   assert.equal(setup.calls[4][1]?.method, "POST");
   assert.deepEqual(JSON.parse(String(setup.calls[4][1]?.body)), { result: "SUCCESS", replayVersion: 1, projectId: null, context: "aplicado", source: "MCP" });

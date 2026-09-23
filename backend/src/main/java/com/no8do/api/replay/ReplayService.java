@@ -1,5 +1,7 @@
 package com.no8do.api.replay;
 
+import com.no8do.api.agent.AgentCapability;
+import com.no8do.api.agent.AgentPolicyAuthorizationService;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.UserRepository;
@@ -29,6 +31,7 @@ public class ReplayService {
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final ReplayQualityService replayQualityService;
+    private final AgentPolicyAuthorizationService policyAuthorizationService;
 
     public ReplayService(
             ReplayRepository replayRepository,
@@ -38,7 +41,8 @@ public class ReplayService {
             UserRepository userRepository,
             WorkspaceRepository workspaceRepository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
-            ReplayQualityService replayQualityService
+            ReplayQualityService replayQualityService,
+            AgentPolicyAuthorizationService policyAuthorizationService
     ) {
         this.replayRepository = replayRepository;
         this.replayUsageRepository = replayUsageRepository;
@@ -48,6 +52,7 @@ public class ReplayService {
         this.workspaceRepository = workspaceRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.replayQualityService = replayQualityService;
+        this.policyAuthorizationService = policyAuthorizationService;
     }
 
     @Transactional(readOnly = true)
@@ -83,7 +88,12 @@ public class ReplayService {
         replay.setContext(normalizeOptionalText(request.context()));
         replay.setTags(normalizeTerms(request.tags()));
         replay.setStack(normalizeTerms(request.stack()));
-        replay.setStatus(request.status() == null ? ReplayStatus.DRAFT : request.status());
+        ReplayStatus status = request.status() == null ? ReplayStatus.DRAFT : request.status();
+        ReplayValidationEvidence evidence = request.validationEvidence();
+        if (evidence != null && evidence.satisfiesValidationRequirements()) evidence = evidence.normalized();
+        policyAuthorizationService.requireAllowed(workspaceId, AgentCapability.REPLAY_CREATE, status, evidence);
+        replay.setStatus(status);
+        replay.setValidationEvidence(evidence);
         Replay saved = replayRepository.saveAndFlush(replay);
         replayVersionRepository.save(new ReplayVersion(saved, userRepository.getReferenceById(currentUserId)));
         return ReplayResponse.from(saved);
@@ -102,6 +112,11 @@ public class ReplayService {
         String[] tags = request.hasTags() ? normalizeTerms(request.tags()) : replay.getTags();
         String[] stack = request.hasStack() ? normalizeTerms(request.stack()) : replay.getStack();
         ReplayStatus status = request.hasStatus() ? request.status() : replay.getStatus();
+        ReplayValidationEvidence validationEvidence = request.hasValidationEvidence()
+                ? request.validationEvidence() : replay.getValidationEvidence();
+        if (validationEvidence != null && validationEvidence.satisfiesValidationRequirements()) {
+            validationEvidence = validationEvidence.normalized();
+        }
         Project project = request.hasProjectId() ? resolveProject(workspaceId, request.projectId()) : replay.getProject();
 
         boolean changed = !Objects.equals(replay.getTitle(), title)
@@ -112,8 +127,11 @@ public class ReplayService {
             || !Arrays.equals(replay.getTags(), tags)
             || !Arrays.equals(replay.getStack(), stack)
             || replay.getStatus() != status
+            || !Objects.equals(replay.getValidationEvidence(), validationEvidence)
             || !sameProject(replay.getProject(), project);
         if (!changed) return ReplayResponse.from(replay);
+
+        policyAuthorizationService.requireAllowed(workspaceId, AgentCapability.REPLAY_UPDATE, status, validationEvidence);
 
         replay.setTitle(title);
         replay.setType(type);
@@ -123,6 +141,7 @@ public class ReplayService {
         replay.setTags(tags);
         replay.setStack(stack);
         replay.setStatus(status);
+        replay.setValidationEvidence(validationEvidence);
         replay.setProject(project);
         replay.incrementVersion();
         Replay saved = replayRepository.saveAndFlush(replay);

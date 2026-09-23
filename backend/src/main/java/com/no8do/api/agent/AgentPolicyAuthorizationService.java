@@ -2,6 +2,8 @@ package com.no8do.api.agent;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.UUID;
+import com.no8do.api.replay.ReplayStatus;
+import com.no8do.api.replay.ReplayValidationEvidence;
 import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -19,13 +21,20 @@ public class AgentPolicyAuthorizationService {
     }
 
     public void requireAllowed(UUID requestedWorkspaceId, AgentCapability operation) {
-        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
-        if (!(attributes instanceof ServletRequestAttributes servletAttributes)) return;
-        HttpServletRequest request = servletAttributes.getRequest();
-        Object value = request.getAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE);
-        if (!(value instanceof AgentSessionContext context)) return;
+        requireAllowed(requestedWorkspaceId, operation, null, null);
+    }
 
-        AgentPolicyContext policyContext = new AgentPolicyContext(context.session(), requestedWorkspaceId, operation);
+    public void requireAllowed(UUID requestedWorkspaceId, AgentCapability operation, ReplayStatus replayStatus,
+            ReplayValidationEvidence validationEvidence) {
+        RequestAttributes attributes = RequestContextHolder.getRequestAttributes();
+        AgentSessionContext context = null;
+        if (attributes instanceof ServletRequestAttributes servletAttributes) {
+            HttpServletRequest request = servletAttributes.getRequest();
+            Object value = request.getAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE);
+            if (value instanceof AgentSessionContext resolvedContext) context = resolvedContext;
+        }
+        AgentPolicyContext policyContext = new AgentPolicyContext(context == null ? null : context.session(),
+                requestedWorkspaceId, operation, replayStatus, validationEvidence);
         var manifest = protocolProvider.current().policies();
         var decisions = policyEngine.evaluate(manifest, policyContext);
         for (AgentPolicyDecision decision : decisions) {
@@ -33,7 +42,7 @@ public class AgentPolicyAuthorizationService {
                     .filter(candidate -> candidate.id().equals(decision.policyId())).findFirst().orElseThrow();
             if (policy.enforcement() == AgentPolicyEnforcement.ENFORCED
                     && decision.decision() == AgentPolicyDecisionType.DENY) {
-                throw new AgentPolicyDeniedException(context.session(), decision);
+                throw new AgentPolicyDeniedException(context == null ? null : context.session(), decision);
             }
         }
     }

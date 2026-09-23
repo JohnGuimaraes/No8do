@@ -31,12 +31,13 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(AgentPolicyDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAgentPolicyDenied(AgentPolicyDeniedException ex) {
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("sessionId", ex.sessionId());
+        metadata.put("policyId", ex.decision().policyId());
+        metadata.put("reason", ex.decision().reason());
         return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).body(Map.of(
             "error", "AGENT_POLICY_DENIED",
-            "metadata", Map.of(
-                "sessionId", ex.session().getId(),
-                "policyId", ex.decision().policyId(),
-                "reason", ex.decision().reason())));
+            "metadata", metadata));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

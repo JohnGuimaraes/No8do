@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.UUID;
+import com.no8do.api.replay.ReplayStatus;
+import com.no8do.api.replay.ReplayValidationEvidence;
 import org.junit.jupiter.api.Test;
 
 class AgentPolicyEngineTests {
@@ -48,6 +50,32 @@ class AgentPolicyEngineTests {
         assertThat(engine.evaluate(protocolProvider.current().policies(), context(UUID.randomUUID())))
                 .extracting(AgentPolicyDecision::policyId).containsExactlyElementsOf(canonicalIds)
                 .doesNotContain("invented-policy");
+    }
+
+    @Test
+    void enforcedEvidencePolicyDeniesMissingOrInvalidEvidenceAndAllowsValidEvidence() {
+        UUID workspaceId = UUID.randomUUID();
+        assertEvidenceDecision(workspaceId, null, AgentPolicyDecisionType.DENY);
+        assertEvidenceDecision(workspaceId, new ReplayValidationEvidence(" ", "testes", null), AgentPolicyDecisionType.DENY);
+        assertEvidenceDecision(workspaceId, new ReplayValidationEvidence("Validação passou", "testes automatizados", null), AgentPolicyDecisionType.ALLOW);
+    }
+
+    @Test
+    void evidenceRequirementAlsoAppliesWithoutAgentSession() {
+        AgentPolicyContext context = new AgentPolicyContext(null, UUID.randomUUID(), AgentCapability.REPLAY_CREATE,
+                ReplayStatus.VALIDATED, null);
+        AgentPolicyDecision decision = engine.evaluate(protocolProvider.current().policies(), context).stream()
+                .filter(value -> value.policyId().equals("evidence-required-for-validated")).findFirst().orElseThrow();
+        assertThat(decision.decision()).isEqualTo(AgentPolicyDecisionType.DENY);
+    }
+
+    private void assertEvidenceDecision(UUID workspaceId, ReplayValidationEvidence evidence,
+            AgentPolicyDecisionType expected) {
+        AgentPolicyDecision decision = engine.evaluate(protocolProvider.current().policies(),
+                new AgentPolicyContext(null, workspaceId, AgentCapability.REPLAY_CREATE, ReplayStatus.VALIDATED, evidence))
+                .stream().filter(value -> value.policyId().equals("evidence-required-for-validated"))
+                .findFirst().orElseThrow();
+        assertThat(decision.decision()).isEqualTo(expected);
     }
 
     private void assertWorkspaceDecision(UUID sessionWorkspaceId, UUID requestedWorkspaceId,

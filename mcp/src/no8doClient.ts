@@ -2,6 +2,7 @@ export type ReplayType = "FIX" | "PATTERN" | "RECIPE" | "SNIPPET" | "DECISION" |
 export type ReplayStatus = "DRAFT" | "VALIDATED" | "DEPRECATED";
 export type ReplayUsageResult = "SUCCESS" | "FAILURE" | "UNKNOWN";
 export type ReplayUsageSource = "MCP" | "MANUAL" | "AUTOMATION" | "EXTENSION" | "OTHER";
+export type ReplayValidationEvidence = { summary: string; method: string; reference?: string | null };
 
 export interface ReplayUsage {
   id: string;
@@ -39,13 +40,14 @@ export interface Replay {
   createdByName: string;
   createdAt: string;
   updatedAt: string;
+  validationEvidence?: ReplayValidationEvidence | null;
 }
 export interface SimilarReplay { id: string; title: string; type: ReplayType; status: ReplayStatus; version: number; stack: string[]; usageCount: number; score: number; }
 export type FindReusableKnowledgeInput = { query?: string; problem?: string; stack?: string[]; tags?: string[]; type?: ReplayType };
 export type ReplayQuality = { score: number; level: "LOW" | "MEDIUM" | "HIGH"; usageCount: number; successCount: number; failureCount: number; successRate: number | null; signals: string[] };
 export type ReplayRelationType = "RELATED_TO" | "SUPERSEDES" | "RESOLVES" | "DEPENDS_ON";
 export type ReplayRelation = { id: string; type: ReplayRelationType; direction: "RELATED" | "OUTGOING" | "INCOMING"; relatedReplayId: string; relatedReplayTitle: string; relatedReplayType: ReplayType; relatedReplayStatus: ReplayStatus; relatedReplayVersion: number; createdAt: string };
-export type ReplayVersion = { version: number; title: string; type: ReplayType; problem: string | null; solution: string | null; context: string | null; tags: string[]; stack: string[]; status: ReplayStatus; projectId: string | null; changedBy: string | null; changedByName: string; createdAt: string };
+export type ReplayVersion = { version: number; title: string; type: ReplayType; problem: string | null; solution: string | null; context: string | null; tags: string[]; stack: string[]; status: ReplayStatus; projectId: string | null; changedBy: string | null; changedByName: string; createdAt: string; validationEvidence?: ReplayValidationEvidence | null };
 export type AgentCapability = { id: string; description: string; readOnly: boolean };
 export type AgentPolicy = { id: string; description: string; enforcement: "ADVISORY" | "ENFORCED" };
 export type AgentProtocol = {
@@ -110,7 +112,7 @@ export class AgentSessionHeader {
   get(): string | undefined { return this.sessionId; }
 }
 
-export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId">>;
+export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId" | "validationEvidence">>;
 export type ReplayUpdate = Partial<ReplayMutation>;
 export type RegisterReplayUsageMutation = {
   result: ReplayUsageResult;

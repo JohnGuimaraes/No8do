@@ -4,7 +4,7 @@ import { InitializeRequestSchema, type JSONRPCMessage } from "@modelcontextproto
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
-import { compactReplay, No8doClient, type AgentProtocol, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate } from "./no8doClient.js";
+import { compactReplay, No8doClient, type AgentProtocol, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate, type ReplayValidationEvidence } from "./no8doClient.js";
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 
@@ -71,7 +71,9 @@ const status = z.enum(["DRAFT", "VALIDATED", "DEPRECATED"]);
 const usageResult = z.enum(["SUCCESS", "FAILURE", "UNKNOWN"]);
 const relationType = z.enum(["RELATED_TO", "SUPERSEDES", "RESOLVES", "DEPENDS_ON"]);
 const workspace = { workspaceId: z.string().uuid().optional() };
-const mutation = { title: z.string().min(1), type, problem: z.string().optional(), solution: z.string().optional(), context: z.string().optional(), tags: z.array(z.string()).optional(), stack: z.array(z.string()).optional(), status: status.optional(), projectId: z.string().uuid().nullable().optional() };
+const validationEvidence = z.object({ summary: z.string(), method: z.string(), reference: z.string().nullable().optional() }).nullable().optional();
+const mutation = { title: z.string().min(1), type, problem: z.string().optional(), solution: z.string().optional(), context: z.string().optional(), tags: z.array(z.string()).optional(), stack: z.array(z.string()).optional(), status: status.optional(), projectId: z.string().uuid().nullable().optional(), validationEvidence };
+const updateMutation = { ...mutation, title: mutation.title.optional(), type: mutation.type.optional() };
 const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 
 export function createMcpServer(context: McpServerContext) {
@@ -140,8 +142,8 @@ export function createMcpServer(context: McpServerContext) {
   server.registerTool("list_replay_relations", { description: "Liste as relações do Replay.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.listReplayRelations(resolve(workspaceId), replayId)));
   server.registerTool("create_replay_relation", { description: "Crie uma relação entre Replays.", inputSchema: { ...workspace, replayId: z.string().uuid(), targetReplayId: z.string().uuid(), type: relationType } }, async ({ workspaceId, replayId, targetReplayId, type }) => text(await client.createReplayRelation(resolve(workspaceId), replayId, targetReplayId, type as ReplayRelationType)));
   server.registerTool("delete_replay_relation", { description: "Remova uma relação existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), relationId: z.string().uuid() } }, async ({ workspaceId, replayId, relationId }) => { await client.deleteReplayRelation(resolve(workspaceId), replayId, relationId); return text({ deleted: true }); });
-  server.registerTool("create_replay", { description: "Antes de criar, prefira find_reusable_knowledge.", inputSchema: { ...workspace, ...mutation } }, async ({ workspaceId, ...body }) => text(await client.createReplay(resolve(workspaceId), body as ReplayMutation)));
-  server.registerTool("update_replay", { description: "Atualize conteúdo de um Replay existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), ...mutation }, }, async ({ workspaceId, replayId, ...body }) => text(await client.updateReplay(resolve(workspaceId), replayId, body as ReplayUpdate)));
+  server.registerTool("create_replay", { description: "Antes de criar, prefira find_reusable_knowledge.", inputSchema: { ...workspace, ...mutation } }, async ({ workspaceId, ...body }: { workspaceId?: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.createReplay(resolve(workspaceId), body as ReplayMutation)));
+  server.registerTool("update_replay", { description: "Atualize conteúdo de um Replay existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), ...updateMutation }, }, async ({ workspaceId, replayId, ...body }: { workspaceId?: string; replayId: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.updateReplay(resolve(workspaceId), replayId, body as ReplayUpdate)));
   server.registerTool("register_replay_usage", { description: "Registre somente quando um Replay foi realmente aplicado.", inputSchema: { ...workspace, replayId: z.string().uuid(), result: usageResult, projectId: z.string().uuid().nullable().optional(), replayVersion: z.number().int().min(1).optional(), context: z.string().optional() } }, async ({ workspaceId, replayId, ...body }) => text(await client.registerReplayUsage(resolve(workspaceId), replayId, body as RegisterReplayUsageMutation)));
   return server;
 }
