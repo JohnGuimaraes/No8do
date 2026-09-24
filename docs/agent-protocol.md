@@ -14,4 +14,4 @@ O Policy Manifest separa orientação de policy potencialmente aplicável pelo s
 
 A exposição do protocolo pelo bootstrap e pela operação estruturada do MCP está descrita em [`agent-protocol-mcp-bootstrap.md`](agent-protocol-mcp-bootstrap.md).
 
-A 5H.1 definiu o contrato canônico; a 5H.2 o expõe por bootstrap e discovery MCP. A 5H.8C.2C alinha capabilities às operações realmente invocáveis e restringe `FULL` ao manifesto suportado pelo Gateway. Sessões, enforcement das policies advisory, frontend, WebSocket/SSE, LLM, modos específicos de provider e Runtime RAG permanecem fora deste escopo.
+A 5H.1 definiu o contrato canônico e a 5H.2 o expõe por bootstrap e discovery MCP; fases posteriores implementaram AgentSessions, Runtime Modes, Policy Engine, eventos e transporte SSE. Policies `ADVISORY` permanecem não bloqueantes. A 5H.8C.2C alinha capabilities às operações realmente invocáveis e restringe `FULL` ao manifesto suportado pelo Gateway. Frontend, WebSocket, LLM, modos específicos de provider e Runtime RAG permanecem fora do escopo atual.

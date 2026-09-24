@@ -17,7 +17,7 @@ No MCP, o DELETE da sessão Streamable HTTP (`onsessionclosed`) e o evento públ
 
 Os limites são configuráveis em `no8do.agent.presence`. Os defaults conservadores são `active-window: 2m` e `disconnect-timeout: 5m`, com a validação obrigatória `active-window < disconnect-timeout`. Igualdade ao limite ainda é considerada recente; a expiração ocorre quando o limite é ultrapassado. Não há job periódico: o status é derivado quando consultado, inclusive em `get_agent_context`, sem congelar o valor do `initialize`.
 
-Ainda não há realtime (SSE/WebSocket), revoke, status `REVOKED`, histórico de eventos ou lista global de sessões.
+O transporte SSE de AgentEvents está documentado em [`agent-events.md`](agent-events.md); ele não altera o modelo de presença nem fornece histórico/replay de eventos. WebSocket, revoke, status `REVOKED`, histórico de presença ou lista global de sessões continuam fora do escopo.
 
 ## Session Discovery
 
