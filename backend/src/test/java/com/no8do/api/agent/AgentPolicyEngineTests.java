@@ -53,6 +53,29 @@ class AgentPolicyEngineTests {
     }
 
     @Test
+    void unknownAdvisoryPolicyAllowsWithoutBlocking() {
+        AgentPolicyManifest policies = new AgentPolicyManifest(List.of(
+                new AgentPolicy("unknown-advisory-policy", "Policy de teste", AgentPolicyEnforcement.ADVISORY)));
+
+        AgentPolicyDecision decision = engine.evaluate(policies, context(UUID.randomUUID())).getFirst();
+
+        assertThat(decision.decision()).isEqualTo(AgentPolicyDecisionType.ALLOW);
+        assertThat(decision.reason()).isEqualTo("Policy ADVISORY não bloqueia operações nesta fase.");
+    }
+
+    @Test
+    void unknownEnforcedPolicyDeniesWithStableSanitizedReason() {
+        AgentPolicyManifest policies = new AgentPolicyManifest(List.of(
+                new AgentPolicy("unknown-enforced-policy", "Policy de teste", AgentPolicyEnforcement.ENFORCED)));
+
+        AgentPolicyDecision decision = engine.evaluate(policies, context(UUID.randomUUID())).getFirst();
+
+        assertThat(decision.policyId()).isEqualTo("unknown-enforced-policy");
+        assertThat(decision.decision()).isEqualTo(AgentPolicyDecisionType.DENY);
+        assertThat(decision.reason()).isEqualTo("Policy ENFORCED sem evaluator reconhecido.");
+    }
+
+    @Test
     void enforcedEvidencePolicyDeniesMissingOrInvalidEvidenceAndAllowsValidEvidence() {
         UUID workspaceId = UUID.randomUUID();
         assertEvidenceDecision(workspaceId, null, AgentPolicyDecisionType.DENY);
