@@ -6,6 +6,7 @@ import test from "node:test";
 import { once } from "node:events";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { AgentSessionHeartbeat } from "./agentSessionHeartbeat.js";
+import { createStdioSessionCloseHandler } from "./stdioSessionLifecycle.js";
 import { createMcpServer, StdioAgentSessionTransport } from "./server.js";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
 import { AgentSessionHeader, No8doClient, type AgentProtocol } from "./no8doClient.js";
@@ -83,6 +84,10 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
   const agentSessionHeader = new AgentSessionHeader();
   const server = createMcpServer({ apiUrl, token: "PAT_STDIO_ONLY", agentProtocol: protocol, transport: "stdio", agentSessionHeader });
   let heartbeat: AgentSessionHeartbeat | undefined;
+  const onSessionClosed = createStdioSessionCloseHandler(
+    () => heartbeat,
+    () => { heartbeat = undefined; lifecycleEvents.push("cleanup"); }
+  );
   const transport = new StdioAgentSessionTransport(new StdioServerTransport(input, output), (clientName, clientVersion, transportSessionFingerprint) =>
     new No8doClient(apiUrl, "PAT_STDIO_ONLY").registerAgentSession({ clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint })
       .then(session => session),
@@ -93,7 +98,7 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
         callback => { heartbeatTicks.push(callback); return () => { stoppedHeartbeats.push(session.sessionId); lifecycleEvents.push("stop"); }; });
       heartbeat.start();
     },
-    async () => { await heartbeat?.close(); lifecycleEvents.push("cleanup"); });
+    onSessionClosed);
   try {
     const initializeResponse = nextMessage(output);
     await server.connect(transport);
@@ -149,6 +154,7 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     assert.deepEqual(stoppedHeartbeats, [sessionId]);
     assert.deepEqual(disconnectCalls, [sessionId]);
     assert.deepEqual(lifecycleEvents, ["stop", "disconnect", "cleanup"]);
+    assert.equal(heartbeat, undefined);
     await close(api);
   }
 });

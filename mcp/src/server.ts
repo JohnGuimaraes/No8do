@@ -26,7 +26,7 @@ export class StdioAgentSessionTransport implements Transport {
     private readonly delegate: Transport,
     private readonly register: (clientName: string, clientVersion: string, fingerprint: string) => Promise<AgentSession>,
     private readonly onRegistered: (session: AgentSession) => void = () => {},
-    private readonly onClosed: () => void = () => {}
+    private readonly onClosed: () => void | Promise<void> = () => {}
   ) {
     delegate.onmessage = (message, extra) => {
       const initialize = InitializeRequestSchema.safeParse(message);
