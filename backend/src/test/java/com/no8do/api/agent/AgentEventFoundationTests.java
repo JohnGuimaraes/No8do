@@ -92,6 +92,28 @@ class AgentEventFoundationTests {
     }
 
     @Test
+    void springPublisherPublishesAuthorizationDenialsEvenWhenTheRequestTransactionRollsBack() {
+        ApplicationEventPublisher springPublisher = mock(ApplicationEventPublisher.class);
+        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher);
+        AgentSession session = session();
+        AgentEvent capabilityDenied = factory.capabilityDenied(session, AgentCapability.REPLAY_CREATE);
+        AgentEvent policyDenied = factory.policyDenied(session, new AgentPolicyDecision(
+                "workspace-isolation-required", AgentPolicyDecisionType.DENY, "safe"));
+
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        publisher.publish(capabilityDenied);
+        publisher.publish(policyDenied);
+
+        verify(springPublisher).publishEvent(capabilityDenied);
+        verify(springPublisher).publishEvent(policyDenied);
+        TransactionSynchronizationManager.getSynchronizations().forEach(sync ->
+                sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        verify(springPublisher).publishEvent(capabilityDenied);
+        verify(springPublisher).publishEvent(policyDenied);
+    }
+
+    @Test
     void springPublisherContainsFutureListenerFailures() {
         ApplicationEventPublisher springPublisher = mock(ApplicationEventPublisher.class);
         org.mockito.Mockito.doThrow(new IllegalStateException("listener failure"))

@@ -19,6 +19,10 @@ public final class SpringAgentEventPublisher implements AgentEventPublisher {
 
     @Override
     public void publish(AgentEvent event) {
+        if (isAuthorizationDenial(event)) {
+            publishSafely(event);
+            return;
+        }
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -29,6 +33,11 @@ public final class SpringAgentEventPublisher implements AgentEventPublisher {
             return;
         }
         publishSafely(event);
+    }
+
+    private static boolean isAuthorizationDenial(AgentEvent event) {
+        return event.type() == AgentEventType.CAPABILITY_DENIED
+                || event.type() == AgentEventType.POLICY_DENIED;
     }
 
     private void publishSafely(AgentEvent event) {
