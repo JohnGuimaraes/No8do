@@ -56,7 +56,7 @@ class AgentEventStreamHubTests {
     }
 
     @Test
-    void onlyEventsAfterSubscriptionAreSentWithCanonicalSseIdEventAndSafePayload() throws Exception {
+    void onlyEventsAfterSubscriptionAreSentAndEveryCanonicalTypeUsesSafeSseEnvelope() throws Exception {
         UUID userId = UUID.randomUUID();
         AgentEvent before = event(userId, AgentEventType.AGENT_CONNECTED, new AgentEventMetadata.Empty());
         hub.onAgentEvent(before);
@@ -65,47 +65,29 @@ class AgentEventStreamHubTests {
         org.mockito.Mockito.clearInvocations(emitter);
         verifyNoInteractions(emitter);
 
-        AgentEvent policyDenied = event(userId, AgentEventType.POLICY_DENIED,
-                new AgentEventMetadata.PolicyDenied("workspace-isolation-required", "Negação segura."));
-        hub.onAgentEvent(policyDenied);
+        for (AgentEventType type : AgentEventType.values()) {
+            AgentEvent canonicalEvent = eventForType(userId, type);
+            org.mockito.Mockito.clearInvocations(emitter);
+            hub.onAgentEvent(canonicalEvent);
 
-        org.mockito.ArgumentCaptor<SseEmitter.SseEventBuilder> captor =
-                org.mockito.ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
-        verify(emitter).send(captor.capture());
-        SseEmitter.SseEventBuilder builder = captor.getValue();
-        Method buildMethod = builder.getClass().getDeclaredMethod("build");
-        buildMethod.setAccessible(true);
-        Set<?> dataWithMediaTypes = (Set<?>) buildMethod.invoke(builder);
-        String header = dataWithMediaTypes.stream().map(item -> {
-            try {
-                return item.getClass().getMethod("getData").invoke(item);
-            } catch (ReflectiveOperationException exception) {
-                throw new AssertionError(exception);
-            }
-        }).filter(String.class::isInstance).map(String.class::cast).findFirst().orElseThrow();
-        assertThat(header).contains("id:" + policyDenied.eventId(), "event:" + policyDenied.type().name());
-        Object serializedResponse = dataWithMediaTypes.stream().map(item -> {
-            try {
-                return item.getClass().getMethod("getData").invoke(item);
-            } catch (ReflectiveOperationException exception) {
-                throw new AssertionError(exception);
-            }
-        }).filter(AgentEventResponse.class::isInstance).findFirst().orElseThrow();
-        assertThat(serializedResponse).isEqualTo(AgentEventResponse.from(policyDenied));
-        Object payloadItem = dataWithMediaTypes.stream().filter(item -> {
-            try {
-                return item.getClass().getMethod("getData").invoke(item) instanceof AgentEventResponse;
-            } catch (ReflectiveOperationException exception) {
-                throw new AssertionError(exception);
-            }
-        }).findFirst().orElseThrow();
-        assertThat(payloadItem.getClass().getMethod("getMediaType").invoke(payloadItem))
-                .isEqualTo(MediaType.APPLICATION_JSON);
-        AgentEventResponse response = AgentEventResponse.from(policyDenied);
-        assertThat(response.type()).isEqualTo(AgentEventType.POLICY_DENIED);
-        assertThat(response.eventId()).isEqualTo(policyDenied.eventId());
-        assertThat(response.metadata()).isEqualTo(policyDenied.metadata());
-        assertThat(response.toString()).doesNotContain(userId.toString());
+            org.mockito.ArgumentCaptor<SseEmitter.SseEventBuilder> captor =
+                    org.mockito.ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
+            verify(emitter).send(captor.capture());
+            Set<?> dataWithMediaTypes = buildItems(captor.getValue());
+            String framing = dataWithMediaTypes.stream().map(AgentEventStreamHubTests::itemData)
+                    .filter(String.class::isInstance).map(String.class::cast).findFirst().orElseThrow();
+            assertThat(framing).contains("id:" + canonicalEvent.eventId(), "event:" + type.name());
+
+            Object payloadItem = dataWithMediaTypes.stream()
+                    .filter(item -> itemData(item) instanceof AgentEventResponse).findFirst().orElseThrow();
+            AgentEventResponse response = (AgentEventResponse) itemData(payloadItem);
+            assertThat(response).isEqualTo(AgentEventResponse.from(canonicalEvent));
+            assertThat(response.eventId()).isEqualTo(canonicalEvent.eventId());
+            assertThat(response.type()).isEqualTo(type);
+            assertThat(response.toString()).doesNotContain(userId.toString());
+            assertThat(payloadItem.getClass().getMethod("getMediaType").invoke(payloadItem))
+                    .isEqualTo(MediaType.APPLICATION_JSON);
+        }
     }
 
     @Test
@@ -187,5 +169,34 @@ class AgentEventStreamHubTests {
     private AgentEvent event(UUID userId, AgentEventType type, AgentEventMetadata metadata) {
         return new AgentEvent(UUID.randomUUID(), type, UUID.randomUUID(), userId, UUID.randomUUID(),
                 Instant.parse("2026-09-23T12:00:00Z"), metadata);
+    }
+
+    private AgentEvent eventForType(UUID userId, AgentEventType type) {
+        AgentEventMetadata metadata = switch (type) {
+            case AGENT_CONNECTED, AGENT_DISCONNECTED -> new AgentEventMetadata.Empty();
+            case RUNTIME_MODE_CHANGED -> new AgentEventMetadata.RuntimeModeChanged(
+                    AgentRuntimeMode.FULL, AgentRuntimeMode.RETRIEVAL);
+            case CAPABILITY_DENIED -> new AgentEventMetadata.CapabilityDenied(
+                    AgentCapability.REPLAY_CREATE, AgentRuntimeMode.FULL);
+            case POLICY_DENIED -> new AgentEventMetadata.PolicyDenied(
+                    "workspace-isolation-required", "Negação segura.");
+            case REPLAY_USAGE_RECORDED -> new AgentEventMetadata.ReplayUsageRecorded(
+                    UUID.randomUUID(), 2, com.no8do.api.replay.ReplayUsageResult.SUCCESS);
+        };
+        return event(userId, type, metadata);
+    }
+
+    private static Set<?> buildItems(SseEmitter.SseEventBuilder builder) throws Exception {
+        Method buildMethod = builder.getClass().getDeclaredMethod("build");
+        buildMethod.setAccessible(true);
+        return (Set<?>) buildMethod.invoke(builder);
+    }
+
+    private static Object itemData(Object item) {
+        try {
+            return item.getClass().getMethod("getData").invoke(item);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
     }
 }
