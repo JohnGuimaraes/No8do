@@ -40,4 +40,4 @@ Negativas de capability retornam HTTP 403 com `AGENT_CAPABILITY_DENIED` e metada
 
 Handshake, bootstrap, `get_agent_protocol` e `get_agent_context` permanecem disponíveis em qualquer modo. `OFF` bloqueia operações de domínio Replay, mas não desconecta nem revoga a sessão. As tools MCP continuam visíveis em todos os modos; o backend decide durante cada execução.
 
-O capability gate complementa, sem substituir, autenticação, isolamento de workspace, RBAC e validações existentes. Um Policy Engine é uma fase futura; heartbeat/presence, realtime e estado de conexão não fazem parte desta implementação.
+O capability gate complementa, sem substituir, autenticação, isolamento de workspace, RBAC e validações existentes. O Policy Engine avalia policies do Agent Protocol e bloqueia somente DENY de policies `ENFORCED`; policies `ADVISORY` não bloqueiam, conforme [`agent-policy-engine.md`](agent-policy-engine.md). Heartbeat/presence e o transporte SSE estão implementados e documentados separadamente em [`agent-presence.md`](agent-presence.md) e [`agent-events.md`](agent-events.md); não ampliam capabilities nem substituem autorização.

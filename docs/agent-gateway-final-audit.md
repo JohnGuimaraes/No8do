@@ -66,7 +66,7 @@ Autenticação estabelece o principal. O contexto da sessão é opcional para ma
 
 ## Policy Enforcement
 
-As policies semantic duplicate, secrets e credentials permanecem ADVISORY, logo não bloqueiam. Workspace isolation é aplicado a cada operação Replay com AgentSession; evidence-required é avaliada em transições para VALIDATED; material-usage é aplicada somente ao registro de ReplayUsage por AgentSession e exige declaração/texto limitados. O engine atualmente permite policy ENFORCED não reconhecida; esse fail-open é finding REQUIRED para evolução segura do manifesto. A declaração de material use não é prova semântica independente.
+As policies semantic duplicate, secrets e credentials permanecem ADVISORY e não bloqueiam. Workspace isolation é aplicado a cada operação Replay com AgentSession; evidence-required é avaliada em transições para VALIDATED; material-usage é aplicada somente ao registro de ReplayUsage por AgentSession e exige declaração/texto limitados. Desde 5H.8C.2A, policy ENFORCED sem evaluator reconhecido resulta em DENY sanitizado; `AgentPolicyAuthorizationService` preserva o fluxo normal de exceção, métrica e evento `POLICY_DENIED`. A declaração de material use não é prova semântica independente. O comportamento fail-open anterior está preservado somente como histórico do finding RESOLVED abaixo.
 
 ## Events and Realtime
 
@@ -125,7 +125,7 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 - **Status:** RESOLVED — 5H.8C.2C.
 - **Componente:** manifesto de AgentCapability, autorização de `/similar` e ferramentas MCP.
 - **Comportamento anterior:** manifesto anunciava `SEMANTIC_DUPLICATE_SEARCH`, `HYBRID_RETRIEVAL`, `CONTEXT_PACKAGE_ASSEMBLY` e `CONTEXT_RENDERING`. `/similar` exigia `SEMANTIC_DUPLICATE_SEARCH`, mas delegava a `ReplayService.findSimilar`, que usa ranking determinístico lexical; MCP não tinha ferramenta específica de busca vetorial/híbrida, assembly de pacote ou rendering.
-- **Solução aplicada:** as quatro capabilities internas foram retiradas do manifesto e da matriz efetiva de Retrieval sem remover seus enums, serviços ou infraestrutura 5E/5F. `/similar` agora exige `REPLAY_SEARCH` e `REUSABLE_KNOWLEDGE_DISCOVERY`, compatíveis com a busca lexical e a descoberta determinística executadas. `FULL` é filtrado pelo manifesto canônico suportado do Gateway; enum futuro/interno presente em snapshot antigo não é efetivado.
+- **Solução aplicada:** as quatro capabilities internas foram retiradas do manifesto e da matriz efetiva de Retrieval sem remover seus enums, serviços ou infraestrutura 5E/5F/5G.1. `/similar` agora exige `REPLAY_SEARCH` e `REUSABLE_KNOWLEDGE_DISCOVERY`, compatíveis com a busca lexical e a descoberta determinística executadas. `FULL` é filtrado pelo manifesto canônico suportado do Gateway; enum futuro/interno presente em snapshot antigo não é efetivado.
 - **Distinção de escopo:** Semantic Retrieval 5E e Retrieval→Context 5F permanecem infraestrutura interna; Runtime RAG segue planejado. Elas só devem retornar ao Agent Protocol quando uma operação externa coerente for disponibilizada.
 - **Evidência:** `AgentCapability.java:20-23`; `No8doAgentProtocolProvider.java:17-32`; `ReplayController.java:80-86`; `ReplayService.java:165-177`; `mcp/src/server.ts:162-175`.
 - **Validação 5H.8C.2C informada e aceita:** backend focado — 62 testes, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS, exit 0; suíte backend — 519 testes, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS, exit 0; MCP `npm ci`, typecheck e build com exit 0; `npm test` — 50 passed, 0 failed, 0 cancelled, 0 skipped, exit 0. `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi aplicado somente aos processos Maven. Os testes de contrato verificam manifesto/backend, tools MCP determinísticas e capabilities efetivas.
@@ -170,12 +170,22 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 1. Resolver o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis. **RESOLVED — 5H.8C.2C.**
 2. Cobertura fail-closed de cada policy ENFORCED desconhecida. **RESOLVED — 5H.8C.2A.**
 3. Disconnect explícito no shutdown normal STDIO, com paridade de `heartbeat.close()` do HTTP. **RESOLVED — 5H.8C.2B.**
-4. Definir formalmente se o Audit Trail requer completude garantida; se sim, adotar outbox/retry transacional e teste de falha/crash window. **Aberto — TECH-DEBT.**
-5. Definir o ciclo de refresh/restart do Agent Protocol em processo MCP de longa duração e testar divergência de versão. **Aberto — TECH-DEBT.**
 
-## Readiness for Next Phase
+**BLOCKER abertos: 0. REQUIRED abertos: 0.** Os itens remanescentes estão classificados somente como TECH-DEBT e não fazem parte dos Required Fixes.
 
-O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. **Os três REQUIRED registrados foram resolvidos**: policy ENFORCED desconhecida fail-closed (5H.8C.2A), disconnect explícito no shutdown normal STDIO (5H.8C.2B) e alinhamento do contrato de capabilities (5H.8C.2C). Não resta REQUIRED desta auditoria; os **2 TECH-DEBT** (entrega durável do Audit Trail e refresh/versionamento do snapshot de protocolo) continuam abertos e inalterados. Esta atualização não inicia a fase 5H.9.
+## Validation History — prior remediations
+
+Os resultados abaixo pertencem às respectivas fases de remediação e não são uma nova execução da 5H.8C.3:
+
+- **5H.8C.2A:** backend focado — 12 testes; suíte completa — 518 testes; 0 failures, 0 errors, 0 skipped; BUILD SUCCESS e exit 0 em ambos. `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven.
+- **5H.8C.2B:** MCP typecheck e build com exit 0; MCP tests — 50 passed, 0 failed, 0 cancelled, 0 skipped, exit 0.
+- **5H.8C.2C:** backend focado — 62 testes; suíte completa — 519 testes; 0 failures, 0 errors, 0 skipped; BUILD SUCCESS e exit 0 em ambos. MCP typecheck/build exit 0; MCP tests — 50 passed, 0 failed, 0 cancelled, 0 skipped, exit 0. `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven.
+
+## Final Readiness
+
+BLOCKER abertos: **0**. REQUIRED abertos: **0**. Os três findings REQUIRED foram corrigidos e validados nas fases 5H.8C.2A, 5H.8C.2B e 5H.8C.2C. Permanecem explicitamente abertos dois TECH-DEBT não bloqueantes: entrega do Audit Trail após commit sem outbox/retry durável e possibilidade de snapshot do Agent Protocol obsoleto em processo MCP longo. Eles não foram resolvidos nem implementados nesta fase.
+
+Foram auditados autenticação, ownership, workspace/RBAC, Runtime Modes, capabilities, policies, lifecycle, presence, events, SSE, Audit Trail, health e metrics. O backend do Agent Gateway está pronto para seguir à fase de Governance & Administration: **"Agent Gateway backend ready for 5H.9 with two documented non-blocking technical-debt items."** Isto não elimina os TECH-DEBT e não inicia 5H.9.
 
 ## Technical Debt
 
@@ -185,6 +195,6 @@ Os dois achados TECH-DEBT são: (1) entrega de Audit Trail em callback in-proces
 
 Nenhum finding OPTIONAL foi necessário para registrar as divergências observadas. Melhorias não bloqueantes não foram adicionadas para manter o relatório concentrado em riscos sustentados por evidência.
 
-## Explicitly Out of Scope
+## Explicitly Out of Scope — original audit
 
-Não foram implementadas correções, funcionalidades, Session Governance/Revoke, frontend, Plugin/SKILL.md ou Runtime RAG. Também não foram alterados migrations, domínio, controllers, security, MCP, metrics ou testes. A auditoria não foi teste de penetração nem validação dinâmica de produção.
+A auditoria original não implementou correções ou funcionalidades, Session Governance/Revoke, frontend, Plugin/SKILL.md ou Runtime RAG, nem alterou migrations, domínio, controllers, security, MCP, metrics ou testes. A 5H.8C.3 é exclusivamente documental; as três remediações de código e testes ocorreram nas fases indicadas nos findings. A auditoria não foi teste de penetração nem validação dinâmica de produção.
