@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -46,6 +47,27 @@ class AgentAuditEntryRepositoryTests {
             assertThat(entry.recordedAt()).isNotNull().isAfter(occurredAt);
             assertThat(entry.metadata()).isEqualTo(metadata);
         }
+    }
+
+    @Test
+    void auditPersistedMetricCountsRealInsertButNotDuplicateEventId() {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        AgentEvent event = new AgentEvent(eventId, AgentEventType.AGENT_CONNECTED, sessionId, userId, null,
+                Instant.parse("2026-01-02T03:04:05Z"), new AgentEventMetadata.Empty());
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        AgentAuditTrailService service = new AgentAuditTrailService(repository, codec,
+                mock(WorkspaceAuthorizationService.class));
+        AgentAuditEventListener listener = new AgentAuditEventListener(service, new AgentGatewayMetrics(meterRegistry));
+
+        listener.record(event);
+        listener.record(event);
+
+        assertThat(meterRegistry.counter(AgentGatewayMetrics.AUDIT_PERSISTED,
+                "eventType", AgentEventType.AGENT_CONNECTED.name()).count()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from agent_audit_entries where event_id = ?", Long.class, eventId)).isEqualTo(1L);
     }
 
     @Test

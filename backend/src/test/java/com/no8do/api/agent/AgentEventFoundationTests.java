@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class AgentEventFoundationTests {
     private static final Instant NOW = Instant.parse("2026-09-23T12:00:00Z");
@@ -73,7 +74,8 @@ class AgentEventFoundationTests {
     @Test
     void springPublisherWaitsForCommitAndDropsEventsOnRollback() {
         ApplicationEventPublisher springPublisher = mock(ApplicationEventPublisher.class);
-        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher);
+        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher,
+                new AgentGatewayMetrics(new SimpleMeterRegistry()));
         AgentEvent event = factory.connected(session());
 
         TransactionSynchronizationManager.initSynchronization();
@@ -94,7 +96,8 @@ class AgentEventFoundationTests {
     @Test
     void springPublisherPublishesAuthorizationDenialsEvenWhenTheRequestTransactionRollsBack() {
         ApplicationEventPublisher springPublisher = mock(ApplicationEventPublisher.class);
-        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher);
+        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher,
+                new AgentGatewayMetrics(new SimpleMeterRegistry()));
         AgentSession session = session();
         AgentEvent capabilityDenied = factory.capabilityDenied(session, AgentCapability.REPLAY_CREATE);
         AgentEvent policyDenied = factory.policyDenied(session, new AgentPolicyDecision(
@@ -118,7 +121,8 @@ class AgentEventFoundationTests {
         ApplicationEventPublisher springPublisher = mock(ApplicationEventPublisher.class);
         org.mockito.Mockito.doThrow(new IllegalStateException("listener failure"))
                 .when(springPublisher).publishEvent(org.mockito.ArgumentMatchers.any(AgentEvent.class));
-        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher);
+        AgentEventPublisher publisher = new SpringAgentEventPublisher(springPublisher,
+                new AgentGatewayMetrics(new SimpleMeterRegistry()));
 
         assertThatCode(() -> publisher.publish(factory.disconnected(session()))).doesNotThrowAnyException();
     }

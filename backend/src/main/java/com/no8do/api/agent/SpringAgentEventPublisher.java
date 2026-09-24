@@ -12,9 +12,11 @@ public final class SpringAgentEventPublisher implements AgentEventPublisher {
     private static final Logger LOGGER = LoggerFactory.getLogger(SpringAgentEventPublisher.class);
 
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final AgentGatewayMetrics metrics;
 
-    public SpringAgentEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+    public SpringAgentEventPublisher(ApplicationEventPublisher applicationEventPublisher, AgentGatewayMetrics metrics) {
         this.applicationEventPublisher = applicationEventPublisher;
+        this.metrics = metrics;
     }
 
     @Override
@@ -43,7 +45,9 @@ public final class SpringAgentEventPublisher implements AgentEventPublisher {
     private void publishSafely(AgentEvent event) {
         try {
             applicationEventPublisher.publishEvent(event);
+            metrics.eventPublished(event.type());
         } catch (RuntimeException listenerFailure) {
+            metrics.eventListenerFailed(event.type());
             LOGGER.warn("Listener de AgentEvent falhou após a operação de domínio: eventId={}, type={}, failureType={}",
                     event.eventId(), event.type(), listenerFailure.getClass().getSimpleName());
         }
