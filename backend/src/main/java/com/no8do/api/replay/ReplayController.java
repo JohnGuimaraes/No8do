@@ -80,8 +80,8 @@ public class ReplayController {
     @PostMapping("/similar")
     public List<SimilarReplayResponse> similar(@PathVariable UUID workspaceId, @AuthenticationPrincipal No8doUserDetails currentUser,
             @RequestBody(required = false) FindSimilarReplaysRequest request) {
-        requireReplayAccess(workspaceId, AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY,
-                AgentCapability.SEMANTIC_DUPLICATE_SEARCH);
+        requireReplayAccess(workspaceId, AgentCapability.REPLAY_SEARCH,
+                AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY);
         return replayService.findSimilar(workspaceId, currentUser.user().getId(), request == null ? new FindSimilarReplaysRequest(null, null, null, null, null, null) : request);
     }
 

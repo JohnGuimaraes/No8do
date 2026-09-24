@@ -7,8 +7,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonFormat(shape = JsonFormat.Shape.OBJECT)
 public enum AgentCapability {
     REPLAY_CATALOG_LIST("Lista o catálogo de Replays.", true),
-    REPLAY_SEARCH("Pesquisa Replays por texto.", true),
-    REUSABLE_KNOWLEDGE_DISCOVERY("Descobre Replays reutilizáveis por relevância.", true),
+    REPLAY_SEARCH("Pesquisa Replays no workspace por texto e ordena correspondências lexicalmente.", true),
+    REUSABLE_KNOWLEDGE_DISCOVERY("Sugere Replays reutilizáveis por relevância lexical determinística.", true),
     REPLAY_READ("Lê conteúdo completo de Replay.", true),
     REPLAY_VERSION_READ("Lê versões históricas imutáveis de Replay.", true),
     REPLAY_QUALITY_READ("Lê avaliação derivada de qualidade do Replay.", true),

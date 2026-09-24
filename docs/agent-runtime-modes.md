@@ -6,9 +6,9 @@ Agent Runtime Mode limita as operações de domínio Replay para uma `AgentSessi
 
 O Agent Protocol continua descrevendo as capabilities oferecidas pela versão atual do backend. As effective capabilities são calculadas a cada leitura de contexto como a interseção entre as capabilities do protocolo atual e a matriz explícita do runtime mode da sessão:
 
-`effectiveCapabilities = protocol.capabilities ∩ runtimeModeMatrix[runtimeMode]`
+`effectiveCapabilities = protocol.capabilities ∩ gatewaySupportedCapabilities ∩ runtimeModeMatrix[runtimeMode]`
 
-A resolução é determinística, imutável e não persiste uma cópia do manifesto. `FULL` resulta nas capabilities anunciadas pelo protocolo atual. Uma capability futura não entra automaticamente nos modos inferiores: sua inclusão exige uma decisão explícita na matriz.
+A resolução é determinística, imutável e não persiste uma cópia do manifesto. `FULL` resulta em todas as capabilities publicadas e suportadas pelo Agent Gateway atual; não equivale a todas as constantes do enum Java. Uma capability futura ou interna não entra automaticamente no conjunto efetivo: precisa primeiro corresponder a uma operação externa publicada e, nos modos inferiores, exige inclusão explícita na matriz.
 
 ## Modos
 
@@ -16,9 +16,9 @@ A resolução é determinística, imutável e não persiste uma cópia do manife
 | --- | --- |
 | `OFF` | Nenhuma capability Replay |
 | `READ_ONLY` | `REPLAY_CATALOG_LIST`, `REPLAY_READ`, `REPLAY_VERSION_READ`, `REPLAY_QUALITY_READ`, `REPLAY_RELATIONS`, `REPLAY_USAGE_HISTORY_READ` |
-| `RETRIEVAL` | `READ_ONLY` + `REPLAY_SEARCH`, `REUSABLE_KNOWLEDGE_DISCOVERY`, `SEMANTIC_DUPLICATE_SEARCH`, `HYBRID_RETRIEVAL`, `CONTEXT_PACKAGE_ASSEMBLY`, `CONTEXT_RENDERING` |
+| `RETRIEVAL` | `READ_ONLY` + `REPLAY_SEARCH`, `REUSABLE_KNOWLEDGE_DISCOVERY` |
 | `ASSISTED` | `RETRIEVAL` + `REPLAY_USAGE_RECORD` |
-| `FULL` | Todas as capabilities presentes no Agent Protocol atual |
+| `FULL` | Todas as capabilities publicadas/suportadas pelo Agent Gateway no Agent Protocol atual |
 
 A matriz é cumulativa: `OFF ⊆ READ_ONLY ⊆ RETRIEVAL ⊆ ASSISTED ⊆ FULL`. Relações usam a capability existente `REPLAY_RELATIONS`; operações que criam ou removem relação também exigem respectivamente `REPLAY_CREATE` ou `REPLAY_UPDATE`, mantendo leitura disponível sem permitir mutação nos modos inferiores.
 

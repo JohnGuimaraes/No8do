@@ -11,10 +11,16 @@ import org.springframework.stereotype.Component;
 @Component
 public final class AgentEffectiveCapabilityResolver {
     private static final Map<AgentRuntimeMode, Set<AgentCapability>> MODE_CAPABILITIES = buildMatrix();
+    private final Set<AgentCapability> gatewaySupportedCapabilities;
+
+    public AgentEffectiveCapabilityResolver(No8doAgentProtocolProvider protocolProvider) {
+        this.gatewaySupportedCapabilities = Set.copyOf(protocolProvider.current().capabilities().capabilities());
+    }
 
     public List<AgentCapability> resolve(No8doAgentProtocol protocol, AgentRuntimeMode runtimeMode) {
         Set<AgentCapability> allowedByMode = MODE_CAPABILITIES.get(runtimeMode);
         return protocol.capabilities().capabilities().stream()
+                .filter(gatewaySupportedCapabilities::contains)
                 .filter(allowedByMode::contains)
                 .toList();
     }
@@ -35,11 +41,7 @@ public final class AgentEffectiveCapabilityResolver {
         EnumSet<AgentCapability> retrieval = EnumSet.copyOf(readOnly);
         retrieval.addAll(EnumSet.of(
                 AgentCapability.REPLAY_SEARCH,
-                AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY,
-                AgentCapability.SEMANTIC_DUPLICATE_SEARCH,
-                AgentCapability.HYBRID_RETRIEVAL,
-                AgentCapability.CONTEXT_PACKAGE_ASSEMBLY,
-                AgentCapability.CONTEXT_RENDERING));
+                AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY));
         matrix.put(AgentRuntimeMode.RETRIEVAL, Set.copyOf(retrieval));
 
         EnumSet<AgentCapability> assisted = EnumSet.copyOf(retrieval);
