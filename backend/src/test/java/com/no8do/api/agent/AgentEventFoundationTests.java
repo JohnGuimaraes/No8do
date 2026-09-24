@@ -51,6 +51,9 @@ class AgentEventFoundationTests {
         assertThat(usage.metadata()).isEqualTo(
                 new AgentEventMetadata.ReplayUsageRecorded(replayId, 3, ReplayUsageResult.SUCCESS));
         assertThat(connected.toString()).doesNotContain("fingerprint-secret", "raw-mcp-session-secret", "Bearer", "PAT");
+        AgentEventResponse publicResponse = AgentEventResponse.from(usage);
+        assertThat(publicResponse.toString()).doesNotContain(session.getUserId().toString(),
+                "fingerprint-secret", "raw-mcp-session-secret", "Bearer", "PAT");
         assertThatThrownBy(() -> new AgentEvent(UUID.randomUUID(), AgentEventType.AGENT_CONNECTED,
                 session.getId(), session.getUserId(), session.getWorkspaceId(), NOW,
                 new AgentEventMetadata.RuntimeModeChanged(AgentRuntimeMode.FULL, AgentRuntimeMode.OFF)))

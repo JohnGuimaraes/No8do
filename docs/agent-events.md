@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The event model provides an internal backend boundary between completed AgentSession operations and future subscribers. It is not an API, event store, audit history, or delivery guarantee beyond the running process.
+The event model provides an internal backend boundary between completed AgentSession operations and subscribers. Events are not persisted or an audit history, and delivery is not guaranteed beyond the running process; the SSE endpoint below is a transport API only.
 
 ## Current event types
 
@@ -23,6 +23,10 @@ Every immutable `AgentEvent` contains a server-generated event ID, type, session
 
 `AgentEventPublisher` delegates to Spring's in-process `ApplicationEventPublisher`; no event persistence or external broker is used. Events published within a transaction are dispatched after commit and are discarded on rollback. Listener runtime failures are logged with event ID/type and failure class only; they are contained and do not turn a committed domain operation into a failed response. Subscribers must not assume durable delivery or retry.
 
-## Future work
+## SSE transport (5H.7B)
 
-SSE/WebSocket delivery and event history may be layered on this internal boundary in later phases. They are not implemented here.
+`GET /api/agent-events/stream` exposes these canonical events over Spring MVC `SseEmitter`; it does not alter `AgentEvent` or make domain producers aware of SSE. The endpoint requires the existing authenticated principal and does not require an AgentSession header. The user ID comes only from that principal; callers cannot select another user through query parameters or headers. Each event uses its canonical `AgentEventType` as the SSE `event`, `eventId` as SSE `id`, and an `AgentEventResponse` JSON payload containing only `eventId`, `type`, `sessionId`, `workspaceId`, `occurredAt`, and the existing safe typed metadata. `userId` and credentials are not serialized.
+
+The in-process `AgentEventStreamHub` supports multiple concurrent streams per user and fans each event out only to that user's subscribers. Completion, timeout, send failure, and application shutdown remove/close only the affected subscriber; a failed stream does not prevent delivery to other subscribers or fail the domain publisher. A lightweight SSE comment keepalive is sent every 25 seconds; it is transport-only and is not an AgentEvent or an AgentSession heartbeat.
+
+There is no replay, event history, Last-Event-ID handling, database, or external broker. A client that may have missed events should fetch current state again via `GET /api/agent-sessions` and reopen the stream. Because the publisher and hub are in-process, delivery is limited to the backend instance that received the event; multiple backend instances have no cross-instance delivery guarantee. A future frontend may consume this stream, but frontend work is out of scope here.
