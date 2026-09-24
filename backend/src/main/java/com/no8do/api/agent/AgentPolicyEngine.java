@@ -47,7 +47,7 @@ public final class AgentPolicyEngine {
             return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.DENY,
                     "Agent ReplayUsage requires explicit material-use attestation and persisted application evidence.");
         }
-        return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.ALLOW,
-                "Nenhuma condição objetiva disponível para esta policy nesta fase.");
+        return new AgentPolicyDecision(policy.id(), AgentPolicyDecisionType.DENY,
+                "Policy ENFORCED sem evaluator reconhecido.");
     }
 }

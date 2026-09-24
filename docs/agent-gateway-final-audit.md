@@ -127,11 +127,13 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 
 ### REQUIRED — Policy ENFORCED desconhecida falha aberta
 
+- **Status:** RESOLVED — 5H.8C.2A.
 - **Componente:** `AgentPolicyEngine`.
-- **Comportamento atual:** depois dos branches de workspace, evidência e uso material, qualquer policy não reconhecida retorna ALLOW com motivo “Nenhuma condição objetiva disponível”. Isso inclui uma policy futura que o provider marque como ENFORCED e que ainda não tenha evaluator.
-- **Evidência:** `backend/src/main/java/com/no8do/api/agent/AgentPolicyEngine.java:13-17,18-49,50-51`; manifesto atual em `No8doAgentProtocolProvider.java:33-39`.
-- **Impacto:** adicionar uma policy ENFORCED ao protocolo sem adicionar sua avaliação não bloqueia a operação; enforcement reportado pelo protocolo pode divergir do comportamento efetivo.
-- **Recomendação:** falhar fechado para policy ENFORCED sem evaluator, ou validar no startup que cada policy ENFORCED do manifesto possui implementação. Policies atuais listadas têm branches explícitos; o achado diz respeito a evolução do contrato.
+- **Comportamento anterior:** depois dos branches conhecidos, qualquer policy não reconhecida retornava ALLOW, inclusive uma policy ENFORCED futura sem evaluator.
+- **Solução aplicada:** o fallback do `AgentPolicyEngine` agora retorna DENY para policy ENFORCED sem evaluator, com motivo fixo/sanitizado `Policy ENFORCED sem evaluator reconhecido.`. O branch ADVISORY continua retornando ALLOW antes da avaliação específica. Os três evaluators ENFORCED atuais foram preservados; manifesto real, workspace/RBAC e políticas não foram alterados ou promovidos.
+- **Fluxo de autorização:** o DENY segue `AgentPolicyAuthorizationService` existente: lança `AgentPolicyDeniedException`, publica um `POLICY_DENIED` quando há AgentSession e incrementa `policy.denied` uma vez. O evento continua usando reason pública genérica sanitizada.
+- **Evidência:** `backend/src/main/java/com/no8do/api/agent/AgentPolicyEngine.java:13-17,18-49,50-51`; manifesto em `No8doAgentProtocolProvider.java:33-39`; testes `AgentPolicyEngineTests.unknownAdvisoryPolicyAllowsWithoutBlocking`, `AgentPolicyEngineTests.unknownEnforcedPolicyDeniesWithStableSanitizedReason` e `AgentPolicyAuthorizationUnknownPolicyTests.unknownEnforcedPolicyDenialUsesNormalSingleEventAndMetricFlow`.
+- **Validação informada:** testes focados 12 / 0 failures / 0 errors / 0 skipped; suíte backend 518 / 0 / 0 / 0; BUILD SUCCESS e exit code 0 em ambos. Executada externamente no PowerShell normal do host com `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` somente nos processos Maven. O código Java permaneceu byte-for-byte inalterado após essa validação; não se repetiu Maven.
 
 ### TECH-DEBT — entrega durável de eventos depende de callback in-process após commit
 
@@ -160,15 +162,15 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 
 ## Required Fixes
 
-1. Resolver a semântica de disconnect no fechamento STDIO e cobrir ambos os transports com teste de integração que confirme `disconnectedAt`/evento.
-2. Fechar o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis.
-3. Tornar explícita a cobertura de cada policy ENFORCED: evaluator obrigatório ou falha fechada em policy não reconhecida.
-4. Definir formalmente se o Audit Trail requer completude garantida; se sim, adotar outbox/retry transacional e teste de falha/crash window.
-5. Definir o ciclo de refresh/restart do Agent Protocol em processo MCP de longa duração e testar divergência de versão.
+1. Resolver a semântica de disconnect no fechamento STDIO e cobrir ambos os transports com teste de integração que confirme `disconnectedAt`/evento. **Aberto — REQUIRED.**
+2. Fechar o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis. **Aberto — REQUIRED.**
+3. Cobertura fail-closed de cada policy ENFORCED desconhecida. **RESOLVED — 5H.8C.2A**, conforme detalhe e testes registrados no finding acima.
+4. Definir formalmente se o Audit Trail requer completude garantida; se sim, adotar outbox/retry transacional e teste de falha/crash window. **Aberto — TECH-DEBT.**
+5. Definir o ciclo de refresh/restart do Agent Protocol em processo MCP de longa duração e testar divergência de versão. **Aberto — TECH-DEBT.**
 
 ## Readiness for Next Phase
 
-O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. Antes da 5H.9, os três itens REQUIRED acima devem ser decididos/resolvidos; os dois TECH-DEBT dependem do nível de garantia operacional e forense esperado. Esta conclusão é uma auditoria estática/documental; nenhuma suíte foi executada e nenhuma correção foi implementada.
+O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. A correção fail-closed da 5H.8C.2A resolve um dos três REQUIRED originais. Restam **2 REQUIRED antes da 5H.9**: (1) STDIO explicit disconnect e (2) capability contract alignment. Os **2 TECH-DEBT** (entrega durável do Audit Trail e refresh/versionamento do snapshot de protocolo) permanecem abertos e inalterados. A auditoria inteira não está concluída para avanço à 5H.9. Esta atualização documental não inicia 5H.8C.2B, 5H.8C.2C ou 5H.9.
 
 ## Technical Debt
 
