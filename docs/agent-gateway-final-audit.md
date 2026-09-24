@@ -1,12 +1,12 @@
-# Auditoria final do backend Agent Gateway
+# Agent Gateway Final Backend Audit
 
-## Escopo e método
+## Scope
 
 Auditoria documental e estática do backend e do contrato MCP/HTTP no commit-base `53937ca81cc10237545a6044df8c7157d3386eea`. O escopo cobre as fases 5H.1–5H.8 e os caminhos de sessão, autenticação, runtime mode, capability, policy, Replay, eventos, presença, SSE, auditoria, métricas e health. Não foram alterados código, migrations, configuração ou testes; não foram executados testes. O navegador não foi usado. O MCP de conhecimento No8do não estava disponível nesta execução, portanto as conclusões abaixo se baseiam no checkout e nos testes/documentos nele presentes.
 
 As referências de evidência apontam para arquivos e linhas do checkout auditado, não para resultados de execução desta auditoria.
 
-## Arquitetura observada
+## Architecture
 
 ```text
 Cliente MCP (STDIO ou HTTP)
@@ -37,7 +37,50 @@ O backend é a autoridade para autenticação, ownership, membership/RBAC, capab
 - **Audit Trail:** `eventId` é chave idempotente; registros são append-only e armazenam metadados tipados/sanitizados. O listener é after-commit; falha não desfaz o domínio já commitado (`AgentAuditTrailService.java`, `AgentAuditEventListener.java`, `V45__create_agent_audit_entries.sql`).
 - **Métricas/health:** tags de métricas são categorias finitas, não identificadores de usuário/sessão; somente health é exposto pelo Actuator, sem detalhes/componentes. O indicador Agent Gateway representa disponibilidade técnica de wiring, não uma sondagem de uso (`AgentGatewayMetrics.java`, `AgentGatewayHealthIndicator.java`, `backend/src/main/java/com/no8do/api/config/SecurityConfig.java:74-90`, `backend/src/main/resources/application.yml`).
 
-## Invariantes confirmados no código
+## Canonical Flows
+
+| Fluxo | Fonte da verdade e ordem | Transação, idempotência e falha | Isolamento/exposição |
+|---|---|---|---|
+| **CONNECT** | MCP obtém o protocolo; backend registra identidade/transport/fingerprint; modo inicial e capabilities são resolvidos pelo backend. | Registro usa insert-if-absent e unicidade por transport/fingerprint; colisão incompatível retorna conflito. Evento de conexão só é publicado na inserção nova. | Token autentica chamadas; sessão pertence ao usuário autenticado. Fingerprint é hash interno e não consta nos DTOs. |
+| **REQUEST** | autenticação → contexto/ownership da AgentSession → capability efetiva → policy → workspace membership/RBAC e domínio. | Negação capability/policy interrompe antes da operação; erros HTTP são respostas distintas. Operação de domínio usa os limites transacionais próprios do serviço. | Usuário e workspace são novamente verificados pelo backend; header de sessão não substitui identidade nem membership. |
+| **EVENT** | evento canônico representa fato/denial; publisher separa denials imediatos dos fatos transacionais after-commit; listeners entregam SSE, auditam e atualizam métricas. | eventId dá deduplicação ao Audit Trail; rollback suprime evento transacional; listener/audit falhando após commit não reverte domínio e não tem outbox identificado. | SSE filtra por usuário; payload omite userId e conteúdo Replay; audit query é escopada por usuário/workspace. |
+| **SESSION LIFECYCLE** | Registro e timestamps persistidos são canônicos; CONNECTED/ACTIVE/IDLE/DISCONNECTED são derivados, exceto `disconnectedAt` explícito. | Heartbeat atualiza lastSeen; atividade atualiza lastActivity; disconnect explícito é update-if-absent/idempotente. Timeout não é transição persistida; falha no disconnect pode deixar apenas timeout derivado. | Listagem e descoberta escopadas por usuário; HTTP MCP fecha explicitamente, STDIO atualmente não (finding REQUIRED). |
+| **REPLAY USAGE** | API valida capability/policy antes de `ReplayService.registerUsage`; este valida workspace/Replay e persiste declaração; controller emite evento para contexto AgentSession. | ReplayUsage persiste em transação de serviço; evento publicado após retorno. A policy verifica declaração/texto, não aplicação semântica independente. EventId deduplica auditoria se evento chegar ao listener. | Resposta/metadata contém dados de uso autorizados do Replay, sem token/fingerprint; recurso é filtrado por workspace e usuário. |
+
+## Security Boundaries
+
+- **Autenticação:** rotas `/api/**` exigem autenticação; `/actuator` é negado exceto health autorizado. O token MCP permanece no cliente/servidor MCP e é usado para chamadas API; não é parte do AgentSession DTO.
+- **Ownership/workspace:** AgentSessionContextResolver compara usuário autenticado com proprietário da sessão. Serviços Replay verificam membership e escopo de recursos independentemente da capability/policy.
+- **Headers/fingerprint:** `X-No8do-Agent-Session-Id` é um identificador interno necessário para contexto de agente, não credencial; raw MCP transport id fica no transporte MCP e backend recebe fingerprint derivado. Fingerprint não é autorização.
+- **DTO/eventos/audit:** DTOs omitem fingerprint/token; evento de uso transporta id/version/result, não conteúdo; denial policy usa reason normalizada; audit metadata é codificada por tipos allowlisted. SSE exige principal autenticado e entrega somente ao userId destinatário.
+- **Métricas/logs:** valores de tags são enums/categorias limitadas; métricas não incluem ids de usuário/sessão/workspace nem texto de Replay. Falhas de listeners/métricas não são propagadas como alteração de regra de domínio.
+- **Health:** `/actuator/health` não mostra componentes/detalhes; `/actuator/metrics` não está exposto. Health do gateway não depende de presença/atividade de agente.
+
+## Session Lifecycle
+
+Registro persiste usuário, workspace opcional, cliente, versão, transporte, fingerprint hash e modo. Heartbeat e atividade atualizam timestamps somente para sessão não explicitamente desconectada. Presence resolver calcula status por idade/limites; status timeout DISCONNECTED é observação derivada, não encerramento durável. `disconnectedAt` explícito é terminal e o caminho heartbeat retorna conflito; o caminho STDIO atual deixa de emitir heartbeats no close sem executar disconnect explícito (finding REQUIRED). Descoberta/listagem retorna somente sessões do proprietário autenticado e aplica membership quando há filtro de workspace.
+
+## Authorization Model
+
+Autenticação estabelece o principal. O contexto da sessão é opcional para manter a API regular compatível; se informado, seu ownership é obrigatório. Capability limita categoria por Runtime Mode, policy adiciona regras No8do específicas, e serviços de domínio ainda aplicam membership/RBAC e ownership dos objetos. Capability denial e policy denial usam erros/códigos diferentes. Policy não concede acesso e nunca substitui autorização normal.
+
+## Policy Enforcement
+
+As policies semantic duplicate, secrets e credentials permanecem ADVISORY, logo não bloqueiam. Workspace isolation é aplicado a cada operação Replay com AgentSession; evidence-required é avaliada em transições para VALIDATED; material-usage é aplicada somente ao registro de ReplayUsage por AgentSession e exige declaração/texto limitados. O engine atualmente permite policy ENFORCED não reconhecida; esse fail-open é finding REQUIRED para evolução segura do manifesto. A declaração de material use não é prova semântica independente.
+
+## Events and Realtime
+
+AgentEvent possui eventId, tipo, session/user/workspace e metadados tipados. Eventos de estado transacionais são entregues após commit; rollback não os entrega. Capability/policy denials são fatos de autorização, publicados sem esperar commit de domínio. SSE oferece múltiplos subscribers por usuário, framing genérico, id/event/data, keepalive e cleanup; é transporte em memória single-instance sem histórico/replay. ACTIVE/IDLE são derivados e não geram eventos.
+
+## Audit Trail
+
+Listener persiste os tipos canônicos em tabela append-only depois do evento, com `eventId` único/idempotente e metadata codec limitado. UPDATE/DELETE são bloqueados no banco. Denials são auditáveis mesmo sem commit de domínio. A persistência ocorre em callback após commit e falha é contida pelo publisher; não foi encontrado outbox/retry durável, então completude contra crash/falha é risco e não garantia.
+
+## Observability
+
+Actuator/Micrometer expõe health técnico seguro, sem details/components, e métricas internas com tags de cardinalidade finita. `/actuator/metrics` não é exposto. Agent Gateway health indica wiring/availability simples e não presença ou atividade. Falhas de métricas são isoladas do comportamento funcional.
+
+## Confirmed Invariants
 
 1. **Identidade e isolamento:** requisições com `X-No8do-Agent-Session-Id` exigem usuário autenticado, sessão existente e ownership correspondente. O fingerprint não é retornado nos DTOs de sessão/contexto. Membership/RBAC continua sendo verificado pelo domínio, inclusive quando existe AgentSession.
 2. **Runtime Mode:** capabilities efetivas são calculadas a partir do modo atual, não copiadas como autorização persistida. A sessão não transforma capability em permissão de workspace.
@@ -64,7 +107,7 @@ Os testes existentes relacionados incluem `AgentSessionControllerTests`, `AgentS
 
 Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSessionHeartbeat.ts:41-53`, `mcp/src/server.ts:102-175`, `mcp/src/workspace.ts:10-28`.
 
-## Achados
+## Findings
 
 ### REQUIRED — Fechamento STDIO não registra desconexão explícita
 
@@ -106,7 +149,7 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 - **Impacto:** em processo/conexão sobrevivendo a atualização do backend, tools/bootstrap podem apresentar manifesto antigo enquanto autorização/contexto vêm da versão atual do backend. A mitigação operacional provável é reinício coordenado, mas não há refresh/version guard no contrato observado.
 - **Recomendação:** vincular versão do snapshot ao ciclo de vida do processo/sessão com política de reinício documentada, ou implementar refresh/version check antes de tratar o manifesto como dinâmico. Não é necessário para processo estritamente reiniciado junto ao backend.
 
-## Riscos e limites explícitos
+## Risks
 
 - `materiallyUsed=true` e `context` são declaração e evidência textual do agente; não comprovam materialmente uma aplicação. A mensagem do protocolo orienta o agente a não inventar a declaração, mas a verificação é objetiva apenas quanto à presença/formato.
 - Timeout de presença é estado calculado na leitura, não transição persistida. `disconnectedAt` explícito é a condição terminal; clientes não devem interpretar todo status derivado DISCONNECTED como registro durável de encerramento.
@@ -115,7 +158,7 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 - O indicador Agent Gateway health não sinaliza atividade recente nem valida todos os serviços operacionais; `/api/health` legado permanece separado. Health verde não deve ser interpretado como prova de sessão conectada.
 - O modo FULL concede todas as capabilities presentes no enum; segurança ainda depende do usuário autenticado, ownership, membership/RBAC e policies no backend.
 
-## Correções recomendadas antes da 5H.9
+## Required Fixes
 
 1. Resolver a semântica de disconnect no fechamento STDIO e cobrir ambos os transports com teste de integração que confirme `disconnectedAt`/evento.
 2. Fechar o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis.
@@ -123,6 +166,18 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 4. Definir formalmente se o Audit Trail requer completude garantida; se sim, adotar outbox/retry transacional e teste de falha/crash window.
 5. Definir o ciclo de refresh/restart do Agent Protocol em processo MCP de longa duração e testar divergência de versão.
 
-## Conclusão
+## Readiness for Next Phase
 
 O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. Antes da 5H.9, os três itens REQUIRED acima devem ser decididos/resolvidos; os dois TECH-DEBT dependem do nível de garantia operacional e forense esperado. Esta conclusão é uma auditoria estática/documental; nenhuma suíte foi executada e nenhuma correção foi implementada.
+
+## Technical Debt
+
+Os dois achados TECH-DEBT são: (1) entrega de Audit Trail em callback in-process after-commit sem outbox/retry durável; (2) snapshot do Agent Protocol potencialmente obsoleto em processo MCP longo. Ambos estão descritos com comportamento, evidência, impacto e recomendação em Findings.
+
+## Optional Improvements
+
+Nenhum finding OPTIONAL foi necessário para registrar as divergências observadas. Melhorias não bloqueantes não foram adicionadas para manter o relatório concentrado em riscos sustentados por evidência.
+
+## Explicitly Out of Scope
+
+Não foram implementadas correções, funcionalidades, Session Governance/Revoke, frontend, Plugin/SKILL.md ou Runtime RAG. Também não foram alterados migrations, domínio, controllers, security, MCP, metrics ou testes. A auditoria não foi teste de penetração nem validação dinâmica de produção.
