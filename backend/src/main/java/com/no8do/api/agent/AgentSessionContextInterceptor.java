@@ -29,7 +29,7 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws IOException {
-        if (isSessionLifecycleEndpoint(handler)) return true;
+        if (isSessionLifecycleEndpoint(handler) || isAgentEventStreamEndpoint(handler)) return true;
         String rawSessionId = request.getHeader(HEADER_NAME);
         if (rawSessionId == null) return true;
         if (rawSessionId.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
@@ -72,5 +72,10 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
         return handler instanceof HandlerMethod method
                 && AgentSessionController.class.isAssignableFrom(method.getBeanType())
                 && method.getMethod().getName().equals("getContext");
+    }
+
+    private boolean isAgentEventStreamEndpoint(Object handler) {
+        return handler instanceof HandlerMethod method
+                && AgentEventStreamController.class.isAssignableFrom(method.getBeanType());
     }
 }
