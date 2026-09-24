@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import jakarta.annotation.PreDestroy;
@@ -69,6 +71,7 @@ public class AgentEventStreamHub {
     }
 
     @EventListener
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     public void onAgentEvent(AgentEvent event) {
         Set<Subscriber> subscribers = subscribersByUser.get(event.userId());
         if (subscribers == null || subscribers.isEmpty()) return;
