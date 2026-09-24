@@ -25,11 +25,7 @@ public final class No8doAgentProtocolProvider {
                 AgentCapability.REPLAY_CREATE,
                 AgentCapability.REPLAY_UPDATE,
                 AgentCapability.REPLAY_USAGE_HISTORY_READ,
-                AgentCapability.REPLAY_USAGE_RECORD,
-                AgentCapability.SEMANTIC_DUPLICATE_SEARCH,
-                AgentCapability.HYBRID_RETRIEVAL,
-                AgentCapability.CONTEXT_PACKAGE_ASSEMBLY,
-                AgentCapability.CONTEXT_RENDERING));
+                AgentCapability.REPLAY_USAGE_RECORD));
         AgentPolicyManifest policies = new AgentPolicyManifest(List.of(
                 new AgentPolicy("workspace-isolation-required", "Operações de Replay devem respeitar o workspace autorizado.", AgentPolicyEnforcement.ENFORCED),
                 new AgentPolicy("secrets-forbidden", "Não armazene segredos em conhecimento reutilizável.", AgentPolicyEnforcement.ADVISORY),

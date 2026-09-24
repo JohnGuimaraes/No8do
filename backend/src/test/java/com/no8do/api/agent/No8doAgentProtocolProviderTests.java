@@ -39,9 +39,6 @@ class No8doAgentProtocolProviderTests {
     @Test
     void capabilityManifestListsOnlyKnownFunctionalCapabilitiesInStableOrder() {
         List<AgentCapability> expected = List.of(
-                AgentCapability.CONTEXT_PACKAGE_ASSEMBLY,
-                AgentCapability.CONTEXT_RENDERING,
-                AgentCapability.HYBRID_RETRIEVAL,
                 AgentCapability.REPLAY_CATALOG_LIST,
                 AgentCapability.REPLAY_CREATE,
                 AgentCapability.REPLAY_QUALITY_READ,
@@ -52,8 +49,7 @@ class No8doAgentProtocolProviderTests {
                 AgentCapability.REPLAY_USAGE_HISTORY_READ,
                 AgentCapability.REPLAY_USAGE_RECORD,
                 AgentCapability.REPLAY_VERSION_READ,
-                AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY,
-                AgentCapability.SEMANTIC_DUPLICATE_SEARCH);
+                AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY);
         AgentCapabilityManifest manifest = provider.current().capabilities();
 
         assertThat(manifest.capabilities()).containsExactlyElementsOf(expected);
@@ -62,6 +58,13 @@ class No8doAgentProtocolProviderTests {
             assertThat(capability.id()).isNotBlank();
             assertThat(capability.description()).isNotBlank();
         });
+        assertThat(manifest.capabilities()).doesNotContain(AgentCapability.SEMANTIC_DUPLICATE_SEARCH,
+                AgentCapability.HYBRID_RETRIEVAL, AgentCapability.CONTEXT_PACKAGE_ASSEMBLY,
+                AgentCapability.CONTEXT_RENDERING);
+        assertThat(manifest.capabilities().stream().filter(capability -> capability == AgentCapability.REPLAY_SEARCH)
+                .findFirst().orElseThrow().description()).contains("lexicalmente").doesNotContain("semantic");
+        assertThat(manifest.capabilities().stream().filter(capability -> capability == AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY)
+                .findFirst().orElseThrow().description()).contains("lexical determinística");
         assertThatThrownBy(() -> manifest.capabilities().add(AgentCapability.REPLAY_SEARCH))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> new AgentCapabilityManifest(List.of(AgentCapability.REPLAY_READ, AgentCapability.REPLAY_READ)))

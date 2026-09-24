@@ -2,7 +2,7 @@
 
 ## Scope
 
-Auditoria documental e estática do backend e do contrato MCP/HTTP no commit-base `53937ca81cc10237545a6044df8c7157d3386eea`. O escopo cobre as fases 5H.1–5H.8 e os caminhos de sessão, autenticação, runtime mode, capability, policy, Replay, eventos, presença, SSE, auditoria, métricas e health. Não foram alterados código, migrations, configuração ou testes; não foram executados testes. O navegador não foi usado. O MCP de conhecimento No8do não estava disponível nesta execução, portanto as conclusões abaixo se baseiam no checkout e nos testes/documentos nele presentes.
+Auditoria documental e estática original do backend e do contrato MCP/HTTP no commit-base `53937ca81cc10237545a6044df8c7157d3386eea`. O escopo cobre as fases 5H.1–5H.8 e os caminhos de sessão, autenticação, runtime mode, capability, policy, Replay, eventos, presença, SSE, auditoria, métricas e health. A execução original não alterou código, migrations, configuração ou testes. Atualização 5H.8C.2C: o finding de capability foi revalidado no código e resolvido no contrato, controller, testes e documentação. O navegador não foi usado. O MCP de conhecimento No8do não estava disponível nesta execução; as conclusões desta atualização se baseiam no checkout e testes locais.
 
 As referências de evidência apontam para arquivos e linhas do checkout auditado, não para resultados de execução desta auditoria.
 
@@ -29,7 +29,7 @@ O backend é a autoridade para autenticação, ownership, membership/RBAC, capab
 
 - **Protocolo e manifesto:** `No8doAgentProtocolProvider` é a fonte versionada das capabilities e policies; `AgentSessionContextResolver` resolve os valores atuais para o contexto da sessão. Fingerprint de transporte é hash para correlação/idempotência, não autenticação (`No8doAgentProtocolProvider.java:8-41`, `mcp/src/transportSessionFingerprint.ts`).
 - **Sessão/ownership:** sessão é vinculada ao usuário autenticado; leitura/listagem é escopada por usuário; a sessão desconectada explicitamente não pode continuar operações normais (`AgentSessionContextResolver.java:32-44`, `AgentSessionRepository.java:14-23`, `AgentSessionControllerTests.java:205-265`).
-- **Runtime mode/capability:** modo determina o conjunto efetivo de capabilities (OFF vazio; READ_ONLY básico; RETRIEVAL acrescenta descoberta/contexto; ASSISTED acrescenta registro de uso; FULL concede o enum) (`AgentEffectiveCapabilityResolver.java:22-50`). Capability responde se a categoria está habilitada para aquela sessão; não concede membership nem acesso a um objeto.
+- **Runtime mode/capability:** modo determina o conjunto efetivo pela interseção do manifesto publicado, do conjunto suportado pelo Gateway e da matriz de modo (OFF vazio; READ_ONLY básico; RETRIEVAL acrescenta busca e descoberta lexical; ASSISTED acrescenta registro de uso; FULL concede o manifesto suportado, não o enum completo). Capability responde se a categoria está habilitada para aquela sessão; não concede membership nem acesso a um objeto.
 - **Policy:** `AgentPolicyAuthorizationService` avalia o manifesto canônico e somente bloqueia decisões DENY de policy ENFORCED; policy ADVISORY não bloqueia. Policy não substitui membership/RBAC (`AgentPolicyAuthorizationService.java:44-65`, `AgentPolicyEngine.java:9-52`).
 - **Replay/workspace:** controller aplica capability e policy; serviços validam workspace e recursos no domínio. Sessão com workspace associado não pode operar em outro workspace; sessão sem workspace não inventa um, e a autorização regular permanece (`ReplayController.java:49-58`, `ReplayService.java:76-99`, `ReplayService.java:152-200`).
 - **Eventos e presença:** eventos de estado persistidos são after-commit; denials são decisões de autorização e são emitidos sem exigir commit de domínio. Presença ACTIVE/IDLE é derivada de timestamps; `disconnectedAt` representa desconexão explícita (`SpringAgentEventPublisher.java:23-54`, `AgentPresenceResolver.java`, `docs/agent-presence.md`).
@@ -103,7 +103,7 @@ Os testes existentes relacionados incluem `AgentSessionControllerTests`, `AgentS
 | Identidade da sessão de transporte | Gera identificador local efêmero e envia fingerprint SHA-256; autenticação é o token da API. | Usa session id do transporte MCP e fingerprint derivado; token é mantido em memória por sessão. | Recebe apenas AgentSession id no header e fingerprint na criação; valida usuário autenticado e ownership. |
 | Fechamento | RESOLVED em 5H.8C.2B: o callback aguardável reutiliza `heartbeat.close()`, para o timer, tenta disconnect e limpa a referência local. | `onsessionclosed` e fechamento do serviço chamam `closeSession`, que executa `heartbeat.close()` e pede disconnect explícito. | Disconnect explícito persiste `disconnectedAt` e publica o evento correspondente. |
 | Protocolo | Obtido uma vez no startup do processo e capturado pelo servidor MCP. | Obtido ao criar sessão MCP; a consulta posterior ao backend não substitui o snapshot já capturado. | Provider é canônico para a versão implantada; context da sessão é resolvido dinamicamente. |
-| Ferramentas | Compartilha a lista de ferramentas implementada no servidor MCP. | Mesmas ferramentas do servidor MCP. | APIs REST têm operações de Replay, mas nem toda capability tem ferramenta MCP correspondente. |
+| Ferramentas | Lista operações implementadas no servidor MCP; `get_agent_protocol` transporta o manifesto recebido do backend. | Mesmas ferramentas do servidor MCP. | Cada capability Replay publicada corresponde a uma operação HTTP real e a um caminho MCP coerente; control-plane é descrito separadamente. |
 
 Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSessionHeartbeat.ts:41-53`, `mcp/src/server.ts:102-175`, `mcp/src/workspace.ts:10-28`.
 
@@ -122,11 +122,13 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 
 ### REQUIRED — Capabilities de retrieval/contexto não correspondem a operações anunciadas
 
+- **Status:** RESOLVED — 5H.8C.2C.
 - **Componente:** manifesto de AgentCapability, autorização de `/similar` e ferramentas MCP.
-- **Comportamento atual:** manifesto anuncia `SEMANTIC_DUPLICATE_SEARCH`, `HYBRID_RETRIEVAL`, `CONTEXT_PACKAGE_ASSEMBLY` e `CONTEXT_RENDERING`. `/similar` exige `SEMANTIC_DUPLICATE_SEARCH`, mas delega a `ReplayService.findSimilar`, que usa ranking determinístico lexical; MCP não registra ferramenta específica de busca vetorial/híbrida, assembly de pacote ou rendering. Existem serviços internos para essas etapas, sem operação de gateway exposta ao agente nesta base.
+- **Comportamento anterior:** manifesto anunciava `SEMANTIC_DUPLICATE_SEARCH`, `HYBRID_RETRIEVAL`, `CONTEXT_PACKAGE_ASSEMBLY` e `CONTEXT_RENDERING`. `/similar` exigia `SEMANTIC_DUPLICATE_SEARCH`, mas delegava a `ReplayService.findSimilar`, que usa ranking determinístico lexical; MCP não tinha ferramenta específica de busca vetorial/híbrida, assembly de pacote ou rendering.
+- **Solução aplicada:** as quatro capabilities internas foram retiradas do manifesto e da matriz efetiva de Retrieval sem remover seus enums, serviços ou infraestrutura 5E/5F. `/similar` agora exige `REPLAY_SEARCH` e `REUSABLE_KNOWLEDGE_DISCOVERY`, compatíveis com a busca lexical e a descoberta determinística executadas. `FULL` é filtrado pelo manifesto canônico suportado do Gateway; enum futuro/interno presente em snapshot antigo não é efetivado.
+- **Distinção de escopo:** Semantic Retrieval 5E e Retrieval→Context 5F permanecem infraestrutura interna; Runtime RAG segue planejado. Elas só devem retornar ao Agent Protocol quando uma operação externa coerente for disponibilizada.
 - **Evidência:** `AgentCapability.java:20-23`; `No8doAgentProtocolProvider.java:17-32`; `ReplayController.java:80-86`; `ReplayService.java:165-177`; `mcp/src/server.ts:162-175`.
-- **Impacto:** cliente pode interpretar que uma capability efetiva é uma operação invocável e receber `/similar` sob a semântica de busca vetorial, embora a rota execute ranking lexical. Operações de hybrid/context não estão disponíveis pelo contrato MCP observado.
-- **Recomendação:** alinhar manifesto, nome/semântica da rota e ferramentas MCP: expor as operações correspondentes quando estiverem prontas ou deixar de anunciar/conceder capabilities não invocáveis e separar a capability lexical de busca semântica. Não implementar nesta auditoria.
+- **Validação 5H.8C.2C informada e aceita:** backend focado — 62 testes, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS, exit 0; suíte backend — 519 testes, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS, exit 0; MCP `npm ci`, typecheck e build com exit 0; `npm test` — 50 passed, 0 failed, 0 cancelled, 0 skipped, exit 0. `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi aplicado somente aos processos Maven. Os testes de contrato verificam manifesto/backend, tools MCP determinísticas e capabilities efetivas.
 
 ### REQUIRED — Policy ENFORCED desconhecida falha aberta
 
@@ -161,11 +163,11 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 - SSE é in-process e não retém eventos; não há replay/history nem garantia de entrega para subscriber desconectado. Reconstrução de estado depende de Session Discovery/API.
 - Audit Trail é append-only depois de persistido e deduplica pelo eventId, mas a geração/entrega after-commit não é outbox durável.
 - O indicador Agent Gateway health não sinaliza atividade recente nem valida todos os serviços operacionais; `/api/health` legado permanece separado. Health verde não deve ser interpretado como prova de sessão conectada.
-- O modo FULL concede todas as capabilities presentes no enum; segurança ainda depende do usuário autenticado, ownership, membership/RBAC e policies no backend.
+- O modo FULL concede somente capabilities publicadas/suportadas pelo Agent Gateway atual; segurança ainda depende do usuário autenticado, ownership, membership/RBAC e policies no backend.
 
 ## Required Fixes
 
-1. Resolver o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis. **Aberto — único REQUIRED restante antes da 5H.9.**
+1. Resolver o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis. **RESOLVED — 5H.8C.2C.**
 2. Cobertura fail-closed de cada policy ENFORCED desconhecida. **RESOLVED — 5H.8C.2A.**
 3. Disconnect explícito no shutdown normal STDIO, com paridade de `heartbeat.close()` do HTTP. **RESOLVED — 5H.8C.2B.**
 4. Definir formalmente se o Audit Trail requer completude garantida; se sim, adotar outbox/retry transacional e teste de falha/crash window. **Aberto — TECH-DEBT.**
@@ -173,7 +175,7 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 
 ## Readiness for Next Phase
 
-O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. **Dois REQUIRED foram resolvidos**: policy ENFORCED desconhecida fail-closed (5H.8C.2A) e disconnect explícito no shutdown normal STDIO (5H.8C.2B). Resta **1 REQUIRED antes da 5H.9**: capability contract alignment. Os **2 TECH-DEBT** (entrega durável do Audit Trail e refresh/versionamento do snapshot de protocolo) continuam abertos e inalterados. A auditoria inteira não está concluída para avanço à 5H.9. Esta atualização documental não inicia 5H.8C.2C ou 5H.9.
+O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. **Os três REQUIRED registrados foram resolvidos**: policy ENFORCED desconhecida fail-closed (5H.8C.2A), disconnect explícito no shutdown normal STDIO (5H.8C.2B) e alinhamento do contrato de capabilities (5H.8C.2C). Não resta REQUIRED desta auditoria; os **2 TECH-DEBT** (entrega durável do Audit Trail e refresh/versionamento do snapshot de protocolo) continuam abertos e inalterados. Esta atualização não inicia a fase 5H.9.
 
 ## Technical Debt
 

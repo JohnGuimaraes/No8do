@@ -7,8 +7,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AgentEffectiveCapabilityResolverTests {
-    private final AgentEffectiveCapabilityResolver resolver = new AgentEffectiveCapabilityResolver();
-    private final No8doAgentProtocol protocol = new No8doAgentProtocolProvider().current();
+    private final No8doAgentProtocolProvider provider = new No8doAgentProtocolProvider();
+    private final AgentEffectiveCapabilityResolver resolver = new AgentEffectiveCapabilityResolver(provider);
+    private final No8doAgentProtocol protocol = provider.current();
 
     @Test
     void offHasNoReplayCapabilitiesAndReadOnlyContainsOnlyExplicitReadMatrix() {
@@ -23,9 +24,9 @@ class AgentEffectiveCapabilityResolverTests {
     void retrievalAndAssistedAddOnlyTheirExplicitCapabilities() {
         List<AgentCapability> retrieval = resolver.resolve(protocol, AgentRuntimeMode.RETRIEVAL);
         assertThat(retrieval).containsAll(resolver.resolve(protocol, AgentRuntimeMode.READ_ONLY));
-        assertThat(retrieval).contains(AgentCapability.REPLAY_SEARCH, AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY,
-                AgentCapability.SEMANTIC_DUPLICATE_SEARCH, AgentCapability.HYBRID_RETRIEVAL,
-                AgentCapability.CONTEXT_PACKAGE_ASSEMBLY, AgentCapability.CONTEXT_RENDERING);
+        assertThat(retrieval).contains(AgentCapability.REPLAY_SEARCH, AgentCapability.REUSABLE_KNOWLEDGE_DISCOVERY)
+                .doesNotContain(AgentCapability.SEMANTIC_DUPLICATE_SEARCH, AgentCapability.HYBRID_RETRIEVAL,
+                        AgentCapability.CONTEXT_PACKAGE_ASSEMBLY, AgentCapability.CONTEXT_RENDERING);
         assertThat(retrieval).doesNotContain(AgentCapability.REPLAY_USAGE_RECORD,
                 AgentCapability.REPLAY_CREATE, AgentCapability.REPLAY_UPDATE);
 
@@ -56,5 +57,16 @@ class AgentEffectiveCapabilityResolverTests {
                 new AgentCapabilityManifest(List.of(AgentCapability.REPLAY_READ)), protocol.policies());
         assertThat(resolver.resolve(limited, AgentRuntimeMode.FULL)).containsExactly(AgentCapability.REPLAY_READ);
         assertThat(resolver.resolve(limited, AgentRuntimeMode.RETRIEVAL)).containsExactly(AgentCapability.REPLAY_READ);
+    }
+
+    @Test
+    void fullNeverGrantsInternalCapabilitiesEvenIfAnOlderOrInjectedProtocolContainsThem() {
+        No8doAgentProtocol stale = new No8doAgentProtocol(protocol.protocolName(), protocol.protocolVersion(),
+                protocol.systemName(), protocol.purpose(), protocol.replayGuidance(),
+                new AgentCapabilityManifest(List.of(AgentCapability.REPLAY_READ, AgentCapability.HYBRID_RETRIEVAL,
+                        AgentCapability.SEMANTIC_DUPLICATE_SEARCH, AgentCapability.CONTEXT_PACKAGE_ASSEMBLY,
+                        AgentCapability.CONTEXT_RENDERING)), protocol.policies());
+
+        assertThat(resolver.resolve(stale, AgentRuntimeMode.FULL)).containsExactly(AgentCapability.REPLAY_READ);
     }
 }

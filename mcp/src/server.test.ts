@@ -14,7 +14,19 @@ import { AgentSessionHeader, No8doClient, type AgentProtocol } from "./no8doClie
 const protocol: AgentProtocol = {
   protocolName: "no8do-agent-protocol", protocolVersion: 1, systemName: "No8do", purpose: "Memória técnica",
   replayGuidance: { summary: "Pesquise conhecimento reutilizável.", searchBeforeNonTrivialWork: true, preferExistingKnowledge: true, searchBeforeCreate: true, recordUsageOnlyWhenMateriallyUsed: true, validatedRequiresEvidence: true, avoidTrivialKnowledge: true, avoidDuplicateKnowledge: true, neverStoreSecrets: true, neverStoreCredentials: true, avoidDiscardedAttempts: true },
-  capabilities: { capabilities: [] }, policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence", enforcement: "ENFORCED" }] }
+  capabilities: { capabilities: [
+    { id: "REPLAY_CATALOG_LIST", description: "Lista o catálogo de Replays.", readOnly: true },
+    { id: "REPLAY_SEARCH", description: "Pesquisa Replays no workspace por texto e ordena correspondências lexicalmente.", readOnly: true },
+    { id: "REUSABLE_KNOWLEDGE_DISCOVERY", description: "Sugere Replays reutilizáveis por relevância lexical determinística.", readOnly: true },
+    { id: "REPLAY_READ", description: "Lê conteúdo completo de Replay.", readOnly: true },
+    { id: "REPLAY_VERSION_READ", description: "Lê versões históricas imutáveis de Replay.", readOnly: true },
+    { id: "REPLAY_QUALITY_READ", description: "Lê avaliação derivada de qualidade do Replay.", readOnly: true },
+    { id: "REPLAY_RELATIONS", description: "Lista, cria e remove relações entre Replays.", readOnly: false },
+    { id: "REPLAY_CREATE", description: "Cria Replays.", readOnly: false },
+    { id: "REPLAY_UPDATE", description: "Atualiza Replays.", readOnly: false },
+    { id: "REPLAY_USAGE_HISTORY_READ", description: "Lê o histórico de uso de um Replay.", readOnly: true },
+    { id: "REPLAY_USAGE_RECORD", description: "Registra uso de Replay.", readOnly: false }
+  ] }, policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence", enforcement: "ENFORCED" }] }
 };
 
 async function listen(server: Server) { server.listen(0, "127.0.0.1"); await once(server, "listening"); return `http://127.0.0.1:${(server.address() as { port: number }).port}`; }
@@ -123,15 +135,23 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     const listToolsResponse = nextMessage(output);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })}\n`);
-    const tools = ((await listToolsResponse).result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> }).tools;
+    const tools = ((await listToolsResponse).result as { tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }).tools;
     assert.equal(tools.length, 15);
+    assert.ok(tools.some(tool => tool.name === "search_replays"));
+    assert.ok(tools.some(tool => tool.name === "find_reusable_knowledge" && /determinística/.test(tool.description)));
+    assert.doesNotMatch(JSON.stringify(tools.map(tool => tool.description)), /semantic|hybrid|context package|rendering/i);
     const contextTool = tools.find(tool => tool.name === "get_agent_context");
     assert.deepEqual(contextTool?.inputSchema.properties, {});
     assert.doesNotMatch(JSON.stringify(contextTool?.inputSchema), /sessionId/);
     const protocolResponse = nextMessage(output);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "get_agent_protocol", arguments: {} } })}\n`);
     const discovered = await protocolResponse;
-    assert.equal((discovered.result as { structuredContent: AgentProtocol }).structuredContent.protocolVersion, 1);
+    const discoveredProtocol = (discovered.result as { structuredContent: AgentProtocol }).structuredContent;
+    assert.deepEqual(discoveredProtocol, protocol);
+    assert.deepEqual(discoveredProtocol.capabilities.capabilities.map(capability => capability.id),
+      protocol.capabilities.capabilities.map(capability => capability.id));
+    assert.ok(!discoveredProtocol.capabilities.capabilities.some(capability =>
+      ["SEMANTIC_DUPLICATE_SEARCH", "HYBRID_RETRIEVAL", "CONTEXT_PACKAGE_ASSEMBLY", "CONTEXT_RENDERING"].includes(capability.id)));
     const contextResponse = nextMessage(output);
     input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "get_agent_context", arguments: {} } })}\n`);
     const firstContext = await contextResponse;

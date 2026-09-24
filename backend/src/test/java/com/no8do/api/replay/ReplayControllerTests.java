@@ -136,6 +136,13 @@ class ReplayControllerTests {
                 .with(user(new No8doUserDetails(owner))))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_SEARCH"));
+        mockMvc.perform(post("/api/workspaces/{workspaceId}/replays/similar", workspace.getId())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("AGENT_CAPABILITY_DENIED"))
+                .andExpect(jsonPath("$.metadata.requiredCapability").value("REPLAY_SEARCH"));
 
         agentSessionContextService.updateRuntimeMode(session.sessionId(), owner.getId(), AgentRuntimeMode.OFF);
         mockMvc.perform(get("/api/workspaces/{workspaceId}/replays/{replayId}", workspace.getId(), replayId)
