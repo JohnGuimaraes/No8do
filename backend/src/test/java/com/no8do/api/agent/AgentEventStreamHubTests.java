@@ -17,9 +17,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class AgentEventStreamHubTests {
-    private final AgentEventStreamHub hub = new AgentEventStreamHub();
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final AgentGatewayMetrics metrics = new AgentGatewayMetrics(meterRegistry);
+    private final AgentEventStreamHub hub = new AgentEventStreamHub(metrics);
 
     @AfterEach
     void shutdownHub() {
@@ -106,6 +109,7 @@ class AgentEventStreamHubTests {
 
         verify(healthy).send(org.mockito.ArgumentMatchers.any(SseEmitter.SseEventBuilder.class));
         assertThat(hub.subscriberCount(userId)).isEqualTo(1);
+        assertThat(meterRegistry.counter(AgentGatewayMetrics.SSE_SEND_FAILURES).count()).isEqualTo(1);
     }
 
     @Test
@@ -130,7 +134,7 @@ class AgentEventStreamHubTests {
 
     @Test
     void keepaliveIsAnSseCommentAndNotAnAgentEvent() throws Exception {
-        AgentEventStreamHub keepaliveHub = new AgentEventStreamHub(5);
+        AgentEventStreamHub keepaliveHub = new AgentEventStreamHub(metrics, 5);
         SseEmitter emitter = mock(SseEmitter.class);
         CountDownLatch received = new CountDownLatch(1);
         java.util.concurrent.atomic.AtomicReference<SseEmitter.SseEventBuilder> sent =
@@ -164,6 +168,26 @@ class AgentEventStreamHubTests {
         } finally {
             keepaliveHub.shutdown();
         }
+    }
+
+    @Test
+    void subscriptionMetricsCloseExactlyOnceAndNeverGoNegative() {
+        UUID userId = UUID.randomUUID();
+        SseEmitter emitter = mock(SseEmitter.class);
+        AtomicReference<Runnable> completion = new AtomicReference<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            completion.set(invocation.getArgument(0));
+            return null;
+        }).when(emitter).onCompletion(org.mockito.ArgumentMatchers.any(Runnable.class));
+
+        hub.subscribe(userId, emitter);
+        completion.get().run();
+        completion.get().run();
+        hub.shutdown();
+
+        assertThat(meterRegistry.counter(AgentGatewayMetrics.SSE_SUBSCRIPTIONS_OPENED).count()).isEqualTo(1);
+        assertThat(meterRegistry.counter(AgentGatewayMetrics.SSE_SUBSCRIPTIONS_CLOSED).count()).isEqualTo(1);
+        assertThat(meterRegistry.get(AgentGatewayMetrics.SSE_SUBSCRIPTIONS_ACTIVE).gauge().value()).isEqualTo(0.0);
     }
 
     private AgentEvent event(UUID userId, AgentEventType type, AgentEventMetadata metadata) {

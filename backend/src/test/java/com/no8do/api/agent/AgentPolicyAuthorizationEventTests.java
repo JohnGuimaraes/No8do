@@ -17,8 +17,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class AgentPolicyAuthorizationEventTests {
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final No8doAgentProtocolProvider protocolProvider = new No8doAgentProtocolProvider();
     private final AgentEventPublisher eventPublisher = mock(AgentEventPublisher.class);
     private final AgentSession session = new AgentSession(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
@@ -26,7 +28,8 @@ class AgentPolicyAuthorizationEventTests {
             protocolProvider.current(), "a".repeat(64));
     private final AgentPolicyAuthorizationService authorization = new AgentPolicyAuthorizationService(
             new AgentPolicyEngine(), protocolProvider,
-            new AgentEventFactory(Clock.fixed(Instant.parse("2026-09-23T12:00:00Z"), ZoneOffset.UTC)), eventPublisher);
+            new AgentEventFactory(Clock.fixed(Instant.parse("2026-09-23T12:00:00Z"), ZoneOffset.UTC)), eventPublisher,
+            new AgentGatewayMetrics(meterRegistry));
 
     @AfterEach
     void clearRequestContext() {
@@ -47,6 +50,8 @@ class AgentPolicyAuthorizationEventTests {
                 && event.metadata() instanceof AgentEventMetadata.PolicyDenied metadata
                 && metadata.policyId().equals("workspace-isolation-required")
                 && metadata.reason().equals("Uma policy ENFORCED negou a operação.")));
+        org.assertj.core.api.Assertions.assertThat(meterRegistry.counter(AgentGatewayMetrics.POLICY_DENIED).count())
+                .isEqualTo(1);
     }
 
     @Test

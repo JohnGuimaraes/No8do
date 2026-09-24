@@ -14,13 +14,15 @@ public class AgentSessionPresenceService {
     private final Clock clock;
     private final AgentEventFactory eventFactory;
     private final AgentEventPublisher eventPublisher;
+    private final AgentGatewayMetrics metrics;
 
     public AgentSessionPresenceService(AgentSessionRepository repository, Clock clock,
-            AgentEventFactory eventFactory, AgentEventPublisher eventPublisher) {
+            AgentEventFactory eventFactory, AgentEventPublisher eventPublisher, AgentGatewayMetrics metrics) {
         this.repository = repository;
         this.clock = clock;
         this.eventFactory = eventFactory;
         this.eventPublisher = eventPublisher;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -31,6 +33,7 @@ public class AgentSessionPresenceService {
             requireConnected(requireOwned(sessionId, authenticatedUserId));
             throw notFound();
         }
+        metrics.heartbeatAcceptedAfterCommit();
         return now;
     }
 
@@ -50,6 +53,7 @@ public class AgentSessionPresenceService {
         if (session.getDisconnectedAt() != null) return session.getDisconnectedAt();
         Instant now = clock.instant();
         if (repository.updateDisconnectedAtIfAbsent(sessionId, authenticatedUserId, now) == 1) {
+            metrics.sessionDisconnectedAfterCommit();
             eventPublisher.publish(eventFactory.disconnected(session));
             return now;
         }

@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -15,6 +16,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import jakarta.annotation.PreDestroy;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -24,18 +26,21 @@ public class AgentEventStreamHub {
     private static final long KEEPALIVE_INTERVAL_MILLIS = 25_000;
     private final ConcurrentMap<UUID, Set<Subscriber>> subscribersByUser = new ConcurrentHashMap<>();
     private final long keepaliveIntervalMillis;
+    private final AgentGatewayMetrics metrics;
     private final ScheduledThreadPoolExecutor keepaliveExecutor = new ScheduledThreadPoolExecutor(1, runnable -> {
         Thread thread = new Thread(runnable, "agent-event-sse-keepalive");
         thread.setDaemon(true);
         return thread;
     });
 
-    public AgentEventStreamHub() {
-        this(KEEPALIVE_INTERVAL_MILLIS);
+    @Autowired
+    public AgentEventStreamHub(AgentGatewayMetrics metrics) {
+        this(metrics, KEEPALIVE_INTERVAL_MILLIS);
     }
 
-    AgentEventStreamHub(long keepaliveIntervalMillis) {
+    AgentEventStreamHub(AgentGatewayMetrics metrics, long keepaliveIntervalMillis) {
         if (keepaliveIntervalMillis < 1) throw new IllegalArgumentException("Intervalo de keepalive inválido.");
+        this.metrics = metrics;
         this.keepaliveIntervalMillis = keepaliveIntervalMillis;
         keepaliveExecutor.setRemoveOnCancelPolicy(true);
     }
@@ -59,6 +64,7 @@ public class AgentEventStreamHub {
         Subscriber subscriber = new Subscriber(authenticatedUserId, emitter);
         subscribersByUser.computeIfAbsent(authenticatedUserId, ignored -> ConcurrentHashMap.newKeySet())
                 .add(subscriber);
+        metrics.sseSubscriptionOpened();
         emitter.onCompletion(() -> remove(subscriber));
         emitter.onTimeout(() -> {
             remove(subscriber);
@@ -77,7 +83,7 @@ public class AgentEventStreamHub {
         if (subscribers == null || subscribers.isEmpty()) return;
         AgentEventResponse response = AgentEventResponse.from(event);
         for (Subscriber subscriber : subscribers) {
-            if (!subscriber.closed) sendEvent(subscriber, event, response);
+            if (!subscriber.closed.get()) sendEvent(subscriber, event, response);
         }
     }
 
@@ -86,6 +92,7 @@ public class AgentEventStreamHub {
             subscriber.emitter.send(SseEmitter.event().id(event.eventId().toString())
                     .name(event.type().name()).data(response, MediaType.APPLICATION_JSON));
         } catch (IOException | RuntimeException failure) {
+            metrics.sseSendFailed();
             LOGGER.debug("Removendo subscriber SSE desconectado: failureType={}", failure.getClass().getSimpleName());
             remove(subscriber);
             try {
@@ -97,10 +104,11 @@ public class AgentEventStreamHub {
     }
 
     private void sendKeepalive(Subscriber subscriber) {
-        if (subscriber.closed) return;
+        if (subscriber.closed.get()) return;
         try {
             subscriber.emitter.send(SseEmitter.event().comment("keepalive"));
         } catch (IOException | RuntimeException failure) {
+            metrics.sseSendFailed();
             LOGGER.debug("Removendo subscriber SSE em keepalive: failureType={}", failure.getClass().getSimpleName());
             remove(subscriber);
             try {
@@ -112,13 +120,13 @@ public class AgentEventStreamHub {
     }
 
     private void remove(Subscriber subscriber) {
-        if (subscriber.closed) return;
-        subscriber.closed = true;
+        if (!subscriber.closed.compareAndSet(false, true)) return;
         if (subscriber.keepalive != null) subscriber.keepalive.cancel(false);
         subscribersByUser.computeIfPresent(subscriber.userId, (ignored, subscribers) -> {
             subscribers.remove(subscriber);
             return subscribers.isEmpty() ? null : subscribers;
         });
+        metrics.sseSubscriptionClosed();
     }
 
     int subscriberCount(UUID authenticatedUserId) {
@@ -129,7 +137,7 @@ public class AgentEventStreamHub {
     private static final class Subscriber {
         private final UUID userId;
         private final SseEmitter emitter;
-        private volatile boolean closed;
+        private final AtomicBoolean closed = new AtomicBoolean();
         private volatile ScheduledFuture<?> keepalive;
 
         private Subscriber(UUID userId, SseEmitter emitter) {

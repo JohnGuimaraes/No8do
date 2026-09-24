@@ -16,17 +16,19 @@ public class AgentSessionRegistry {
     private final Clock clock;
     private final AgentEventFactory eventFactory;
     private final AgentEventPublisher eventPublisher;
+    private final AgentGatewayMetrics metrics;
 
     public AgentSessionRegistry(AgentSessionRepository repository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
             No8doAgentProtocolProvider protocolProvider, Clock clock, AgentEventFactory eventFactory,
-            AgentEventPublisher eventPublisher) {
+            AgentEventPublisher eventPublisher, AgentGatewayMetrics metrics) {
         this.repository = repository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.protocolProvider = protocolProvider;
         this.clock = clock;
         this.eventFactory = eventFactory;
         this.eventPublisher = eventPublisher;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -48,7 +50,10 @@ public class AgentSessionRegistry {
                 || session.getTransport() != request.transport()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Transport session identity conflicts with registration");
         }
-        if (inserted == 1) eventPublisher.publish(eventFactory.connected(session));
+        if (inserted == 1) {
+            metrics.sessionRegisteredAfterCommit();
+            eventPublisher.publish(eventFactory.connected(session));
+        }
         return AgentSessionResponse.from(session);
     }
 }

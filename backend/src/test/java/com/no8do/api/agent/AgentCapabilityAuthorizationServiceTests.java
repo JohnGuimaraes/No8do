@@ -19,11 +19,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class AgentCapabilityAuthorizationServiceTests {
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final AgentEventPublisher eventPublisher = mock(AgentEventPublisher.class);
     private final AgentCapabilityAuthorizationService authorization = new AgentCapabilityAuthorizationService(
-            new AgentEventFactory(Clock.fixed(Instant.parse("2026-09-23T12:00:00Z"), ZoneOffset.UTC)), eventPublisher);
+            new AgentEventFactory(Clock.fixed(Instant.parse("2026-09-23T12:00:00Z"), ZoneOffset.UTC)), eventPublisher,
+            new AgentGatewayMetrics(meterRegistry));
 
     @AfterEach
     void clearRequestContext() {
@@ -68,6 +71,9 @@ class AgentCapabilityAuthorizationServiceTests {
                 && event.sessionId().equals(session.getId())
                 && event.metadata().equals(new AgentEventMetadata.CapabilityDenied(
                         AgentCapability.REPLAY_READ, AgentRuntimeMode.OFF))));
+        assertThat(meterRegistry.counter(AgentGatewayMetrics.CAPABILITY_DENIED,
+                "capability", AgentCapability.REPLAY_READ.id(), "runtimeMode", AgentRuntimeMode.OFF.name())
+                .count()).isEqualTo(1);
     }
 
     private void require(AgentRuntimeMode mode, List<AgentCapability> capabilities,
