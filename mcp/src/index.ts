@@ -1,5 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { AgentSessionHeartbeat } from "./agentSessionHeartbeat.js";
+import { createStdioSessionCloseHandler } from "./stdioSessionLifecycle.js";
 import { AgentSessionHeader, No8doClient } from "./no8doClient.js";
 import { createMcpServer, StdioAgentSessionTransport } from "./server.js";
 
@@ -13,6 +14,10 @@ const agentSessionHeader = new AgentSessionHeader();
 const client = new No8doClient(apiUrl, token);
 const server = createMcpServer({ apiUrl, token, agentProtocol, defaultWorkspaceId: workspaceId, agentSessionHeader });
 let heartbeat: AgentSessionHeartbeat | undefined;
+const onSessionClosed = createStdioSessionCloseHandler(
+  () => heartbeat,
+  () => { heartbeat = undefined; }
+);
 const transport = new StdioAgentSessionTransport(new StdioServerTransport(),
   (clientName, clientVersion, transportSessionFingerprint) => client.registerAgentSession({
     clientName, clientVersion, workspaceId: workspaceId ?? null, transport: "MCP", transportSessionFingerprint
@@ -22,5 +27,5 @@ const transport = new StdioAgentSessionTransport(new StdioServerTransport(),
     heartbeat = new AgentSessionHeartbeat(client, session.sessionId);
     heartbeat.start();
   },
-  () => heartbeat?.stop());
+  onSessionClosed);
 await server.connect(transport);

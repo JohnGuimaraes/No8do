@@ -92,6 +92,28 @@ test("falha no disconnect é absorvida após parar o heartbeat", async () => {
   assert.equal(failures[0]?.operation, "disconnect");
 });
 
+test("erro de disconnect não expõe bearer nem PAT no log de cleanup", async () => {
+  const logEntries: unknown[][] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => { logEntries.push(args); };
+  try {
+    const client = new No8doClient("http://localhost:8080", "PAT_STDIO_SECRET", (async () => {
+      throw new Error("Request failed: Bearer PAT_STDIO_SECRET");
+    }) as typeof fetch);
+    const heartbeat = new AgentSessionHeartbeat(client, sessionId, () => () => {});
+
+    heartbeat.start();
+    await heartbeat.close();
+
+    const logged = JSON.stringify(logEntries);
+    assert.doesNotMatch(logged, /PAT_STDIO_SECRET/);
+    assert.match(logged, /Bearer \[REDACTED\]/);
+    assert.doesNotMatch(logged, /transportSessionFingerprint|fingerprint/);
+  } finally {
+    console.error = originalError;
+  }
+});
+
 test("falha isolada é registrada e tick posterior tenta novamente", async () => {
   let calls = 0;
   const errors: unknown[] = [];

@@ -44,7 +44,7 @@ O backend é a autoridade para autenticação, ownership, membership/RBAC, capab
 | **CONNECT** | MCP obtém o protocolo; backend registra identidade/transport/fingerprint; modo inicial e capabilities são resolvidos pelo backend. | Registro usa insert-if-absent e unicidade por transport/fingerprint; colisão incompatível retorna conflito. Evento de conexão só é publicado na inserção nova. | Token autentica chamadas; sessão pertence ao usuário autenticado. Fingerprint é hash interno e não consta nos DTOs. |
 | **REQUEST** | autenticação → contexto/ownership da AgentSession → capability efetiva → policy → workspace membership/RBAC e domínio. | Negação capability/policy interrompe antes da operação; erros HTTP são respostas distintas. Operação de domínio usa os limites transacionais próprios do serviço. | Usuário e workspace são novamente verificados pelo backend; header de sessão não substitui identidade nem membership. |
 | **EVENT** | evento canônico representa fato/denial; publisher separa denials imediatos dos fatos transacionais after-commit; listeners entregam SSE, auditam e atualizam métricas. | eventId dá deduplicação ao Audit Trail; rollback suprime evento transacional; listener/audit falhando após commit não reverte domínio e não tem outbox identificado. | SSE filtra por usuário; payload omite userId e conteúdo Replay; audit query é escopada por usuário/workspace. |
-| **SESSION LIFECYCLE** | Registro e timestamps persistidos são canônicos; CONNECTED/ACTIVE/IDLE/DISCONNECTED são derivados, exceto `disconnectedAt` explícito. | Heartbeat atualiza lastSeen; atividade atualiza lastActivity; disconnect explícito é update-if-absent/idempotente. Timeout não é transição persistida; falha no disconnect pode deixar apenas timeout derivado. | Listagem e descoberta escopadas por usuário; HTTP MCP fecha explicitamente, STDIO atualmente não (finding REQUIRED). |
+| **SESSION LIFECYCLE** | Registro e timestamps persistidos são canônicos; CONNECTED/ACTIVE/IDLE/DISCONNECTED são derivados, exceto `disconnectedAt` explícito. | Heartbeat atualiza lastSeen; atividade atualiza lastActivity; disconnect explícito é update-if-absent/idempotente. Timeout não é transição persistida; falha no disconnect pode deixar apenas timeout derivado. | Listagem e descoberta escopadas por usuário; shutdown normal de HTTP e STDIO pede disconnect explícito via `heartbeat.close()`; encerramento abrupto permanece sujeito ao timeout derivado. |
 | **REPLAY USAGE** | API valida capability/policy antes de `ReplayService.registerUsage`; este valida workspace/Replay e persiste declaração; controller emite evento para contexto AgentSession. | ReplayUsage persiste em transação de serviço; evento publicado após retorno. A policy verifica declaração/texto, não aplicação semântica independente. EventId deduplica auditoria se evento chegar ao listener. | Resposta/metadata contém dados de uso autorizados do Replay, sem token/fingerprint; recurso é filtrado por workspace e usuário. |
 
 ## Security Boundaries
@@ -58,7 +58,7 @@ O backend é a autoridade para autenticação, ownership, membership/RBAC, capab
 
 ## Session Lifecycle
 
-Registro persiste usuário, workspace opcional, cliente, versão, transporte, fingerprint hash e modo. Heartbeat e atividade atualizam timestamps somente para sessão não explicitamente desconectada. Presence resolver calcula status por idade/limites; status timeout DISCONNECTED é observação derivada, não encerramento durável. `disconnectedAt` explícito é terminal e o caminho heartbeat retorna conflito; o caminho STDIO atual deixa de emitir heartbeats no close sem executar disconnect explícito (finding REQUIRED). Descoberta/listagem retorna somente sessões do proprietário autenticado e aplica membership quando há filtro de workspace.
+Registro persiste usuário, workspace opcional, cliente, versão, transporte, fingerprint hash e modo. Heartbeat e atividade atualizam timestamps somente para sessão não explicitamente desconectada. Presence resolver calcula status por idade/limites; status timeout DISCONNECTED é observação derivada, não encerramento durável. `disconnectedAt` explícito é terminal e o caminho heartbeat retorna conflito; no shutdown normal, HTTP e STDIO pedem disconnect explícito, sendo o timeout derivado apenas fallback para encerramento abrupto. Descoberta/listagem retorna somente sessões do proprietário autenticado e aplica membership quando há filtro de workspace.
 
 ## Authorization Model
 
@@ -101,7 +101,7 @@ Os testes existentes relacionados incluem `AgentSessionControllerTests`, `AgentS
 |---|---|---|---|
 | Workspace | Pode receber workspace explícito ou default; backend valida membership e a sessão pode fixar o seu workspace. | Exige `NO8DO_WORKSPACE_ID` e rejeita workspace explícito diferente antes da API. | Ownership, membership/RBAC e isolamento da sessão são autoritativos. |
 | Identidade da sessão de transporte | Gera identificador local efêmero e envia fingerprint SHA-256; autenticação é o token da API. | Usa session id do transporte MCP e fingerprint derivado; token é mantido em memória por sessão. | Recebe apenas AgentSession id no header e fingerprint na criação; valida usuário autenticado e ownership. |
-| Fechamento | O callback atual para somente o `stop()` do heartbeat. | `onsessionclosed` e fechamento do serviço chamam `closeSession`, que executa `heartbeat.close()` e pede disconnect explícito. | Disconnect explícito persiste `disconnectedAt` e publica o evento correspondente. |
+| Fechamento | RESOLVED em 5H.8C.2B: o callback aguardável reutiliza `heartbeat.close()`, para o timer, tenta disconnect e limpa a referência local. | `onsessionclosed` e fechamento do serviço chamam `closeSession`, que executa `heartbeat.close()` e pede disconnect explícito. | Disconnect explícito persiste `disconnectedAt` e publica o evento correspondente. |
 | Protocolo | Obtido uma vez no startup do processo e capturado pelo servidor MCP. | Obtido ao criar sessão MCP; a consulta posterior ao backend não substitui o snapshot já capturado. | Provider é canônico para a versão implantada; context da sessão é resolvido dinamicamente. |
 | Ferramentas | Compartilha a lista de ferramentas implementada no servidor MCP. | Mesmas ferramentas do servidor MCP. | APIs REST têm operações de Replay, mas nem toda capability tem ferramenta MCP correspondente. |
 
@@ -111,11 +111,14 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 
 ### REQUIRED — Fechamento STDIO não registra desconexão explícita
 
+- **Status:** RESOLVED — 5H.8C.2B.
 - **Componente:** lifecycle da AgentSession no transporte MCP STDIO.
-- **Comportamento atual:** callback de fechamento chama `heartbeat?.stop()`; `stop()` apenas cancela o timer. Diferentemente de `close()`, não chama `disconnectAgentSession`. O endpoint HTTP MCP realiza esse disconnect no encerramento.
-- **Evidência:** `mcp/src/index.ts:20-25`; `mcp/src/server.ts:82-89`; `mcp/src/agentSessionHeartbeat.ts:41-53`; `mcp/src/http.ts:80-82`; `docs/agent-presence.md` descreve desconexão explícita.
-- **Impacto:** fechamento normal do cliente STDIO não preenche `disconnectedAt`, não publica imediatamente `AGENT_DISCONNECTED` e não cria o evento de auditoria correspondente. A presença só cairá para DISCONNECTED pelo timeout derivado; isso deixa lifecycle e auditoria diferentes entre transportes.
-- **Recomendação:** fazer o encerramento STDIO aguardar `heartbeat.close()` com idempotência/falha isolada, ou documentar explicitamente que STDIO não promete desconexão explícita. Nenhuma correção foi aplicada nesta auditoria.
+- **Comportamento anterior:** o callback chamava somente `heartbeat.stop()`, cancelando o timer sem pedir disconnect explícito; HTTP já chamava `heartbeat.close()`.
+- **Mudança aplicada:** STDIO agora usa `createStdioSessionCloseHandler`, aguarda `AgentSessionHeartbeat.close()` e limpa a referência local após a tentativa. O contrato do callback `onClosed` aceita `void | Promise<void>` e o wrapper aguarda sua conclusão; `close()` existente para heartbeats, envia um único POST de disconnect, usa timeout de 2 s e absorve falhas. Fechamentos repetidos continuam idempotentes.
+- **Paridade STDIO/HTTP:** ambos os transports reutilizam `AgentSessionHeartbeat.close()` para solicitar disconnect explícito. A diferença de fechamento que dependia do timeout derivado fica resolvida para shutdown normal; timeout continua como fallback para encerramentos abruptos/processo interrompido.
+- **Falha e segurança:** a falha remota não propaga pelo `AgentSessionHeartbeat.close()` e não impede cleanup local; o cleanup do wrapper também contém falhas. A correção não adiciona logs ou mensagens com token/fingerprint; o logger existente redige Bearer/PAT.
+- **Evidência:** `mcp/src/index.ts`; `mcp/src/stdioSessionLifecycle.ts`; `mcp/src/server.ts` (`handleClose` aguarda callback); `mcp/src/agentSessionHeartbeat.ts:13-20,41-53`; implementação SDK MCP 1.30.0 (`StdioServerTransport.close()` emite `onclose` sincronamente; `Protocol.close()` aguarda `transport.close()`).
+- **Testes executados:** `npm run typecheck` exit 0; `npm test` — 50 testes, 50 passaram, 0 falharam/cancelados/skipped, exit 0 (inclui integração STDIO e testes HTTP); `npm run build` exit 0. Dependências instaladas pelo lockfile no `mcp/node_modules` deste worktree.
 
 ### REQUIRED — Capabilities de retrieval/contexto não correspondem a operações anunciadas
 
@@ -162,15 +165,15 @@ Evidência: `mcp/src/index.ts:10-25`, `mcp/src/http.ts:37-83`, `mcp/src/agentSes
 
 ## Required Fixes
 
-1. Resolver a semântica de disconnect no fechamento STDIO e cobrir ambos os transports com teste de integração que confirme `disconnectedAt`/evento. **Aberto — REQUIRED.**
-2. Fechar o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis. **Aberto — REQUIRED.**
-3. Cobertura fail-closed de cada policy ENFORCED desconhecida. **RESOLVED — 5H.8C.2A**, conforme detalhe e testes registrados no finding acima.
+1. Resolver o desalinhamento entre capabilities de semantic/hybrid/context, operações REST e tools MCP; manter descrições do manifesto fiéis às operações chamáveis. **Aberto — único REQUIRED restante antes da 5H.9.**
+2. Cobertura fail-closed de cada policy ENFORCED desconhecida. **RESOLVED — 5H.8C.2A.**
+3. Disconnect explícito no shutdown normal STDIO, com paridade de `heartbeat.close()` do HTTP. **RESOLVED — 5H.8C.2B.**
 4. Definir formalmente se o Audit Trail requer completude garantida; se sim, adotar outbox/retry transacional e teste de falha/crash window. **Aberto — TECH-DEBT.**
 5. Definir o ciclo de refresh/restart do Agent Protocol em processo MCP de longa duração e testar divergência de versão. **Aberto — TECH-DEBT.**
 
 ## Readiness for Next Phase
 
-O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. A correção fail-closed da 5H.8C.2A resolve um dos três REQUIRED originais. Restam **2 REQUIRED antes da 5H.9**: (1) STDIO explicit disconnect e (2) capability contract alignment. Os **2 TECH-DEBT** (entrega durável do Audit Trail e refresh/versionamento do snapshot de protocolo) permanecem abertos e inalterados. A auditoria inteira não está concluída para avanço à 5H.9. Esta atualização documental não inicia 5H.8C.2B, 5H.8C.2C ou 5H.9.
+O backend preserva separação de responsabilidades entre identidade/sessão, capability, policy, autorização normal de workspace/RBAC, operações Replay e observabilidade. A autorização de domínio permanece no servidor, e a política de workspace da AgentSession funciona como restrição adicional, não como substituto de membership. **Dois REQUIRED foram resolvidos**: policy ENFORCED desconhecida fail-closed (5H.8C.2A) e disconnect explícito no shutdown normal STDIO (5H.8C.2B). Resta **1 REQUIRED antes da 5H.9**: capability contract alignment. Os **2 TECH-DEBT** (entrega durável do Audit Trail e refresh/versionamento do snapshot de protocolo) continuam abertos e inalterados. A auditoria inteira não está concluída para avanço à 5H.9. Esta atualização documental não inicia 5H.8C.2C ou 5H.9.
 
 ## Technical Debt
 
