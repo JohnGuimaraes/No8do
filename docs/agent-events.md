@@ -4,7 +4,9 @@
 
 The event model provides an internal backend boundary between completed AgentSession operations and subscribers. Events are not persisted or an audit history, and delivery is not guaranteed beyond the running process; the SSE endpoint below is a transport API only.
 
-## Current event types
+## Realtime coverage
+
+Current canonical events and their originating facts:
 
 - `AGENT_CONNECTED`: a new AgentSession row was inserted; idempotent registration does not emit it again.
 - `AGENT_DISCONNECTED`: the first explicit disconnect timestamp was persisted; repeated disconnect calls do not emit another event.
@@ -13,7 +15,9 @@ The event model provides an internal backend boundary between completed AgentSes
 - `POLICY_DENIED`: a request carrying an AgentSession was denied by an `ENFORCED` policy.
 - `REPLAY_USAGE_RECORDED`: a ReplayUsage was persisted by a request carrying an AgentSession.
 
-Presence remains derived at read time. `ACTIVE` and `IDLE` are not lifecycle transitions in this phase and do not produce synthetic events.
+The four persisted-state events (`AGENT_CONNECTED`, `AGENT_DISCONNECTED`, `RUNTIME_MODE_CHANGED`, and `REPLAY_USAGE_RECORDED`) are emitted only after their corresponding insert/update/usage operation succeeds; transaction-scoped publication is delivered after commit and discarded on rollback. Capability and policy denial events represent authorization decisions, so they do not require a domain commit and do not replace or alter the original HTTP denial.
+
+Presence remains derived at read time. `ACTIVE` and `IDLE` are not lifecycle transitions in this phase and do not produce synthetic events. The current session state is reconstructed through Session Discovery (`GET /api/agent-sessions`).
 
 ## Payload and safety
 
