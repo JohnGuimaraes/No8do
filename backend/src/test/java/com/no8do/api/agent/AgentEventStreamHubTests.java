@@ -5,6 +5,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.time.Instant;
@@ -20,6 +22,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class AgentEventStreamHubTests {
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final AgentGatewayMetrics metrics = new AgentGatewayMetrics(meterRegistry);
     private final AgentEventStreamHub hub = new AgentEventStreamHub(metrics);
@@ -91,6 +94,57 @@ class AgentEventStreamHubTests {
             assertThat(payloadItem.getClass().getMethod("getMediaType").invoke(payloadItem))
                     .isEqualTo(MediaType.APPLICATION_JSON);
         }
+    }
+
+    @Test
+    void revokedEventUsesSafePublicSseProjectionWithoutRevocationActor() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID workspaceId = UUID.randomUUID();
+        UUID actorUserId = UUID.randomUUID();
+        Instant occurredAt = Instant.parse("2026-09-23T12:00:00Z");
+        AgentEvent revoked = new AgentEvent(UUID.randomUUID(), AgentEventType.AGENT_SESSION_REVOKED, sessionId,
+                userId, workspaceId, occurredAt,
+                new AgentEventMetadata.SessionRevoked(sessionId, actorUserId, workspaceId, occurredAt));
+        SseEmitter emitter = mock(SseEmitter.class);
+        hub.subscribe(userId, emitter);
+        org.mockito.Mockito.clearInvocations(emitter);
+
+        hub.onAgentEvent(revoked);
+
+        org.mockito.ArgumentCaptor<SseEmitter.SseEventBuilder> captor =
+                org.mockito.ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
+        verify(emitter).send(captor.capture());
+        AgentEventResponse response = (AgentEventResponse) buildItems(captor.getValue()).stream()
+                .map(AgentEventStreamHubTests::itemData)
+                .filter(AgentEventResponse.class::isInstance)
+                .findFirst().orElseThrow();
+        JsonNode payload = objectMapper.readTree(objectMapper.writeValueAsString(response));
+        AgentEventPublicMetadata.SessionRevoked metadata =
+                (AgentEventPublicMetadata.SessionRevoked) response.metadata();
+
+        assertThat(response.type()).isEqualTo(AgentEventType.AGENT_SESSION_REVOKED);
+        assertThat(response.eventId()).isEqualTo(revoked.eventId());
+        assertThat(response.sessionId()).isEqualTo(sessionId);
+        assertThat(response.workspaceId()).isEqualTo(workspaceId);
+        assertThat(response.occurredAt()).isEqualTo(occurredAt);
+        assertThat(metadata.targetSessionId()).isEqualTo(sessionId);
+        assertThat(metadata.workspaceId()).isEqualTo(workspaceId);
+        assertThat(metadata.occurredAt()).isEqualTo(occurredAt);
+        assertThat(payload.path("type").asText()).isEqualTo("AGENT_SESSION_REVOKED");
+        assertThat(payload.path("eventId").asText()).isEqualTo(revoked.eventId().toString());
+        assertThat(payload.path("sessionId").asText()).isEqualTo(sessionId.toString());
+        assertThat(payload.path("workspaceId").asText()).isEqualTo(workspaceId.toString());
+        assertThat(payload.path("metadata").path("targetSessionId").asText()).isEqualTo(sessionId.toString());
+        assertThat(payload.path("metadata").path("workspaceId").asText()).isEqualTo(workspaceId.toString());
+        assertThat(payload.findValue("actorUserId")).isNull();
+        assertThat(payload.findValue("revokedByUserId")).isNull();
+        assertThat(payload.findValue("transportSessionFingerprint")).isNull();
+        assertThat(payload.findValue("fingerprint")).isNull();
+        assertThat(payload.findValue("pat")).isNull();
+        assertThat(payload.findValue("token")).isNull();
+        assertThat(payload.findValue("Authorization")).isNull();
+        assertThat(payload.toString()).doesNotContain(actorUserId.toString(), userId.toString());
     }
 
     @Test
