@@ -46,6 +46,18 @@ public final class AgentEventFactory {
                 new AgentEventMetadata.ReplayUsageRecorded(replayId, replayVersion, result));
     }
 
+    public AgentEvent sessionRevoked(AgentSession session) {
+        if (session == null || session.getRevokedAt() == null || session.getRevokedByUserId() == null) {
+            throw new IllegalArgumentException("Sessão revogada é obrigatória para emitir o evento.");
+        }
+        var occurredAt = session.getRevokedAt();
+        AgentEventMetadata.SessionRevoked metadata = new AgentEventMetadata.SessionRevoked(session.getId(),
+                session.getRevokedByUserId(), session.getWorkspaceId(), occurredAt);
+        return new AgentEvent(AgentSessionRevocationEventId.forSession(session.getId()),
+                AgentEventType.AGENT_SESSION_REVOKED, session.getId(), session.getUserId(),
+                session.getWorkspaceId(), occurredAt, metadata);
+    }
+
     private AgentEvent create(AgentEventType type, AgentSession session, AgentEventMetadata metadata) {
         if (session == null) throw new IllegalArgumentException("AgentSession é obrigatória para emitir eventos.");
         return new AgentEvent(UUID.randomUUID(), type, session.getId(), session.getUserId(),

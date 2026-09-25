@@ -39,6 +39,11 @@ class AgentEventFoundationTests {
         AgentEvent connected = factory.connected(session);
         AgentEvent modeChanged = factory.runtimeModeChanged(session, AgentRuntimeMode.FULL, AgentRuntimeMode.RETRIEVAL);
         AgentEvent usage = factory.replayUsageRecorded(session, replayId, 3, ReplayUsageResult.SUCCESS);
+        AgentSession revokedSession = session();
+        UUID revokingActorId = UUID.randomUUID();
+        Instant revokedAt = NOW.plusSeconds(15);
+        revokedSession.revoke(revokedAt, revokingActorId);
+        AgentEvent revoked = factory.sessionRevoked(revokedSession);
 
         assertThat(connected.eventId()).isNotNull();
         assertThat(factory.connected(session).eventId()).isNotEqualTo(connected.eventId());
@@ -51,6 +56,12 @@ class AgentEventFoundationTests {
                 new AgentEventMetadata.RuntimeModeChanged(AgentRuntimeMode.FULL, AgentRuntimeMode.RETRIEVAL));
         assertThat(usage.metadata()).isEqualTo(
                 new AgentEventMetadata.ReplayUsageRecorded(replayId, 3, ReplayUsageResult.SUCCESS));
+        assertThat(revoked.type()).isEqualTo(AgentEventType.AGENT_SESSION_REVOKED);
+        assertThat(revoked.eventId()).isEqualTo(AgentSessionRevocationEventId.forSession(revokedSession.getId()));
+        assertThat(revoked.occurredAt()).isEqualTo(revokedAt);
+        assertThat(revoked.metadata()).isEqualTo(new AgentEventMetadata.SessionRevoked(revokedSession.getId(),
+                revokingActorId, revokedSession.getWorkspaceId(), revokedAt));
+        assertThat(revoked.toString()).doesNotContain("fingerprint-secret", "raw-mcp-session-secret", "Bearer", "PAT");
         assertThat(connected.toString()).doesNotContain("fingerprint-secret", "raw-mcp-session-secret", "Bearer", "PAT");
         AgentEventResponse publicResponse = AgentEventResponse.from(usage);
         assertThat(publicResponse.toString()).doesNotContain(session.getUserId().toString(),

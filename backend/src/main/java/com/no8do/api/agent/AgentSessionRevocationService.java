@@ -10,19 +10,28 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Internal revocation core. Deliberately not exposed through a controller in this phase. */
+/** Revocation core shared by the authenticated API and session governance services. */
 @Service
 public class AgentSessionRevocationService {
     private final AgentSessionRepository repository;
     private final AgentAuditTrailService auditTrailService;
+    private final AgentEventFactory eventFactory;
+    private final AgentEventPublisher eventPublisher;
+    private final AgentGatewayMetrics metrics;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final Clock clock;
 
     public AgentSessionRevocationService(AgentSessionRepository repository,
             AgentAuditTrailService auditTrailService,
+            AgentEventFactory eventFactory,
+            AgentEventPublisher eventPublisher,
+            AgentGatewayMetrics metrics,
             WorkspaceAuthorizationService workspaceAuthorizationService, Clock clock) {
         this.repository = repository;
         this.auditTrailService = auditTrailService;
+        this.eventFactory = eventFactory;
+        this.eventPublisher = eventPublisher;
+        this.metrics = metrics;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.clock = clock;
     }
@@ -40,6 +49,8 @@ public class AgentSessionRevocationService {
             repository.save(session);
             auditTrailService.recordRevocation(session.getId(), session.getUserId(), actorUserId,
                     session.getWorkspaceId(), session.getRevokedAt());
+            eventPublisher.publish(eventFactory.sessionRevoked(session));
+            metrics.sessionRevokedAfterCommit();
         }
         return new AgentSessionRevocationResult(session.getRevokedAt(), session.getRevokedByUserId(), newlyRevoked);
     }

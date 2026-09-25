@@ -206,6 +206,8 @@ class AgentEventStreamHubTests {
                     "workspace-isolation-required", "Negação segura.");
             case REPLAY_USAGE_RECORDED -> new AgentEventMetadata.ReplayUsageRecorded(
                     UUID.randomUUID(), 2, com.no8do.api.replay.ReplayUsageResult.SUCCESS);
+            case AGENT_SESSION_REVOKED -> new AgentEventMetadata.SessionRevoked(
+                    UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), Instant.parse("2026-09-23T12:00:00Z"));
         };
         return event(userId, type, metadata);
     }

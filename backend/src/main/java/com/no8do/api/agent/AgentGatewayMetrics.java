@@ -27,6 +27,7 @@ public class AgentGatewayMetrics {
     static final String SSE_SEND_FAILURES = "no8do.agent.sse.send.failures";
     static final String SESSIONS_REGISTERED = "no8do.agent.sessions.registered";
     static final String SESSIONS_DISCONNECTED = "no8do.agent.sessions.disconnected";
+    static final String SESSIONS_REVOKED = "no8do.agent.sessions.revoked";
     static final String HEARTBEATS_ACCEPTED = "no8do.agent.heartbeats.accepted";
 
     private final MeterRegistry registry;
@@ -87,6 +88,10 @@ public class AgentGatewayMetrics {
 
     public void sessionDisconnectedAfterCommit() {
         afterCommit(SESSIONS_DISCONNECTED, () -> increment(SESSIONS_DISCONNECTED));
+    }
+
+    public void sessionRevokedAfterCommit() {
+        afterCommit(SESSIONS_REVOKED, () -> increment(SESSIONS_REVOKED));
     }
 
     public void heartbeatAcceptedAfterCommit() {

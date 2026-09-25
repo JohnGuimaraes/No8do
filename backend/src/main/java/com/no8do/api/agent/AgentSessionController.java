@@ -22,13 +22,16 @@ public class AgentSessionController {
     private final AgentSessionContextService contextService;
     private final AgentSessionPresenceService presenceService;
     private final AgentSessionDiscoveryService discoveryService;
+    private final AgentSessionRevocationService revocationService;
 
     public AgentSessionController(AgentSessionRegistry registry, AgentSessionContextService contextService,
-            AgentSessionPresenceService presenceService, AgentSessionDiscoveryService discoveryService) {
+            AgentSessionPresenceService presenceService, AgentSessionDiscoveryService discoveryService,
+            AgentSessionRevocationService revocationService) {
         this.registry = registry;
         this.contextService = contextService;
         this.presenceService = presenceService;
         this.discoveryService = discoveryService;
+        this.revocationService = revocationService;
     }
 
     @GetMapping
@@ -63,6 +66,12 @@ public class AgentSessionController {
     public AgentSessionResponse register(@AuthenticationPrincipal No8doUserDetails principal,
             @Valid @RequestBody AgentSessionRegistrationRequest request) {
         return registry.register(principal.user().getId(), request);
+    }
+
+    @PostMapping("/{sessionId}/revoke")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revoke(@PathVariable UUID sessionId, @AuthenticationPrincipal No8doUserDetails principal) {
+        revocationService.revoke(sessionId, principal.user().getId());
     }
 
     @PostMapping("/{sessionId}/heartbeat")

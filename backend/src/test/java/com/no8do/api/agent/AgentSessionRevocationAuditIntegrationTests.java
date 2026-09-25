@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -51,6 +53,13 @@ class AgentSessionRevocationAuditIntegrationTests {
 
         AgentSessionRevocationResult first = revocationService.revoke(fixture.sessionId(), fixture.actor().getId());
         AgentSession persisted = sessionRepository.findById(fixture.sessionId()).orElseThrow();
+        org.mockito.ArgumentCaptor<AgentEvent> eventCaptor = org.mockito.ArgumentCaptor.forClass(AgentEvent.class);
+        verify(eventPublisher, times(1)).publish(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().type()).isEqualTo(AgentEventType.AGENT_SESSION_REVOKED);
+        assertThat(eventCaptor.getValue().eventId()).isEqualTo(
+                AgentSessionRevocationEventId.forSession(fixture.sessionId()));
+
+        clearInvocations(eventPublisher);
         AgentSessionRevocationResult repeated = revocationService.revoke(fixture.sessionId(), fixture.actor().getId());
         verifyNoInteractions(eventPublisher);
 
