@@ -47,6 +47,20 @@ public class AgentSessionDiscoveryService {
     }
 
     @Transactional(readOnly = true)
+    public AgentAdminSessionPageResponse listWorkspaceForAdmin(UUID currentUserId, UUID workspaceId,
+            AgentRuntimeMode runtimeMode, String clientName, int page, int size) {
+        validatePage(page, size);
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, currentUserId);
+        String normalizedClientName = clientName == null || clientName.isBlank() ? "" : clientName.trim();
+        PageRequest pageable = PageRequest.of(page, size,
+                Sort.by(Sort.Order.desc("registeredAt"), Sort.Order.desc("id")));
+        Page<AgentAdminSessionResponse> result = repository
+                .findWorkspaceSessionsForAdmin(workspaceId, runtimeMode, normalizedClientName, pageable)
+                .map(this::toAdminSummary);
+        return AgentAdminSessionPageResponse.from(result);
+    }
+
+    @Transactional(readOnly = true)
     public AgentSessionSummaryResponse get(UUID sessionId, UUID currentUserId) {
         AgentSession session = repository.findByIdAndUserId(sessionId, currentUserId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent session not found"));
@@ -58,6 +72,13 @@ public class AgentSessionDiscoveryService {
                 session.getLastActivityAt(), session.getDisconnectedAt(), session.getRevokedAt(),
                 clock.instant(), presenceProperties);
         return AgentSessionSummaryResponse.from(session, status);
+    }
+
+    private AgentAdminSessionResponse toAdminSummary(AgentSession session) {
+        AgentPresenceStatus status = presenceResolver.resolve(session.getRegisteredAt(), session.getLastSeenAt(),
+                session.getLastActivityAt(), session.getDisconnectedAt(), session.getRevokedAt(),
+                clock.instant(), presenceProperties);
+        return AgentAdminSessionResponse.from(session, status);
     }
 
     private static void validatePage(int page, int size) {

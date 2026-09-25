@@ -24,6 +24,16 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID
             @Param("workspaceId") UUID workspaceId, @Param("runtimeMode") AgentRuntimeMode runtimeMode,
             @Param("clientName") String clientName, Pageable pageable);
 
+    @Query("""
+        select session from AgentSession session
+        where session.workspaceId = :workspaceId
+          and (:runtimeMode is null or session.runtimeMode = :runtimeMode)
+          and (:clientName = '' or lower(session.clientName) like lower(concat('%', :clientName, '%')))
+        """)
+    Page<AgentSession> findWorkspaceSessionsForAdmin(@Param("workspaceId") UUID workspaceId,
+            @Param("runtimeMode") AgentRuntimeMode runtimeMode, @Param("clientName") String clientName,
+            Pageable pageable);
+
     Optional<AgentSession> findByIdAndUserId(UUID id, UUID userId);
 
     Optional<AgentSession> findByTransportAndTransportSessionFingerprintAndRevokedAtIsNull(
