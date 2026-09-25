@@ -221,3 +221,30 @@ test("propaga AGENT_SESSION_DISCONNECTED e filtra metadata sensível", async () 
     return true;
   });
 });
+
+test("propaga AGENT_SESSION_REVOKED como código terminal sanitizado", async () => {
+  const setup = client(409, { error: "AGENT_SESSION_REVOKED", metadata: { fingerprint: "PRIVATE_FINGERPRINT" } });
+  await assert.rejects(() => setup.client.getReplay("w1", "r1"), (error: unknown) => {
+    assert.ok(error instanceof No8doApiError);
+    assert.equal(error.status, 409);
+    assert.equal(error.code, "AGENT_SESSION_REVOKED");
+    assert.equal(error.message, "AGENT_SESSION_REVOKED");
+    assert.equal(error.metadata, undefined);
+    assert.doesNotMatch(JSON.stringify(error), /PRIVATE_FINGERPRINT|no8do_pat_secret-value/);
+    return true;
+  });
+});
+
+test("outros 409, 5xx, falha de rede e payload inválido não viram sessão revogada", async () => {
+  for (const setup of [
+    client(409, { error: "OTHER_CONFLICT" }),
+    client(503, { error: "AGENT_SESSION_REVOKED" }),
+    client(409, { error: { code: "AGENT_SESSION_REVOKED" } }),
+    { client: new No8doClient("http://localhost:8080", "no8do_pat_secret-value", (async () => { throw new Error("network failed"); }) as typeof fetch) }
+  ]) {
+    await assert.rejects(() => setup.client.getReplay("w1", "r1"), (error: unknown) => {
+      assert.ok(!(error instanceof No8doApiError) || error.code !== "AGENT_SESSION_REVOKED");
+      return true;
+    });
+  }
+});

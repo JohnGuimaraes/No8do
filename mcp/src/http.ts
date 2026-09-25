@@ -73,6 +73,7 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
           });
           agentSessionHeader.set(registeredSession.sessionId);
           const heartbeat = heartbeatFactory(client, registeredSession.sessionId);
+          agentSessionHeader.setRevocationHandler(() => heartbeat.markRevoked());
           sessions.set(createdSessionId, { transport, server, token, heartbeat });
           heartbeats.add(heartbeat);
           heartbeat.start();

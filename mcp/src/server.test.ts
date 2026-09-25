@@ -108,6 +108,7 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
       agentSessionHeader.set(session.sessionId);
       heartbeat = new AgentSessionHeartbeat(new No8doClient(apiUrl, "PAT_STDIO_ONLY", fetch, agentSessionHeader), session.sessionId,
         callback => { heartbeatTicks.push(callback); return () => { stoppedHeartbeats.push(session.sessionId); lifecycleEvents.push("stop"); }; });
+      agentSessionHeader.setRevocationHandler(() => heartbeat?.markRevoked());
       heartbeat.start();
     },
     onSessionClosed);
@@ -200,4 +201,66 @@ test("stdio falha initialize explicitamente quando registro backend falha", asyn
     assert.equal(response.result, undefined);
     assert.doesNotMatch(JSON.stringify(response), /PAT_SECRET/);
   } finally { await server.close(); await close(api); }
+});
+
+test("operação revogada propaga erro e encerra lifecycle STDIO sem disconnect", async () => {
+  const sessionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const ticks: Array<() => void> = [];
+  const stopped: string[] = [];
+  const disconnects: string[] = [];
+  let registrations = 0;
+  const api = createServer(async (request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(protocol));
+    if (request.url === "/api/agent-sessions") {
+      registrations++;
+      return response.end(JSON.stringify({ sessionId, clientName: "test", clientVersion: "1", workspaceId: null, transport: "MCP", runtimeMode: "FULL", protocolName: protocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    }
+    if (request.url === `/api/agent-sessions/${sessionId}/disconnect`) {
+      disconnects.push(sessionId);
+      return response.end(JSON.stringify({ sessionId, disconnectedAt: "2026-09-23T12:00:00Z" }));
+    }
+    if (request.url?.includes("/replays")) {
+      response.writeHead(409);
+      return response.end(JSON.stringify({ error: "AGENT_SESSION_REVOKED", fingerprint: "PRIVATE_FINGERPRINT" }));
+    }
+    return response.end(JSON.stringify([]));
+  });
+  const apiUrl = await listen(api);
+  const input = new PassThrough(); const output = new PassThrough();
+  const agentSessionHeader = new AgentSessionHeader();
+  const server = createMcpServer({ apiUrl, token: "PAT_PRIVATE", agentProtocol: protocol, transport: "stdio", agentSessionHeader });
+  let heartbeat: AgentSessionHeartbeat | undefined;
+  const transport = new StdioAgentSessionTransport(new StdioServerTransport(input, output),
+    (clientName, clientVersion, transportSessionFingerprint) => new No8doClient(apiUrl, "PAT_PRIVATE")
+      .registerAgentSession({ clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint }),
+    session => {
+      agentSessionHeader.set(session.sessionId);
+      heartbeat = new AgentSessionHeartbeat(new No8doClient(apiUrl, "PAT_PRIVATE", fetch, agentSessionHeader), session.sessionId,
+        callback => { ticks.push(callback); return () => { stopped.push(session.sessionId); }; });
+      agentSessionHeader.setRevocationHandler(() => heartbeat?.markRevoked());
+      heartbeat.start();
+    },
+    createStdioSessionCloseHandler(() => heartbeat, () => { heartbeat = undefined; }));
+  try {
+    const initialized = nextMessage(output);
+    await server.connect(transport);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } })}\n`);
+    await initialized;
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    const revoked = nextMessage(output);
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_replays", arguments: { workspaceId: "11111111-1111-4111-8111-111111111111" } } })}\n`);
+    const response = await revoked;
+    assert.match(JSON.stringify(response), /AGENT_SESSION_REVOKED/);
+    assert.doesNotMatch(JSON.stringify(response), /PRIVATE_FINGERPRINT|PAT_PRIVATE/);
+    assert.equal(heartbeat?.isRevoked(), true);
+    ticks[0]?.();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(stopped, [sessionId]);
+    assert.equal(registrations, 1);
+  } finally {
+    await server.close(); await transport.close();
+    assert.deepEqual(disconnects, []);
+    await close(api);
+  }
 });

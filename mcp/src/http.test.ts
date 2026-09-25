@@ -447,3 +447,78 @@ test("discovery autenticado rejeita PAT inválido antes de inicializar sem vazar
     assert.doesNotMatch(await response.text(), /PAT_SECRET/);
   } finally { await close(service); await close(api); }
 });
+
+test("operação revogada encerra somente o lifecycle HTTP correspondente sem disconnect", async () => {
+  const firstSessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const secondSessionId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const ticks: Array<() => void> = [];
+  const stopped: string[] = [];
+  const heartbeats: string[] = [];
+  const disconnects: string[] = [];
+  let resolveSecondHeartbeat!: () => void;
+  const secondHeartbeat = new Promise<void>(resolve => { resolveSecondHeartbeat = resolve; });
+  let resolveSecondDisconnect!: () => void;
+  const secondDisconnected = new Promise<void>(resolve => { resolveSecondDisconnect = resolve; });
+  let registrations = 0;
+  const api = createServer((request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
+    if (request.url === "/api/agent-sessions") {
+      const sessionId = ++registrations === 1 ? firstSessionId : secondSessionId;
+      return response.end(JSON.stringify({ sessionId, clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL", protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    }
+    const heartbeatId = [firstSessionId, secondSessionId].find(id => request.url === `/api/agent-sessions/${id}/heartbeat`);
+    if (heartbeatId) {
+      heartbeats.push(heartbeatId);
+      if (heartbeatId === secondSessionId) resolveSecondHeartbeat();
+      return response.end(JSON.stringify({ sessionId: heartbeatId, lastSeenAt: "2026-09-23T12:00:00Z" }));
+    }
+    const disconnectId = [firstSessionId, secondSessionId].find(id => request.url === `/api/agent-sessions/${id}/disconnect`);
+    if (disconnectId) {
+      disconnects.push(disconnectId);
+      if (disconnectId === secondSessionId) resolveSecondDisconnect();
+      return response.end(JSON.stringify({ sessionId: disconnectId, disconnectedAt: "2026-09-23T12:00:00Z" }));
+    }
+    if (request.url === `/api/workspaces/${workspaceId}/replays`) {
+      const sessionId = request.headers["x-no8do-agent-session-id"];
+      if (sessionId === firstSessionId) {
+        response.writeHead(409);
+        return response.end(JSON.stringify({ error: "AGENT_SESSION_REVOKED", fingerprint: "PRIVATE_FINGERPRINT" }));
+      }
+      return response.end(JSON.stringify([]));
+    }
+    return response.end(JSON.stringify([]));
+  });
+  const apiUrl = await listen(api);
+  const service = createRemoteMcpService(apiUrl, workspaceId, (client, id) =>
+    new AgentSessionHeartbeat(client, id, callback => { ticks.push(callback); return () => { stopped.push(id); }; }));
+  const url = await listen(service);
+  const connect = async () => {
+    const client = new Client({ name: "test", version: "1" });
+    const transport = new StreamableHTTPClientTransport(new URL(`${url}/mcp`), { requestInit: { headers: { Authorization: "Bearer PAT_PRIVATE" } } });
+    await client.connect(transport);
+    return { client, transport };
+  };
+  const first = await connect(); const second = await connect();
+  try {
+    const revoked = await first.client.callTool({ name: "list_replays", arguments: {} });
+    assert.equal(revoked.isError, true);
+    assert.match(JSON.stringify(revoked), /AGENT_SESSION_REVOKED/);
+    assert.doesNotMatch(JSON.stringify(revoked), /PRIVATE_FINGERPRINT|PAT_PRIVATE/);
+    ticks[0]?.(); ticks[1]?.();
+    await secondHeartbeat;
+    assert.deepEqual(stopped, [firstSessionId]);
+    assert.deepEqual(heartbeats, [secondSessionId]);
+    assert.equal(registrations, 2);
+    const closeFirst = await fetch(`${url}/mcp`, { method: "DELETE", headers: { Authorization: "Bearer PAT_PRIVATE", "mcp-session-id": first.transport.sessionId!, "mcp-protocol-version": "2025-03-26" } });
+    assert.equal(closeFirst.status, 200);
+    assert.deepEqual(disconnects, []);
+    const closeSecond = await fetch(`${url}/mcp`, { method: "DELETE", headers: { Authorization: "Bearer PAT_PRIVATE", "mcp-session-id": second.transport.sessionId!, "mcp-protocol-version": "2025-03-26" } });
+    assert.equal(closeSecond.status, 200);
+    await secondDisconnected;
+    assert.deepEqual(disconnects, [secondSessionId]);
+  } finally {
+    await first.client.close().catch(() => undefined); await second.client.close().catch(() => undefined);
+    await close(service); await close(api);
+  }
+});

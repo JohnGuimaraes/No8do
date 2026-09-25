@@ -147,7 +147,7 @@ Para a etapa posterior à 5H.9D.2A ficam fora de escopo: alteração MCP, autori
 - **5H.9C — Administrative Session Discovery (IMPLEMENTED):** `GET /api/agent-sessions/admin` fornece descoberta workspace-scoped para `OWNER`/`ADMIN`, sem resultados cross-workspace, sessões sem workspace de terceiros ou listagem global.
 - **5H.9D.1 — Transactional Revocation Audit Foundation (IMPLEMENTED):** persistir auditoria obrigatória na mesma transação da revogação; falha de auditoria aborta a revogação. Não adiciona rota pública, evento realtime, métrica ou propagação MCP.
 - **5H.9D.2A — Public Revocation API + Realtime Event + Metrics (IMPLEMENTED):** expõe revoke autenticado, reutiliza o core transacional e emite evento/métrica somente na transição efetiva, após commit.
-- **5H.9D.2B — MCP terminal propagation:** permanece reservada e não iniciada. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
+- **5H.9D.2B — MCP terminal propagation (IMPLEMENTED):** o MCP reconhece o erro terminal autoritativo, propaga-o ao lifecycle HTTP/STDIO e preserva cleanup local após revoke. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
 
 ## 5H.9B — IMPLEMENTED
 
@@ -209,10 +209,38 @@ TECH-DEBT preservado:
 
 A primeira transição mantém revoke e audit obrigatório na mesma transação. Após commit, publica exatamente um evento realtime `AGENT_SESSION_REVOKED` com metadata tipada segura e `eventId` determinístico compartilhado com o audit. A repetição preserva `revokedAt`/ator e não cria novo audit, evento ou incremento da métrica `no8do.agent.sessions.revoked`. A métrica não possui tags. Rollback do audit desfaz o revoke e não publica evento nem incrementa a métrica. O publisher realtime continua best-effort e after-commit; o audit segue obrigatório e atômico.
 
-Nenhum componente MCP foi alterado. 5H.9D.2B permanece não iniciada. Permanecem os TECH-DEBT: Audit Trail geral sem outbox/retry durável e Agent Protocol snapshot potencialmente stale em MCP long-lived.
+Nenhum componente MCP foi alterado. A implementação da 5H.9D.2B permanece não iniciada. Permanecem os TECH-DEBT: Audit Trail geral sem outbox/retry durável e Agent Protocol snapshot potencialmente stale em MCP long-lived.
 
 Validação final executada externamente no host, conforme resultados informados:
 
 - Testes focados: 32; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
 - Suíte backend completa: 537; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
 - Flyway validou 47 migrations; schema na versão V47.
+
+## 5H.9D.2B.1 — AUDITADA — PRONTA PARA IMPLEMENTAÇÃO
+
+O gatilho autoritativo é a resposta backend `409` com `error=AGENT_SESSION_REVOKED`: ela já é produzida para heartbeat, contexto e operações que usam `X-No8do-Agent-Session-Id`. O MCP não consome SSE hoje; o evento realtime pode ser uma detecção antecipada futura, mas não é requisito para a correção.
+
+Cada lifecycle MCP deve reter uma marca terminal vinculada ao `AgentSession` registrado. Ao detectar o erro, deve cancelar o heartbeat, impedir novos ticks, retries e qualquer re-registro automático para o mesmo lifecycle/sessionId, e propagar erro sanitizado. O cleanup do transporte continua local, mas não deve converter `REVOKED` em `DISCONNECTED` nem enviar disconnect administrativo para uma sessão já revogada.
+
+O escopo mínimo de implementação é `mcp/src/no8doClient.ts` (reconhecer o código estruturado), `mcp/src/agentSessionHeartbeat.ts` (transição terminal e cancelamento), `mcp/src/http.ts` e `mcp/src/index.ts`/`mcp/src/server.ts` (compartilhar o lifecycle por transporte), com testes em `no8doClient.test.ts`, `agentSessionHeartbeat.test.ts`, `http.test.ts` e `server.test.ts`. Não acrescentar tool MCP de revoke, endpoint, migração, frontend ou dependência.
+
+## 5H.9D.2B.2A — IMPLEMENTED
+
+`No8doApiError` agora expõe `code=AGENT_SESSION_REVOKED` somente para a resposta estruturada `409` correspondente, sem incluir metadata bruta. O core `AgentSessionHeartbeat` usa esse código para marcar sua sessão como terminal, cancelar definitivamente o interval e bloquear ticks futuros ou novo `start()` para o mesmo `sessionId`; erros de rede, 5xx e `AGENT_SESSION_DISCONNECTED` continuam não terminais.
+
+Não foram adicionados retry, re-registration ou dependências. HTTP e STDIO ainda não consomem a marca terminal durante seu cleanup, e SSE ainda não é consumido; essa integração permanece para a 5H.9D.2B.2B.
+
+## 5H.9D.2B.2B — IMPLEMENTED
+
+HTTP e STDIO agora conectam o `AgentSessionHeader` da sessão ao `AgentSessionHeartbeat` correspondente. Quando qualquer operação MCP associada à sessão recebe `409 AGENT_SESSION_REVOKED`, o erro sanitizado continua a ser propagado e o lifecycle local é marcado terminal: o heartbeat é parado, não reinicia e o mesmo `sessionId` não é reutilizado. O isolamento HTTP permanece por `RemoteSession`, portanto uma sessão revogada não afeta outra conexão.
+
+`close()` preserva o disconnect explícito normal para sessões operáveis, mas faz somente cleanup local quando a sessão já está revogada. Não há auto-renew, re-registration, retry, nova tool administrativa ou consumo SSE. Com os contratos MCP implementados e validados, a implementação funcional da 5H.9D.2B está completa; o fechamento Git permanece deliberadamente pendente.
+
+## 5H.9D.2B — IMPLEMENTED
+
+O gatilho autoritativo é exclusivamente `409` com `error=AGENT_SESSION_REVOKED`. `No8doClient` reconhece esse erro estruturado sem expor corpo bruto ou metadata sensível e sinaliza o lifecycle vinculado à sessão. Rede, 5xx, payload inválido, capability/policy denied e `AGENT_SESSION_DISCONNECTED` preservam suas semânticas anteriores e não causam falso `REVOKED`.
+
+O heartbeat terminal é cancelado definitivamente; novos ticks e `start()` não o reativam, e não existem retry, auto-renew ou re-registration. HTTP mantém um header e heartbeat próprios por `RemoteSession`, isolando a revogação entre conexões; STDIO compartilha o mesmo sinal entre tools, heartbeat e cleanup. `close()` normal envia disconnect uma vez, enquanto `close()` após revoke faz somente cleanup local, sem converter `REVOKED` em `DISCONNECTED`.
+
+SSE não é consumido e nenhuma tool MCP de revoke foi criada. Validação final: `npm run typecheck` PASS; `npm test` PASS (58 testes, 0 falhas); `npm run build` PASS; `git diff --check` PASS. Os TECH-DEBT preservados são: Audit Trail geral sem outbox/retry durável e snapshot do Agent Protocol potencialmente stale em processo MCP long-lived. A 5H.9E permanece não iniciada.
