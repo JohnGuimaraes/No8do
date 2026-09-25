@@ -137,3 +137,98 @@ test("falha isolada é registrada e tick posterior tenta novamente", async () =>
   assert.equal(errors.length, 1);
   heartbeat.stop();
 });
+
+test("revogação encerra definitivamente o heartbeat sem retry nem novo agendamento", async () => {
+  let calls = 0;
+  let tick: (() => void) | undefined;
+  let schedules = 0;
+  let stops = 0;
+  const errors: unknown[] = [];
+  const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", (async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: "AGENT_SESSION_REVOKED" }), { status: 409 });
+  }) as typeof fetch);
+  const heartbeat = new AgentSessionHeartbeat(client, sessionId, callback => {
+    schedules++;
+    tick = callback;
+    return () => { stops++; };
+  }, error => errors.push(error));
+
+  heartbeat.start();
+  tick?.();
+  await flush();
+  tick?.();
+  await flush();
+  heartbeat.start();
+  heartbeat.stop();
+  heartbeat.stop();
+
+  assert.equal(heartbeat.isRevoked(), true);
+  assert.equal(calls, 1);
+  assert.equal(schedules, 1);
+  assert.equal(stops, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("erros transitórios, 5xx e sessão desconectada não marcam o heartbeat como revogado", async () => {
+  for (const response of [
+    new Response(JSON.stringify({ error: "temporary" }), { status: 503 }),
+    new Response(JSON.stringify({ error: "AGENT_SESSION_DISCONNECTED" }), { status: 409 })
+  ]) {
+    let tick: (() => void) | undefined;
+    const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", (async () => response.clone()) as typeof fetch);
+    const heartbeat = new AgentSessionHeartbeat(client, sessionId, callback => { tick = callback; return () => {}; }, () => {});
+    heartbeat.start();
+    tick?.();
+    await flush();
+    assert.equal(heartbeat.isRevoked(), false);
+    heartbeat.stop();
+  }
+
+  let networkTick: (() => void) | undefined;
+  const networkClient = new No8doClient("http://localhost:8080", "PAT_PRIVATE", (async () => {
+    throw new Error("network failed");
+  }) as typeof fetch);
+  const networkHeartbeat = new AgentSessionHeartbeat(networkClient, sessionId,
+    callback => { networkTick = callback; return () => {}; }, () => {});
+  networkHeartbeat.start();
+  networkTick?.();
+  await flush();
+  assert.equal(networkHeartbeat.isRevoked(), false);
+  networkHeartbeat.stop();
+});
+
+test("close após revogação preserva o estado terminal sem disconnect e permanece idempotente", async () => {
+  let disconnects = 0;
+  let tick: (() => void) | undefined;
+  const client = new No8doClient("http://localhost:8080", "PAT_PRIVATE", (async (url) => {
+    if (String(url).endsWith("/heartbeat")) {
+      return new Response(JSON.stringify({ error: "AGENT_SESSION_REVOKED" }), { status: 409 });
+    }
+    disconnects++;
+    return new Response(JSON.stringify({ disconnectedAt: "2026-09-23T12:00:00Z" }), { status: 200 });
+  }) as typeof fetch);
+  const heartbeat = new AgentSessionHeartbeat(client, sessionId, callback => { tick = callback; return () => {}; }, () => {});
+
+  heartbeat.start();
+  tick?.();
+  await flush();
+  await Promise.all([heartbeat.close(), heartbeat.close()]);
+
+  assert.equal(heartbeat.isRevoked(), true);
+  assert.equal(disconnects, 0);
+});
+
+test("markRevoked é idempotente e impede novo timer", () => {
+  let schedules = 0;
+  let stops = 0;
+  const heartbeat = new AgentSessionHeartbeat(new No8doClient("http://localhost:8080", "PAT_PRIVATE"), sessionId,
+    () => { schedules++; return () => { stops++; }; });
+  heartbeat.start();
+  heartbeat.markRevoked();
+  heartbeat.markRevoked();
+  heartbeat.start();
+  assert.equal(heartbeat.isRevoked(), true);
+  assert.equal(schedules, 1);
+  assert.equal(stops, 1);
+});

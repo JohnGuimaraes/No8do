@@ -25,6 +25,7 @@ const transport = new StdioAgentSessionTransport(new StdioServerTransport(),
   (session) => {
     agentSessionHeader.set(session.sessionId);
     heartbeat = new AgentSessionHeartbeat(client, session.sessionId);
+    agentSessionHeader.setRevocationHandler(() => heartbeat?.markRevoked());
     heartbeat.start();
   },
   onSessionClosed);

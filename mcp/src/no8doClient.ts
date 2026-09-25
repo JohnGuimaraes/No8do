@@ -115,9 +115,12 @@ export type AgentSessionHeartbeat = { sessionId: string; lastSeenAt: string };
 
 export class AgentSessionHeader {
   private sessionId?: string;
+  private onRevoked?: () => void;
 
   set(sessionId: string): void { this.sessionId = sessionId; }
   get(): string | undefined { return this.sessionId; }
+  setRevocationHandler(handler: () => void): void { this.onRevoked = handler; }
+  markRevoked(): void { this.onRevoked?.(); }
 }
 
 export type ReplayMutation = Pick<Replay, "title" | "type"> & Partial<Pick<Replay, "problem" | "solution" | "context" | "tags" | "stack" | "status" | "projectId" | "validationEvidence">>;
@@ -132,7 +135,8 @@ export type RegisterReplayUsageMutation = {
 
 export class No8doApiError extends Error {
   constructor(public readonly status: number, message = messageForStatus(status),
-      public readonly metadata?: Record<string, unknown>) { super(message); }
+      public readonly metadata?: Record<string, unknown>,
+      public readonly code?: "AGENT_CAPABILITY_DENIED" | "AGENT_POLICY_DENIED" | "AGENT_SESSION_DISCONNECTED" | "AGENT_SESSION_REVOKED") { super(message); }
 }
 
 function messageForStatus(status: number): string {
@@ -219,6 +223,7 @@ export class No8doClient {
       const isCapabilityDenied = body.error === "AGENT_CAPABILITY_DENIED";
       const isPolicyDenied = body.error === "AGENT_POLICY_DENIED";
       const isSessionDisconnected = body.error === "AGENT_SESSION_DISCONNECTED";
+      const isSessionRevoked = response.status === 409 && body.error === "AGENT_SESSION_REVOKED";
       const rawMetadata = (isCapabilityDenied || isPolicyDenied || isSessionDisconnected) && body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
         ? body.metadata as Record<string, unknown> : undefined;
       const metadata: Record<string, unknown> | undefined = rawMetadata ? {
@@ -234,8 +239,16 @@ export class No8doClient {
           ? `AGENT_POLICY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
           : isSessionDisconnected
             ? `AGENT_SESSION_DISCONNECTED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
-          : messageForStatus(response.status);
-      throw new No8doApiError(response.status, message, metadata);
+            : isSessionRevoked
+              ? "AGENT_SESSION_REVOKED"
+              : messageForStatus(response.status);
+      const code = isCapabilityDenied ? "AGENT_CAPABILITY_DENIED"
+        : isPolicyDenied ? "AGENT_POLICY_DENIED"
+        : isSessionDisconnected ? "AGENT_SESSION_DISCONNECTED"
+        : isSessionRevoked ? "AGENT_SESSION_REVOKED"
+        : undefined;
+      if (code === "AGENT_SESSION_REVOKED") this.agentSessionHeader?.markRevoked();
+      throw new No8doApiError(response.status, message, metadata, code);
     }
     return response.json() as Promise<T>;
   }

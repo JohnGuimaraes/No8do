@@ -25,6 +25,7 @@ export class AgentSessionHeartbeat {
   private stopTimer?: () => void;
   private inFlight = false;
   private closePromise?: Promise<void>;
+  private revoked = false;
 
   constructor(
     private readonly client: No8doClient,
@@ -34,8 +35,16 @@ export class AgentSessionHeartbeat {
   ) {}
 
   start(): void {
-    if (this.stopTimer || this.closePromise) return;
+    if (this.stopTimer || this.closePromise || this.revoked) return;
     this.stopTimer = this.schedule(() => { void this.sendHeartbeat(); }, AGENT_SESSION_HEARTBEAT_INTERVAL_MS);
+  }
+
+  isRevoked(): boolean { return this.revoked; }
+
+  markRevoked(): void {
+    if (this.revoked) return;
+    this.revoked = true;
+    this.stop();
   }
 
   stop(): void {
@@ -47,6 +56,7 @@ export class AgentSessionHeartbeat {
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.stop();
+    if (this.revoked) return this.closePromise = Promise.resolve();
     this.closePromise = this.client.disconnectAgentSession(this.sessionId)
       .then(() => undefined)
       .catch(error => { this.logError(error, "disconnect"); });
@@ -54,11 +64,15 @@ export class AgentSessionHeartbeat {
   }
 
   private async sendHeartbeat(): Promise<void> {
-    if (this.closePromise || this.inFlight) return;
+    if (this.closePromise || this.inFlight || this.revoked) return;
     this.inFlight = true;
     try {
       await this.client.heartbeatAgentSession(this.sessionId);
     } catch (error) {
+      if (error instanceof No8doApiError && error.code === "AGENT_SESSION_REVOKED") {
+        this.markRevoked();
+        return;
+      }
       this.logError(error, "heartbeat");
     } finally {
       this.inFlight = false;
