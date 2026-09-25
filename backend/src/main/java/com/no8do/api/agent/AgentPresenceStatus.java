@@ -4,5 +4,6 @@ public enum AgentPresenceStatus {
     CONNECTED,
     ACTIVE,
     IDLE,
-    DISCONNECTED
+    DISCONNECTED,
+    REVOKED
 }

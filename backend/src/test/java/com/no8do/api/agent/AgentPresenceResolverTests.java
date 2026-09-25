@@ -45,6 +45,19 @@ class AgentPresenceResolverTests {
     }
 
     @Test
+    void revocationAlwaysWinsOverDisconnectTimeoutAndRecentActivity() {
+        Instant revokedAt = NOW.minusSeconds(10);
+        Instant disconnectedAt = NOW.minusSeconds(5);
+        assertThat(resolver.resolve(NOW, NOW, NOW, null, revokedAt, NOW, THRESHOLDS))
+                .isEqualTo(AgentPresenceStatus.REVOKED);
+        assertThat(resolver.resolve(NOW, NOW, NOW, disconnectedAt, revokedAt, NOW, THRESHOLDS))
+                .isEqualTo(AgentPresenceStatus.REVOKED);
+        assertThat(resolver.resolve(NOW.minus(Duration.ofHours(1)), NOW.minus(Duration.ofHours(1)),
+                NOW.minus(Duration.ofHours(1)), null, revokedAt, NOW, THRESHOLDS))
+                .isEqualTo(AgentPresenceStatus.REVOKED);
+    }
+
+    @Test
     void defaultsAreConservativeAndInvalidThresholdsFailClearly() {
         AgentPresenceProperties defaults = new AgentPresenceProperties(null, null);
         assertThat(defaults.activeWindow()).isEqualTo(Duration.ofMinutes(2));

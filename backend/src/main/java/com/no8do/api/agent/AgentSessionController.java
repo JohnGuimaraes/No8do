@@ -65,7 +65,7 @@ public class AgentSessionController {
     public AgentSessionContextResponse disconnect(@PathVariable java.util.UUID sessionId,
             @AuthenticationPrincipal No8doUserDetails principal) {
         presenceService.disconnect(sessionId, principal.user().getId());
-        return contextService.getContext(sessionId, principal.user().getId());
+        return contextService.getContextAfterDisconnect(sessionId, principal.user().getId());
     }
 
     @GetMapping("/{sessionId}/context")

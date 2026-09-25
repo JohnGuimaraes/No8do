@@ -41,7 +41,7 @@ public class AgentSessionRegistry {
         int inserted = repository.insertIfAbsent(UUID.randomUUID(), authenticatedUserId, request.workspaceId(),
                 clientIdentity.clientName(), clientIdentity.clientVersion(), request.transport().name(), protocol.protocolName(),
                 protocol.protocolVersion(), clock.instant(), request.transportSessionFingerprint());
-        AgentSession session = repository.findByTransportAndTransportSessionFingerprint(
+        AgentSession session = repository.findByTransportAndTransportSessionFingerprintAndRevokedAtIsNull(
                 request.transport(), request.transportSessionFingerprint()).orElseThrow();
         if (!session.getUserId().equals(authenticatedUserId)
                 || !java.util.Objects.equals(session.getWorkspaceId(), request.workspaceId())

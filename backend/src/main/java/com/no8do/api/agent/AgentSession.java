@@ -59,6 +59,12 @@ public class AgentSession {
     @Column(name = "disconnected_at")
     private Instant disconnectedAt;
 
+    @Column(name = "revoked_at")
+    private Instant revokedAt;
+
+    @Column(name = "revoked_by_user_id")
+    private UUID revokedByUserId;
+
     @Column(name = "transport_session_fingerprint", nullable = false, length = 64, updatable = false)
     private String transportSessionFingerprint;
 
@@ -78,6 +84,13 @@ public class AgentSession {
 
     void setRuntimeMode(AgentRuntimeMode runtimeMode) {
         this.runtimeMode = java.util.Objects.requireNonNull(runtimeMode, "runtimeMode");
+    }
+
+    boolean revoke(Instant revokedAt, UUID revokedByUserId) {
+        if (this.revokedAt != null) return false;
+        this.revokedAt = java.util.Objects.requireNonNull(revokedAt, "revokedAt");
+        this.revokedByUserId = java.util.Objects.requireNonNull(revokedByUserId, "revokedByUserId");
+        return true;
     }
 
     @PrePersist

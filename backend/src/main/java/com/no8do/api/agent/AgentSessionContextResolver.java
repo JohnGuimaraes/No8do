@@ -30,16 +30,25 @@ public final class AgentSessionContextResolver {
     }
 
     public AgentSessionContext resolve(UUID sessionId, UUID authenticatedUserId) {
+        return resolve(sessionId, authenticatedUserId, false);
+    }
+
+    AgentSessionContext resolveForDisconnectResponse(UUID sessionId, UUID authenticatedUserId) {
+        return resolve(sessionId, authenticatedUserId, true);
+    }
+
+    private AgentSessionContext resolve(UUID sessionId, UUID authenticatedUserId, boolean allowRevoked) {
         AgentSession session = repository.findById(sessionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent session not found"));
         if (!session.getUserId().equals(authenticatedUserId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agent session access denied");
         }
+        if (!allowRevoked && session.getRevokedAt() != null) throw new AgentSessionRevokedException();
         No8doAgentProtocol protocol = protocolProvider.current();
         return new AgentSessionContext(session,
                 capabilityResolver.resolve(protocol, session.getRuntimeMode()), protocol.policies(),
                 presenceResolver.resolve(session.getRegisteredAt(), session.getLastSeenAt(), session.getLastActivityAt(),
-                        session.getDisconnectedAt(), clock.instant(), presenceProperties), session.getLastSeenAt(),
+                        session.getDisconnectedAt(), session.getRevokedAt(), clock.instant(), presenceProperties), session.getLastSeenAt(),
                 session.getLastActivityAt(), session.getDisconnectedAt());
     }
 }

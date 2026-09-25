@@ -27,10 +27,10 @@ public class AgentSessionPresenceService {
 
     @Transactional
     public Instant heartbeat(UUID sessionId, UUID authenticatedUserId) {
-        requireConnected(requireOwned(sessionId, authenticatedUserId));
+        requireOperational(requireOwned(sessionId, authenticatedUserId));
         Instant now = clock.instant();
         if (repository.updateLastSeenAt(sessionId, authenticatedUserId, now) != 1) {
-            requireConnected(requireOwned(sessionId, authenticatedUserId));
+            requireOperational(requireOwned(sessionId, authenticatedUserId));
             throw notFound();
         }
         metrics.heartbeatAcceptedAfterCommit();
@@ -39,10 +39,10 @@ public class AgentSessionPresenceService {
 
     @Transactional
     public void touchActivity(UUID sessionId, UUID authenticatedUserId) {
-        requireConnected(requireOwned(sessionId, authenticatedUserId));
+        requireOperational(requireOwned(sessionId, authenticatedUserId));
         Instant now = clock.instant();
         if (repository.updateActivityTimestamps(sessionId, authenticatedUserId, now) != 1) {
-            requireConnected(requireOwned(sessionId, authenticatedUserId));
+            requireOperational(requireOwned(sessionId, authenticatedUserId));
             throw notFound();
         }
     }
@@ -70,7 +70,8 @@ public class AgentSessionPresenceService {
         return session;
     }
 
-    private static void requireConnected(AgentSession session) {
+    private static void requireOperational(AgentSession session) {
+        if (session.getRevokedAt() != null) throw new AgentSessionRevokedException();
         if (session.getDisconnectedAt() != null) throw new AgentSessionDisconnectedException(session.getId());
     }
 

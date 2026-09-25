@@ -137,10 +137,30 @@ Não é necessária tool MCP administrativa de revoke; a governança pertence in
 
 ## Explicitly Out of Scope
 
-Nesta fase não há código, migration, endpoint, alteração MCP, revogação, mudança do disconnect existente, expansão da discovery, autorização global, reason livre, outbox/retry, política de retenção, frontend, SSE replay, nem implementação das fases 5H.9B/5H.9C/5H.9D. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
+Ficam fora desta fase: rota pública de revoke, evento/métrica públicos de revoke, auditoria transacional do revoke, alteração MCP, expansão da discovery, autorização global, reason livre, outbox/retry, política de retenção, frontend e SSE replay. As fases 5H.9C/5H.9D não foram iniciadas. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
 
 ## Implementation Plan
 
-- **5H.9B — Session Revocation Core:** persistir `revokedAt`/`revokedByUserId`, estabelecer estado terminal e precedência, bloquear requests/heartbeat/activity antes dos gates posteriores e implementar a transição idempotente. Não publicar a rota de revoke enquanto a gravação de auditoria obrigatória ainda for after-commit/best-effort.
+- **5H.9B — Session Revocation Core (IMPLEMENTED):** persistir `revokedAt`/`revokedByUserId`, estabelecer estado terminal e precedência, bloquear requests/heartbeat/activity antes dos gates posteriores e implementar a transição idempotente. A rota pública permanece bloqueada enquanto a auditoria obrigatória não for transacional.
 - **5H.9C — Administrative Session Discovery:** adicionar descoberta workspace-scoped para `OWNER`/`ADMIN`, sem resultados cross-workspace, sessões sem workspace de terceiros ou listagem global.
-- **5H.9D — Governance Event/Audit/Observability & Contract Audit:** fechar o contrato de evento/metadata, métricas e auditoria. Como o listener atual não oferece atomicidade, o registro obrigatório `AGENT_SESSION_REVOKED` precisa ser movido para a transação de revoke e sua falha deve abortar a operação. A fronteira de release fica ajustada: a rota pública e sua habilitação só podem ser publicadas junto com essa auditoria transacional (em 5H.9D, ou em uma entrega atômica B+D); até lá, B pode fornecer somente o core não exposto. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
+- **5H.9D — Governance Event/Audit/Observability & Contract Audit:** entregar atomicamente a API pública de revoke, auditoria transacional obrigatória, evento, métricas e propagação terminal pelo MCP. A gravação da auditoria precisa participar da transação de revoke e sua falha deve abortar a operação. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
+
+## 5H.9B — IMPLEMENTED
+
+O core de revogação foi implementado nesta fase. A migration Flyway V46 adiciona `revoked_at` e `revoked_by_user_id` como campos nullable, sem backfill, e mantém o ator por FK seguindo a convenção de `ON DELETE SET NULL`. O índice único parcial preserva a idempotência de sessões não revogadas e permite que um novo registro obtenha uma nova `AgentSession` depois que a anterior foi revogada.
+
+- `REVOKED` é persistido, terminal e tem precedência sobre disconnect explícito, timeout, `ACTIVE`, `IDLE` e `CONNECTED`.
+- Guards de request context, heartbeat e activity rejeitam a sessão revogada com `AGENT_SESSION_REVOKED`; heartbeat/activity não atualizam timestamps.
+- A transição do core é idempotente e preserva o primeiro `revokedAt` e `revokedByUserId`.
+- Para sessão com workspace, somente `OWNER`/`ADMIN` desse workspace podem revogar; `MEMBER`/`VIEWER` e o ownership da sessão, por si só, não concedem autoridade administrativa.
+- Com `workspaceId = null`, somente o próprio owner pode revogar; não há autoridade global implícita.
+- Disconnect posterior preserva a revogação; discovery continua owner-scoped, reconhece `REVOKED` e não expõe `revokedByUserId` no DTO normal.
+- A rota pública `POST /api/agent-sessions/{sessionId}/revoke` ainda **não existe**. Também não foram adicionados evento público `AGENT_SESSION_REVOKED`, Audit Trail transacional do revoke, métrica `sessions.revoked`, administrative session listing, tool MCP de revoke ou frontend.
+- 5H.9C permanece dedicada à administrative discovery. 5H.9D deverá entregar conjuntamente API pública + transactional audit + event + metrics + MCP terminal propagation.
+
+Validação executada externamente no PowerShell normal do host, conforme resultado informado para esta retomada; esta atualização documental não representa uma nova execução:
+
+- Testes focados: 26; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
+- Suíte backend completa: 528; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
+- Flyway validou 46 migrations, aplicou V46 e concluiu com schema na versão 46.
+- `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven, segundo o resultado informado.

@@ -41,6 +41,7 @@ class AgentSessionDiscoveryControllerTests {
     @Autowired private WorkspaceRepository workspaceRepository;
     @Autowired private WorkspaceMemberRepository workspaceMemberRepository;
     @Autowired private AgentSessionRepository sessionRepository;
+    @Autowired private AgentSessionRevocationService revocationService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private EntityManager entityManager;
 
@@ -157,6 +158,30 @@ class AgentSessionDiscoveryControllerTests {
                 .andExpect(jsonPath("$.content[?(@.sessionId == '" + idle + "')].presenceStatus").value("IDLE"))
                 .andExpect(jsonPath("$.content[?(@.sessionId == '" + timedOut + "')].presenceStatus").value("DISCONNECTED"))
                 .andExpect(jsonPath("$.content[?(@.sessionId == '" + disconnected + "')].presenceStatus").value("DISCONNECTED"));
+    }
+
+    @Test
+    void ownerDiscoveryShowsRevokedStateWithoutActorAndRemainsOwnerScoped() throws Exception {
+        User owner = createUser("revoked-discovery-owner");
+        User other = createUser("revoked-discovery-other");
+        UUID revoked = register(owner, "9".repeat(64), null, "Revoked", "1");
+        revocationService.revoke(revoked, owner.getId());
+
+        MvcResult result = mockMvc.perform(get("/api/agent-sessions/{id}", revoked)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.presenceStatus").value("REVOKED"))
+                .andExpect(jsonPath("$.revokedAt").isNotEmpty())
+                .andExpect(jsonPath("$.revokedByUserId").doesNotExist())
+                .andReturn();
+        JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString());
+        org.assertj.core.api.Assertions.assertThat(response.has("transportSessionFingerprint")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(response.has("userId")).isFalse();
+
+        mockMvc.perform(get("/api/agent-sessions/{id}", revoked).with(user(new No8doUserDetails(other))))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/agent-sessions").with(user(new No8doUserDetails(other))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
     }
 
     private User createUser(String username) {
