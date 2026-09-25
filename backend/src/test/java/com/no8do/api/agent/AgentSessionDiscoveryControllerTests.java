@@ -184,6 +184,126 @@ class AgentSessionDiscoveryControllerTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
     }
 
+    @Test
+    void administrativeDiscoveryAllowsOnlyWorkspaceManagersAndReturnsWorkspaceScopedOperationalData()
+            throws Exception {
+        User owner = createUser("admin-discovery-owner");
+        User admin = createUser("admin-discovery-admin");
+        User member = createUser("admin-discovery-member");
+        User viewer = createUser("admin-discovery-viewer");
+        User outsider = createUser("admin-discovery-outsider");
+        Workspace workspace = workspaceRepository.save(new Workspace("Admin discovery workspace"));
+        Workspace otherWorkspace = workspaceRepository.save(new Workspace("Other admin discovery workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, admin, WorkspaceRole.ADMIN));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, member, WorkspaceRole.MEMBER));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, viewer, WorkspaceRole.VIEWER));
+        workspaceMemberRepository.save(new WorkspaceMember(otherWorkspace, admin, WorkspaceRole.OWNER));
+
+        UUID ownerSession = register(owner, "8".repeat(64), workspace.getId(), "Admin CLI", "1.0");
+        UUID colleagueSession = register(member, "a".repeat(64), workspace.getId(), "Admin Desktop", "2.0");
+        UUID otherWorkspaceSession = register(admin, "b".repeat(64), otherWorkspace.getId(), "Admin CLI", "3.0");
+        UUID nullWorkspaceSession = register(owner, "c".repeat(64), null, "Admin CLI", "4.0");
+        entityManager.flush();
+        revocationService.revoke(colleagueSession, admin.getId());
+        entityManager.flush();
+        entityManager.clear();
+
+        mockMvc.perform(get("/api/agent-sessions/admin").param("workspaceId", workspace.getId().toString())
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[?(@.sessionId == '" + ownerSession + "')]").exists())
+                .andExpect(jsonPath("$.content[?(@.sessionId == '" + colleagueSession + "')].presenceStatus")
+                        .value("REVOKED"))
+                .andExpect(jsonPath("$.content[?(@.sessionId == '" + otherWorkspaceSession + "')]").doesNotExist())
+                .andExpect(jsonPath("$.content[?(@.sessionId == '" + nullWorkspaceSession + "')]").doesNotExist());
+
+        MvcResult response = mockMvc.perform(get("/api/agent-sessions/admin")
+                .param("workspaceId", workspace.getId().toString())
+                .with(user(new No8doUserDetails(admin))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2)).andReturn();
+        JsonNode firstAdminSession = objectMapper.readTree(response.getResponse().getContentAsString())
+                .get("content").get(0);
+        org.assertj.core.api.Assertions.assertThat(firstAdminSession.has("createdAt")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(firstAdminSession.has("workspaceId")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(firstAdminSession.has("lastSeenAt")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(firstAdminSession.has("lastActivityAt")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(firstAdminSession.has("disconnectedAt")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(firstAdminSession.has("revokedAt")).isTrue();
+        for (String forbidden : new String[] {"ownerUserId", "userId", "email", "name", "protocolName",
+                "protocolVersion", "transportSessionFingerprint", "fingerprint", "token", "pat",
+                "revokedByUserId", "rawMcpSessionId"}) {
+            org.assertj.core.api.Assertions.assertThat(firstAdminSession.has(forbidden)).as(forbidden).isFalse();
+        }
+
+        mockMvc.perform(get("/api/agent-sessions/admin").param("workspaceId", workspace.getId().toString())
+                .with(user(new No8doUserDetails(member))))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/agent-sessions/admin").param("workspaceId", workspace.getId().toString())
+                .with(user(new No8doUserDetails(viewer))))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/agent-sessions/admin").param("workspaceId", workspace.getId().toString())
+                .with(user(new No8doUserDetails(outsider))))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/agent-sessions/admin").with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/agent-sessions?workspaceId={workspaceId}", workspace.getId())
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].sessionId").value(ownerSession.toString()));
+    }
+
+    @Test
+    void administrativeDiscoveryFiltersAndPaginatesOnlyWithinAuthorizedWorkspace() throws Exception {
+        User manager = createUser("admin-filter-manager");
+        User colleague = createUser("admin-filter-colleague");
+        User foreignOwner = createUser("admin-filter-foreign-owner");
+        Workspace workspace = workspaceRepository.save(new Workspace("Admin filter workspace"));
+        Workspace foreignWorkspace = workspaceRepository.save(new Workspace("Foreign filter workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, manager, WorkspaceRole.ADMIN));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, colleague, WorkspaceRole.MEMBER));
+        workspaceMemberRepository.save(new WorkspaceMember(foreignWorkspace, foreignOwner, WorkspaceRole.OWNER));
+        UUID one = register(manager, "d".repeat(64), workspace.getId(), "Filter CLI", "1");
+        UUID two = register(colleague, "e".repeat(64), workspace.getId(), "Filter CLI", "1");
+        register(manager, "f".repeat(64), workspace.getId(), "Filter Desktop", "1");
+        UUID foreign = register(foreignOwner, "0".repeat(64), foreignWorkspace.getId(), "Filter CLI", "1");
+        Instant registeredAt = Instant.now();
+        jdbcTemplate.update("update agent_sessions set registered_at = ? where id = ?",
+                Timestamp.from(registeredAt.minusSeconds(1)), one);
+        jdbcTemplate.update("update agent_sessions set registered_at = ? where id = ?",
+                Timestamp.from(registeredAt), two);
+        jdbcTemplate.update("update agent_sessions set runtime_mode = 'RETRIEVAL' where id in (?, ?, ?)", one, two, foreign);
+        entityManager.clear();
+
+        mockMvc.perform(get("/api/agent-sessions/admin")
+                .param("workspaceId", workspace.getId().toString())
+                .param("runtimeMode", "RETRIEVAL").param("clientName", "cli")
+                .param("page", "0").param("size", "1")
+                .with(user(new No8doUserDetails(manager))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2)).andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].runtimeMode").value("RETRIEVAL"))
+                .andExpect(jsonPath("$.content[0].sessionId").value(two.toString()));
+        mockMvc.perform(get("/api/agent-sessions/admin")
+                .param("workspaceId", workspace.getId().toString())
+                .param("runtimeMode", "RETRIEVAL").param("clientName", "cli")
+                .param("page", "1").param("size", "1")
+                .with(user(new No8doUserDetails(manager))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[0].sessionId").value(one.toString()));
+        mockMvc.perform(get("/api/agent-sessions/admin")
+                .param("workspaceId", workspace.getId().toString()).param("size", "101")
+                .with(user(new No8doUserDetails(manager))))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/agent-sessions/admin")
+                .param("workspaceId", foreignWorkspace.getId().toString())
+                .with(user(new No8doUserDetails(manager))))
+                .andExpect(status().isForbidden());
+        org.assertj.core.api.Assertions.assertThat(foreign).isNotEqualTo(one).isNotEqualTo(two);
+    }
+
     private User createUser(String username) {
         return userRepository.save(new User(username, username + "@example.test", "hash"));
     }
@@ -203,4 +323,5 @@ class AgentSessionDiscoveryControllerTests {
         return java.util.Arrays.stream(values)
                 .max(java.util.Comparator.comparing(UUID::toString)).orElseThrow();
     }
+
 }

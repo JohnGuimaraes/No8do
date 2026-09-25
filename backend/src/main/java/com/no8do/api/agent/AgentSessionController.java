@@ -41,6 +41,17 @@ public class AgentSessionController {
         return discoveryService.list(principal.user().getId(), workspaceId, runtimeMode, clientName, page, size);
     }
 
+    @GetMapping("/admin")
+    public AgentAdminSessionPageResponse listWorkspaceForAdmin(@AuthenticationPrincipal No8doUserDetails principal,
+            @RequestParam UUID workspaceId,
+            @RequestParam(required = false) AgentRuntimeMode runtimeMode,
+            @RequestParam(required = false) String clientName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return discoveryService.listWorkspaceForAdmin(principal.user().getId(), workspaceId,
+                runtimeMode, clientName, page, size);
+    }
+
     @GetMapping("/{sessionId}")
     public AgentSessionSummaryResponse get(@PathVariable UUID sessionId,
             @AuthenticationPrincipal No8doUserDetails principal) {

@@ -8,7 +8,7 @@ Este documento define o contrato de governança administrativa de `AgentSession`
 
 `AgentSession` persiste `id`, `userId`, `workspaceId` opcional, identidade do cliente, transporte, runtime mode, protocolo, `registeredAt`, `lastSeenAt`, `lastActivityAt`, `disconnectedAt` e fingerprint do transporte. O fingerprint não é retornado nos DTOs. A sessão pertence ao usuário autenticado que a registrou; o header `X-No8do-Agent-Session-Id` fornece contexto e nunca substitui autenticação.
 
-`AgentSessionContextResolver`, os endpoints de sessão e a descoberta verificam ownership. `GET /api/agent-sessions` e `GET /api/agent-sessions/{sessionId}` são owner-scoped. Um filtro por workspace exige membership, mas não amplia resultados para sessões de outros membros. Hoje não há descoberta administrativa de sessões.
+`AgentSessionContextResolver`, os endpoints de sessão e a descoberta verificam ownership. `GET /api/agent-sessions` e `GET /api/agent-sessions/{sessionId}` são owner-scoped. Um filtro por workspace exige membership, mas não amplia resultados para sessões de outros membros. A superfície administrativa distinta `GET /api/agent-sessions/admin` exige `workspaceId` e `OWNER`/`ADMIN` desse workspace; ela não altera a descoberta do owner.
 
 O registro de uma sessão com workspace valida membership através de `WorkspaceAuthorizationService`. A autorização normal dos recursos continua independente. As roles existentes são `OWNER`, `ADMIN`, `MEMBER` e `VIEWER`; `requireWorkspaceManager` permite exatamente `OWNER` e `ADMIN`. As rotas `/api/**` exigem autenticação, e a autorização de recurso/workspace é aplicada nos serviços.
 
@@ -116,7 +116,9 @@ Métrica candidata: counter `no8do.agent.sessions.revoked`, baixa cardinalidade 
 
 ## Administrative Discovery
 
-Discovery permanece owner-scoped nesta fase. Em 5H.9C, um `OWNER`/`ADMIN` poderá consultar somente sessões vinculadas ao workspace em que exerce a role já existente. A consulta não pode revelar sessões de outros workspaces, sessões com `workspaceId=null` de outros usuários nem criar listagem global implícita. Filtros de workspace devem ser validados por membership/role antes da consulta, e as queries devem aplicar o workspace persistido no banco.
+Discovery owner-scoped permanece inalterada. A rota administrativa `GET /api/agent-sessions/admin` exige `workspaceId`, valida `requireWorkspaceManager` e consulta diretamente no banco apenas linhas daquele workspace. Ela suporta `runtimeMode`, `clientName`, `page` e `size`, com ordenação determinística por registro e ID. `MEMBER`, `VIEWER`, usuário sem membership e manager de outro workspace recebem negação; sessões de outros workspaces e `workspaceId=null` nunca entram no resultado.
+
+A resposta administrativa usa DTO próprio e contém somente `sessionId`, `clientName`, `clientVersion`, `transport`, `workspaceId`, `runtimeMode`, `presenceStatus`, `createdAt`, `lastSeenAt`, `lastActivityAt`, `disconnectedAt` e `revokedAt`. Não expõe owner/user ID, email, nome, protocol details, transport fingerprint, token/PAT, `revokedByUserId` nem conteúdo de Replay. Sessões revogadas permanecem visíveis como `presenceStatus=REVOKED`.
 
 ## MCP Behavior
 
@@ -137,12 +139,12 @@ Não é necessária tool MCP administrativa de revoke; a governança pertence in
 
 ## Explicitly Out of Scope
 
-Ficam fora desta fase: rota pública de revoke, evento/métrica públicos de revoke, auditoria transacional do revoke, alteração MCP, expansão da discovery, autorização global, reason livre, outbox/retry, política de retenção, frontend e SSE replay. As fases 5H.9C/5H.9D não foram iniciadas. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
+Ficam fora desta fase: rota pública de revoke, evento/métrica públicos de revoke, auditoria transacional do revoke, alteração MCP, autorização global, reason livre, outbox/retry, política de retenção, frontend e SSE replay. 5H.9D ainda não foi iniciada. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
 
 ## Implementation Plan
 
 - **5H.9B — Session Revocation Core (IMPLEMENTED):** persistir `revokedAt`/`revokedByUserId`, estabelecer estado terminal e precedência, bloquear requests/heartbeat/activity antes dos gates posteriores e implementar a transição idempotente. A rota pública permanece bloqueada enquanto a auditoria obrigatória não for transacional.
-- **5H.9C — Administrative Session Discovery:** adicionar descoberta workspace-scoped para `OWNER`/`ADMIN`, sem resultados cross-workspace, sessões sem workspace de terceiros ou listagem global.
+- **5H.9C — Administrative Session Discovery (IMPLEMENTED):** `GET /api/agent-sessions/admin` fornece descoberta workspace-scoped para `OWNER`/`ADMIN`, sem resultados cross-workspace, sessões sem workspace de terceiros ou listagem global.
 - **5H.9D — Governance Event/Audit/Observability & Contract Audit:** entregar atomicamente a API pública de revoke, auditoria transacional obrigatória, evento, métricas e propagação terminal pelo MCP. A gravação da auditoria precisa participar da transação de revoke e sua falha deve abortar a operação. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
 
 ## 5H.9B — IMPLEMENTED
@@ -154,13 +156,26 @@ O core de revogação foi implementado nesta fase. A migration Flyway V46 adicio
 - A transição do core é idempotente e preserva o primeiro `revokedAt` e `revokedByUserId`.
 - Para sessão com workspace, somente `OWNER`/`ADMIN` desse workspace podem revogar; `MEMBER`/`VIEWER` e o ownership da sessão, por si só, não concedem autoridade administrativa.
 - Com `workspaceId = null`, somente o próprio owner pode revogar; não há autoridade global implícita.
-- Disconnect posterior preserva a revogação; discovery continua owner-scoped, reconhece `REVOKED` e não expõe `revokedByUserId` no DTO normal.
-- A rota pública `POST /api/agent-sessions/{sessionId}/revoke` ainda **não existe**. Também não foram adicionados evento público `AGENT_SESSION_REVOKED`, Audit Trail transacional do revoke, métrica `sessions.revoked`, administrative session listing, tool MCP de revoke ou frontend.
-- 5H.9C permanece dedicada à administrative discovery. 5H.9D deverá entregar conjuntamente API pública + transactional audit + event + metrics + MCP terminal propagation.
+- Disconnect posterior preserva a revogação; discovery owner-scoped reconhece `REVOKED` e não expõe `revokedByUserId` no DTO normal.
+- A rota pública `POST /api/agent-sessions/{sessionId}/revoke` ainda **não existe**. Também não foram adicionados evento público `AGENT_SESSION_REVOKED`, Audit Trail transacional do revoke, métrica `sessions.revoked`, tool MCP de revoke ou frontend.
+- A administrative discovery foi adicionada na 5H.9C. 5H.9D deverá entregar conjuntamente API pública + transactional audit + event + metrics + MCP terminal propagation.
 
-Validação executada externamente no PowerShell normal do host, conforme resultado informado para esta retomada; esta atualização documental não representa uma nova execução:
+Validação de 5H.9B, executada externamente no host conforme informado:
 
 - Testes focados: 26; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
 - Suíte backend completa: 528; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
 - Flyway validou 46 migrations, aplicou V46 e concluiu com schema na versão 46.
-- `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven, segundo o resultado informado.
+- `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven.
+
+## 5H.9C — IMPLEMENTED
+
+`GET /api/agent-sessions/admin?workspaceId=...` oferece discovery administrativa paginada, com filtros opcionais `runtimeMode` e `clientName`. A autorização usa `requireWorkspaceManager`: somente `OWNER` e `ADMIN` do workspace consultado são aceitos; `MEMBER`, `VIEWER` e usuários sem membership são negados. A query exige igualdade exata do `workspaceId` no banco, então não inclui outros workspaces, sessões sem workspace ou sessões globais. Ordenação é determinística por `registeredAt DESC, id DESC`; os limites existentes de paginação (`page >= 0`, `1 <= size <= 100`) são preservados.
+
+O DTO administrativo foi separado e expõe os campos operacionais documentados acima, sem identidade do owner, email/nome, protocol details, fingerprint, credentials, `revokedByUserId` ou conteúdo Replay. `revokedAt` é acompanhado de `presenceStatus=REVOKED` pelo mesmo resolver terminal. `GET /api/agent-sessions` e `GET /api/agent-sessions/{sessionId}` permanecem owner-scoped e semanticamente inalterados. Nenhuma rota pública de revoke foi criada; evento, auditoria transacional, métrica e propagação MCP seguem exclusivos da 5H.9D.
+
+Validação final executada externamente no PowerShell normal do host, conforme resultados informados:
+
+- Testes focados: 27; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
+- Suíte backend completa: 530; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
+- Flyway validou 46 migrations; o schema permaneceu em V46.
+- `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven.
