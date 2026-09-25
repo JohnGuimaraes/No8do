@@ -22,7 +22,7 @@ public class AgentAuditController {
     public AgentAuditPageResponse list(@AuthenticationPrincipal No8doUserDetails principal,
             @RequestParam(required = false) UUID sessionId,
             @RequestParam(required = false) UUID workspaceId,
-            @RequestParam(required = false) AgentEventType eventType,
+            @RequestParam(required = false) AgentAuditEventType eventType,
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "0") int page,

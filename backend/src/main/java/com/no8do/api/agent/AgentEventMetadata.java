@@ -1,11 +1,13 @@
 package com.no8do.api.agent;
 
 import com.no8do.api.replay.ReplayUsageResult;
+import java.time.Instant;
 import java.util.UUID;
 
 public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         AgentEventMetadata.RuntimeModeChanged, AgentEventMetadata.CapabilityDenied,
-        AgentEventMetadata.PolicyDenied, AgentEventMetadata.ReplayUsageRecorded {
+        AgentEventMetadata.PolicyDenied, AgentEventMetadata.ReplayUsageRecorded,
+        AgentEventMetadata.SessionRevoked {
 
     record Empty() implements AgentEventMetadata {}
 
@@ -40,6 +42,15 @@ public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         public ReplayUsageRecorded {
             if (replayId == null || replayVersion < 1 || result == null) {
                 throw new IllegalArgumentException("Replay, versão e resultado são obrigatórios.");
+            }
+        }
+    }
+
+    record SessionRevoked(UUID targetSessionId, UUID actorUserId, UUID workspaceId, Instant occurredAt)
+            implements AgentEventMetadata {
+        public SessionRevoked {
+            if (targetSessionId == null || actorUserId == null || occurredAt == null) {
+                throw new IllegalArgumentException("Sessão-alvo, ator e instante da revogação são obrigatórios.");
             }
         }
     }

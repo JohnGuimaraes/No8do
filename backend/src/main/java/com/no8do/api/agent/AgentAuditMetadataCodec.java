@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.no8do.api.replay.ReplayUsageResult;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,11 @@ public class AgentAuditMetadataCodec {
             encoded.put("replayId", usage.replayId().toString());
             encoded.put("replayVersion", usage.replayVersion());
             encoded.put("result", usage.result().name());
+        } else if (metadata instanceof AgentEventMetadata.SessionRevoked revoked) {
+            encoded.put("targetSessionId", revoked.targetSessionId().toString());
+            encoded.put("actorUserId", revoked.actorUserId().toString());
+            if (revoked.workspaceId() != null) encoded.put("workspaceId", revoked.workspaceId().toString());
+            encoded.put("occurredAt", revoked.occurredAt().toString());
         } else {
             throw new IllegalArgumentException("Tipo de metadata de AgentEvent não suportado.");
         }
@@ -45,7 +51,7 @@ public class AgentAuditMetadataCodec {
         }
     }
 
-    public AgentEventMetadata decode(AgentEventType eventType, JsonNode metadata) {
+    public AgentEventMetadata decode(AgentAuditEventType eventType, JsonNode metadata) {
         if (metadata == null || !metadata.isObject()) {
             throw new IllegalStateException("Metadata persistida de AgentEvent deve ser um objeto JSON.");
         }
@@ -64,6 +70,11 @@ public class AgentAuditMetadataCodec {
                         UUID.fromString(requiredText(metadata, "replayId")),
                         requiredInt(metadata, "replayVersion"),
                         enumValue(ReplayUsageResult.class, requiredText(metadata, "result")));
+                case AGENT_SESSION_REVOKED -> new AgentEventMetadata.SessionRevoked(
+                        UUID.fromString(requiredText(metadata, "targetSessionId")),
+                        UUID.fromString(requiredText(metadata, "actorUserId")),
+                        optionalUuid(metadata, "workspaceId"),
+                        Instant.parse(requiredText(metadata, "occurredAt")));
             };
         } catch (Exception exception) {
             throw new IllegalStateException("Metadata persistida de AgentEvent é inválida.", exception);
@@ -84,6 +95,15 @@ public class AgentAuditMetadataCodec {
             throw new IllegalArgumentException("Campo inteiro de metadata inválido: " + field);
         }
         return value.intValue();
+    }
+
+    private static UUID optionalUuid(JsonNode metadata, String field) {
+        JsonNode value = metadata.get(field);
+        if (value == null) return null;
+        if (!value.isTextual() || value.asText().isBlank()) {
+            throw new IllegalArgumentException("Campo UUID opcional de metadata inválido: " + field);
+        }
+        return UUID.fromString(value.asText());
     }
 
     private static <E extends Enum<E>> E enumValue(Class<E> type, String value) {

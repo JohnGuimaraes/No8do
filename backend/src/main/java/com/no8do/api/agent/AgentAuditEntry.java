@@ -24,7 +24,7 @@ public class AgentAuditEntry {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "event_type", nullable = false, length = 40, updatable = false)
-    private AgentEventType eventType;
+    private AgentAuditEventType eventType;
 
     @Column(name = "session_id", nullable = false, updatable = false)
     private UUID sessionId;
@@ -49,7 +49,7 @@ public class AgentAuditEntry {
 
     public UUID getId() { return id; }
     public UUID getEventId() { return eventId; }
-    public AgentEventType getEventType() { return eventType; }
+    public AgentAuditEventType getEventType() { return eventType; }
     public UUID getSessionId() { return sessionId; }
     public UUID getUserId() { return userId; }
     public UUID getWorkspaceId() { return workspaceId; }

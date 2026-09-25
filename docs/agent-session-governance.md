@@ -139,13 +139,14 @@ Não é necessária tool MCP administrativa de revoke; a governança pertence in
 
 ## Explicitly Out of Scope
 
-Ficam fora desta fase: rota pública de revoke, evento/métrica públicos de revoke, auditoria transacional do revoke, alteração MCP, autorização global, reason livre, outbox/retry, política de retenção, frontend e SSE replay. 5H.9D ainda não foi iniciada. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
+Para a etapa posterior à fundação 5H.9D.1 ficam fora de escopo: rota pública de revoke, evento/métrica realtime de revoke, alteração MCP, autorização global, reason livre, política de retenção, frontend e SSE replay. A fundação da auditoria transacional está implementada abaixo. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
 
 ## Implementation Plan
 
 - **5H.9B — Session Revocation Core (IMPLEMENTED):** persistir `revokedAt`/`revokedByUserId`, estabelecer estado terminal e precedência, bloquear requests/heartbeat/activity antes dos gates posteriores e implementar a transição idempotente. A rota pública permanece bloqueada enquanto a auditoria obrigatória não for transacional.
 - **5H.9C — Administrative Session Discovery (IMPLEMENTED):** `GET /api/agent-sessions/admin` fornece descoberta workspace-scoped para `OWNER`/`ADMIN`, sem resultados cross-workspace, sessões sem workspace de terceiros ou listagem global.
-- **5H.9D — Governance Event/Audit/Observability & Contract Audit:** entregar atomicamente a API pública de revoke, auditoria transacional obrigatória, evento, métricas e propagação terminal pelo MCP. A gravação da auditoria precisa participar da transação de revoke e sua falha deve abortar a operação. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
+- **5H.9D.1 — Transactional Revocation Audit Foundation (IMPLEMENTED):** persistir auditoria obrigatória na mesma transação da revogação; falha de auditoria aborta a revogação. Não adiciona rota pública, evento realtime, métrica ou propagação MCP.
+- **5H.9D.2 — Public Revocation Contract & Propagation:** permanece reservada e não iniciada. O restante do Audit Trail continua sem outbox/retry durável e esse TECH-DEBT não é resolvido aqui.
 
 ## 5H.9B — IMPLEMENTED
 
@@ -179,3 +180,24 @@ Validação final executada externamente no PowerShell normal do host, conforme 
 - Suíte backend completa: 530; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
 - Flyway validou 46 migrations; o schema permaneceu em V46.
 - `SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=2` foi usado somente nos processos Maven.
+
+## 5H.9D.1 — IMPLEMENTED
+
+A migration Flyway V47 permite `AGENT_SESSION_REVOKED` no tipo persistido do Audit Trail. `AgentAuditEventType` é separado de `AgentEventType`; `AGENT_SESSION_REVOKED` existe somente como tipo de auditoria persistida e não foi adicionado ao catálogo realtime. O identificador de evento é determinístico por sessão, assegurando uma única entrada lógica por revogação.
+
+A transição de revoke e a inserção obrigatória da auditoria participam da mesma transação. A gravação usa propagação `MANDATORY`; falha ou ausência de inserção aborta a transação e reverte a revogação. Repetições autorizadas não alteram `revokedAt` nem `revokedByUserId` originais e não criam outra auditoria. `revokedAt` é truncado para microssegundos antes da persistência e da montagem do resultado, preservando igualdade entre a primeira resposta e uma leitura posterior do PostgreSQL. `workspaceId` pode ser nulo.
+
+A metadata persistida contém somente `targetSessionId`, `actorUserId`, `occurredAt` e `workspaceId` quando presente. O listener existente continua responsável pelos eventos canônicos anteriores; a auditoria transacional de revoke é gravada diretamente na transação e não publica um evento, evitando duplicação com o listener.
+
+Não existe `POST /api/agent-sessions/{sessionId}/revoke`. Evento realtime `AGENT_SESSION_REVOKED`, métrica específica, propagação terminal pelo MCP, tool MCP de revoke e frontend de governança permanecem reservados e não foram iniciados nesta etapa.
+
+Validação final executada externamente no host, conforme resultados informados:
+
+- Testes focados: 16; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
+- Suíte backend completa: 533; 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`; exit code 0.
+- Flyway validou 47 migrations; schema na versão V47.
+
+TECH-DEBT preservado:
+
+1. Audit Trail geral ainda não possui outbox/retry durável.
+2. Agent Protocol snapshot pode ficar stale em processo MCP long-lived.

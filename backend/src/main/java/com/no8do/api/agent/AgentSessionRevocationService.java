@@ -2,6 +2,7 @@ package com.no8do.api.agent;
 
 import com.no8do.api.workspace.WorkspaceAuthorizationService;
 import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -13,12 +14,15 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class AgentSessionRevocationService {
     private final AgentSessionRepository repository;
+    private final AgentAuditTrailService auditTrailService;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final Clock clock;
 
     public AgentSessionRevocationService(AgentSessionRepository repository,
+            AgentAuditTrailService auditTrailService,
             WorkspaceAuthorizationService workspaceAuthorizationService, Clock clock) {
         this.repository = repository;
+        this.auditTrailService = auditTrailService;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.clock = clock;
     }
@@ -31,8 +35,12 @@ public class AgentSessionRevocationService {
                 .orElseThrow(AgentSessionRevocationService::notFound);
         requireAuthority(session, actorUserId);
 
-        boolean newlyRevoked = session.revoke(clock.instant(), actorUserId);
-        if (newlyRevoked) repository.save(session);
+        boolean newlyRevoked = session.revoke(clock.instant().truncatedTo(ChronoUnit.MICROS), actorUserId);
+        if (newlyRevoked) {
+            repository.save(session);
+            auditTrailService.recordRevocation(session.getId(), session.getUserId(), actorUserId,
+                    session.getWorkspaceId(), session.getRevokedAt());
+        }
         return new AgentSessionRevocationResult(session.getRevokedAt(), session.getRevokedByUserId(), newlyRevoked);
     }
 
