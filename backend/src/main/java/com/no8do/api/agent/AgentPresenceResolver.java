@@ -8,14 +8,20 @@ import java.util.Objects;
 public final class AgentPresenceResolver {
     public AgentPresenceStatus resolve(Instant registeredAt, Instant lastSeenAt, Instant lastActivityAt,
             Instant currentTime, AgentPresenceProperties thresholds) {
-        return resolve(registeredAt, lastSeenAt, lastActivityAt, null, currentTime, thresholds);
+        return resolve(registeredAt, lastSeenAt, lastActivityAt, null, null, currentTime, thresholds);
     }
 
     public AgentPresenceStatus resolve(Instant registeredAt, Instant lastSeenAt, Instant lastActivityAt,
             Instant disconnectedAt, Instant currentTime, AgentPresenceProperties thresholds) {
+        return resolve(registeredAt, lastSeenAt, lastActivityAt, disconnectedAt, null, currentTime, thresholds);
+    }
+
+    public AgentPresenceStatus resolve(Instant registeredAt, Instant lastSeenAt, Instant lastActivityAt,
+            Instant disconnectedAt, Instant revokedAt, Instant currentTime, AgentPresenceProperties thresholds) {
         Objects.requireNonNull(registeredAt, "registeredAt");
         Objects.requireNonNull(currentTime, "currentTime");
         Objects.requireNonNull(thresholds, "thresholds");
+        if (revokedAt != null) return AgentPresenceStatus.REVOKED;
         if (disconnectedAt != null) return AgentPresenceStatus.DISCONNECTED;
         Instant effectiveLastSeenAt = lastSeenAt == null ? registeredAt : lastSeenAt;
         if (Duration.between(effectiveLastSeenAt, currentTime).compareTo(thresholds.disconnectTimeout()) > 0) {

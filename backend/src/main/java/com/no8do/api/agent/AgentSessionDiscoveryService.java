@@ -55,7 +55,8 @@ public class AgentSessionDiscoveryService {
 
     private AgentSessionSummaryResponse toSummary(AgentSession session) {
         AgentPresenceStatus status = presenceResolver.resolve(session.getRegisteredAt(), session.getLastSeenAt(),
-                session.getLastActivityAt(), session.getDisconnectedAt(), clock.instant(), presenceProperties);
+                session.getLastActivityAt(), session.getDisconnectedAt(), session.getRevokedAt(),
+                clock.instant(), presenceProperties);
         return AgentSessionSummaryResponse.from(session, status);
     }
 

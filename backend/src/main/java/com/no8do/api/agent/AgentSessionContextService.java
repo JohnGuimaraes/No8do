@@ -25,6 +25,11 @@ public class AgentSessionContextService {
         return AgentSessionContextResponse.from(contextResolver.resolve(sessionId, authenticatedUserId));
     }
 
+    @Transactional(readOnly = true)
+    public AgentSessionContextResponse getContextAfterDisconnect(UUID sessionId, UUID authenticatedUserId) {
+        return AgentSessionContextResponse.from(contextResolver.resolveForDisconnectResponse(sessionId, authenticatedUserId));
+    }
+
     @Transactional
     public AgentSessionContextResponse updateRuntimeMode(UUID sessionId, UUID authenticatedUserId,
             AgentRuntimeMode runtimeMode) {

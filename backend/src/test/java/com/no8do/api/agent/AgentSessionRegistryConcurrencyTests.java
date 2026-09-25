@@ -18,6 +18,7 @@ class AgentSessionRegistryConcurrencyTests {
     @Autowired private AgentSessionRegistry registry;
     @Autowired private AgentSessionRepository sessionRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private AgentSessionRevocationService revocationService;
 
     @Test
     void concurrentRegistrationOfSameTransportFingerprintReturnsOneSession() throws Exception {
@@ -43,6 +44,34 @@ class AgentSessionRegistryConcurrencyTests {
         } finally {
             sessionRepository.findByTransportAndTransportSessionFingerprint(AgentTransport.MCP, fingerprint)
                     .ifPresent(sessionRepository::delete);
+            userRepository.deleteById(user.getId());
+        }
+    }
+
+    @Test
+    void revokedFingerprintCreatesNewSessionWhileActiveFingerprintRemainsIdempotent() {
+        UUID marker = UUID.randomUUID();
+        User user = userRepository.saveAndFlush(new User("revoked-fingerprint-" + marker,
+                marker + "@example.test", "hash"));
+        String fingerprint = marker.toString().replace("-", "").repeat(2);
+        AgentSessionRegistrationRequest request = new AgentSessionRegistrationRequest("Codex", "9.8", null,
+                AgentTransport.MCP, fingerprint);
+        try {
+            AgentSessionResponse first = registry.register(user.getId(), request);
+            revocationService.revoke(first.sessionId(), user.getId());
+
+            AgentSessionResponse replacement = registry.register(user.getId(), request);
+            AgentSessionResponse repeated = registry.register(user.getId(), request);
+
+            assertThat(replacement.sessionId()).isNotEqualTo(first.sessionId());
+            assertThat(repeated.sessionId()).isEqualTo(replacement.sessionId());
+            assertThat(sessionRepository.findByTransportAndTransportSessionFingerprintAndRevokedAtIsNull(
+                    AgentTransport.MCP, fingerprint)).get().extracting(AgentSession::getId)
+                    .isEqualTo(replacement.sessionId());
+            assertThat(sessionRepository.countByTransportAndTransportSessionFingerprint(
+                    AgentTransport.MCP, fingerprint)).isEqualTo(2);
+            assertThat(sessionRepository.findById(first.sessionId()).orElseThrow().getRevokedAt()).isNotNull();
+        } finally {
             userRepository.deleteById(user.getId());
         }
     }

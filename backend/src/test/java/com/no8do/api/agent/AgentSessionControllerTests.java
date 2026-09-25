@@ -40,6 +40,8 @@ class AgentSessionControllerTests {
     @Autowired private WorkspaceRepository workspaceRepository;
     @Autowired private WorkspaceMemberRepository workspaceMemberRepository;
     @Autowired private AgentSessionRepository sessionRepository;
+    @Autowired private AgentSessionRevocationService revocationService;
+    @Autowired private AgentSessionPresenceService presenceService;
     @Autowired private No8doAgentProtocolProvider protocolProvider;
 
     @Test
@@ -263,6 +265,61 @@ class AgentSessionControllerTests {
                 .andExpect(status().isOk());
         org.assertj.core.api.Assertions.assertThat(sessionRepository.findById(id).orElseThrow().getDisconnectedAt())
                 .isEqualTo(firstDisconnectedAt);
+    }
+
+    @Test
+    void revokedSessionFailsBeforeCapabilityAndBlocksHeartbeatAndActivityButDisconnectPreservesRevocation() throws Exception {
+        User owner = userRepository.save(new User("revoked-session-owner", "revoked-session-owner@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Revoked session scope"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        String body = request(null).replace("\"workspaceId\":null", "\"workspaceId\":\"" + workspace.getId() + "\"")
+                .replace(FINGERPRINT, "8".repeat(64));
+        MvcResult registered = mockMvc.perform(post("/api/agent-sessions").with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated()).andReturn();
+        String sessionId = objectMapper.readTree(registered.getResponse().getContentAsString()).get("sessionId").asText();
+        UUID id = UUID.fromString(sessionId);
+        AgentSession session = sessionRepository.findById(id).orElseThrow();
+        session.setRuntimeMode(AgentRuntimeMode.OFF);
+        sessionRepository.saveAndFlush(session);
+        presenceService.touchActivity(id, owner.getId());
+        AgentSession before = sessionRepository.findById(id).orElseThrow();
+        revocationService.revoke(id, owner.getId());
+
+        mockMvc.perform(get("/api/workspaces/{workspaceId}/replays", workspace.getId())
+                .header(AgentSessionContextInterceptor.HEADER_NAME, sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("AGENT_SESSION_REVOKED"))
+                .andExpect(jsonPath("$.metadata").doesNotExist());
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/heartbeat", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("AGENT_SESSION_REVOKED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> presenceService.touchActivity(id, owner.getId()))
+                .isInstanceOf(AgentSessionRevokedException.class);
+        AgentSession unchanged = sessionRepository.findById(id).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(unchanged.getLastSeenAt()).isEqualTo(before.getLastSeenAt());
+        org.assertj.core.api.Assertions.assertThat(unchanged.getLastActivityAt()).isEqualTo(before.getLastActivityAt());
+        org.assertj.core.api.Assertions.assertThat(unchanged.getDisconnectedAt()).isNull();
+
+        mockMvc.perform(get("/api/agent-sessions/{sessionId}/context", sessionId)
+                .with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("AGENT_SESSION_REVOKED"));
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/disconnect", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.presenceStatus").value("REVOKED"))
+                .andExpect(jsonPath("$.disconnectedAt").isNotEmpty());
+        AgentSession afterDisconnect = sessionRepository.findById(id).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(afterDisconnect.getRevokedAt()).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(afterDisconnect.getRevokedByUserId()).isEqualTo(owner.getId());
+
+        mockMvc.perform(post("/api/agent-sessions/{sessionId}/revoke", sessionId)
+                .with(user(new No8doUserDetails(owner))).with(csrf()))
+                .andExpect(status().isNotFound());
     }
 
     private String register(User owner, String fingerprint) throws Exception {

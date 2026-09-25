@@ -17,12 +17,13 @@ public record AgentSessionSummaryResponse(
         Instant registeredAt,
         Instant lastSeenAt,
         Instant lastActivityAt,
-        @JsonInclude(JsonInclude.Include.ALWAYS) Instant disconnectedAt) {
+        @JsonInclude(JsonInclude.Include.ALWAYS) Instant disconnectedAt,
+        @JsonInclude(JsonInclude.Include.ALWAYS) Instant revokedAt) {
 
     static AgentSessionSummaryResponse from(AgentSession session, AgentPresenceStatus presenceStatus) {
         return new AgentSessionSummaryResponse(session.getId(), session.getClientName(), session.getClientVersion(),
                 session.getWorkspaceId(), session.getTransport(), session.getProtocolName(), session.getProtocolVersion(),
                 session.getRuntimeMode(), presenceStatus, session.getRegisteredAt(), session.getLastSeenAt(),
-                session.getLastActivityAt(), session.getDisconnectedAt());
+                session.getLastActivityAt(), session.getDisconnectedAt(), session.getRevokedAt());
     }
 }
