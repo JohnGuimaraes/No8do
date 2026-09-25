@@ -31,7 +31,7 @@ class AgentAuditEntryRepositoryTests {
         Instant occurredAt = Instant.parse("2026-01-02T03:04:05Z");
         AgentAuditTrailService service = new AgentAuditTrailService(repository, codec,
                 mock(WorkspaceAuthorizationService.class));
-        for (AgentEventType type : AgentEventType.values()) {
+        for (AgentAuditEventType type : AgentAuditEventType.values()) {
             AgentEventMetadata metadata = metadata(type);
             UUID eventId = UUID.randomUUID();
             assertThat(insert(UUID.randomUUID(), eventId, type, sessionId, userId, workspaceId,
@@ -80,15 +80,15 @@ class AgentAuditEntryRepositoryTests {
         Instant jan1 = Instant.parse("2026-01-01T00:00:00Z");
         Instant jan2 = jan1.plusSeconds(86400);
         Instant jan3 = jan2.plusSeconds(86400);
-        insert(UUID.randomUUID(), UUID.randomUUID(), AgentEventType.AGENT_CONNECTED, sessionA,
+        insert(UUID.randomUUID(), UUID.randomUUID(), AgentAuditEventType.AGENT_CONNECTED, sessionA,
                 owner, workspace, jan1, new AgentEventMetadata.Empty());
-        insert(UUID.randomUUID(), UUID.randomUUID(), AgentEventType.POLICY_DENIED, sessionB,
+        insert(UUID.randomUUID(), UUID.randomUUID(), AgentAuditEventType.POLICY_DENIED, sessionB,
                 owner, workspace, jan2, new AgentEventMetadata.PolicyDenied("workspace-isolation-required",
                         "Uma policy ENFORCED negou a operação."));
-        insert(UUID.randomUUID(), UUID.randomUUID(), AgentEventType.REPLAY_USAGE_RECORDED, sessionA,
+        insert(UUID.randomUUID(), UUID.randomUUID(), AgentAuditEventType.REPLAY_USAGE_RECORDED, sessionA,
                 owner, null, jan3, new AgentEventMetadata.ReplayUsageRecorded(UUID.randomUUID(), 2,
                         com.no8do.api.replay.ReplayUsageResult.SUCCESS));
-        insert(UUID.randomUUID(), UUID.randomUUID(), AgentEventType.AGENT_DISCONNECTED, sessionA,
+        insert(UUID.randomUUID(), UUID.randomUUID(), AgentAuditEventType.AGENT_DISCONNECTED, sessionA,
                 anotherUser, workspace, jan3.plusSeconds(1), new AgentEventMetadata.Empty());
 
         WorkspaceAuthorizationService authorization = mock(WorkspaceAuthorizationService.class);
@@ -96,13 +96,13 @@ class AgentAuditEntryRepositoryTests {
         AgentAuditPageResponse firstPage = service.list(owner, null, null, null, null, null, 0, 2);
         AgentAuditPageResponse secondPage = service.list(owner, null, null, null, null, null, 1, 2);
         AgentAuditPageResponse bySession = service.list(owner, sessionA, null, null, null, null, 0, 10);
-        AgentAuditPageResponse byType = service.list(owner, null, null, AgentEventType.POLICY_DENIED,
+        AgentAuditPageResponse byType = service.list(owner, null, null, AgentAuditEventType.POLICY_DENIED,
                 null, null, 0, 10);
         AgentAuditPageResponse byRange = service.list(owner, null, null, null, jan2, jan3, 0, 10);
         AgentAuditPageResponse fromOnly = service.list(owner, null, null, null, jan2, null, 0, 10);
         AgentAuditPageResponse toOnly = service.list(owner, null, null, null, null, jan2, 0, 10);
         AgentAuditPageResponse combined = service.list(owner, sessionA, null,
-                AgentEventType.REPLAY_USAGE_RECORDED, jan3, jan3, 0, 10);
+                AgentAuditEventType.REPLAY_USAGE_RECORDED, jan3, jan3, 0, 10);
         AgentAuditPageResponse byWorkspace = service.list(owner, null, workspace, null, null, null, 0, 10);
 
         assertThat(firstPage.totalElements()).isEqualTo(3);
@@ -111,12 +111,12 @@ class AgentAuditEntryRepositoryTests {
         assertThat(secondPage.content()).hasSize(1);
         assertThat(bySession.content()).hasSize(2);
         assertThat(byType.content()).singleElement().extracting(AgentAuditEntryResponse::eventType)
-                .isEqualTo(AgentEventType.POLICY_DENIED);
+                .isEqualTo(AgentAuditEventType.POLICY_DENIED);
         assertThat(byRange.content()).hasSize(2);
         assertThat(fromOnly.content()).hasSize(2);
         assertThat(toOnly.content()).hasSize(2);
         assertThat(combined.content()).singleElement()
-                .extracting(AgentAuditEntryResponse::eventType).isEqualTo(AgentEventType.REPLAY_USAGE_RECORDED);
+                .extracting(AgentAuditEntryResponse::eventType).isEqualTo(AgentAuditEventType.REPLAY_USAGE_RECORDED);
         assertThat(byWorkspace.content()).hasSize(2);
         verify(authorization).requireWorkspaceMember(workspace, owner);
     }
@@ -126,19 +126,19 @@ class AgentAuditEntryRepositoryTests {
         UUID userId = UUID.randomUUID();
         UUID id = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
-        insert(id, eventId, AgentEventType.AGENT_CONNECTED, UUID.randomUUID(), userId, null,
+        insert(id, eventId, AgentAuditEventType.AGENT_CONNECTED, UUID.randomUUID(), userId, null,
                 Instant.parse("2026-01-01T00:00:00Z"), new AgentEventMetadata.Empty());
 
         Throwable failure = catchThrowable(() -> jdbcTemplate.update(
                 "update agent_audit_entries set event_type = ? where id = ?",
-                AgentEventType.POLICY_DENIED.name(), id));
+                AgentAuditEventType.POLICY_DENIED.name(), id));
         assertThat(causeMessages(failure)).contains("agent audit entries are append-only");
     }
 
     @Test
     void appendOnlyTriggerRejectsDeletes() {
         UUID id = UUID.randomUUID();
-        insert(id, UUID.randomUUID(), AgentEventType.AGENT_CONNECTED, UUID.randomUUID(),
+        insert(id, UUID.randomUUID(), AgentAuditEventType.AGENT_CONNECTED, UUID.randomUUID(),
                 UUID.randomUUID(), null, Instant.parse("2026-01-01T00:00:00Z"),
                 new AgentEventMetadata.Empty());
 
@@ -147,13 +147,13 @@ class AgentAuditEntryRepositoryTests {
         assertThat(causeMessages(failure)).contains("agent audit entries are append-only");
     }
 
-    private int insert(UUID id, UUID eventId, AgentEventType type, UUID sessionId, UUID userId,
+    private int insert(UUID id, UUID eventId, AgentAuditEventType type, UUID sessionId, UUID userId,
             UUID workspaceId, Instant occurredAt, AgentEventMetadata metadata) {
         return repository.insertIfEventAbsent(id, eventId, type.name(), sessionId, userId, workspaceId,
                 occurredAt, codec.encode(metadata));
     }
 
-    private static AgentEventMetadata metadata(AgentEventType type) {
+    private static AgentEventMetadata metadata(AgentAuditEventType type) {
         return switch (type) {
             case AGENT_CONNECTED, AGENT_DISCONNECTED -> new AgentEventMetadata.Empty();
             case RUNTIME_MODE_CHANGED -> new AgentEventMetadata.RuntimeModeChanged(
@@ -164,6 +164,8 @@ class AgentAuditEntryRepositoryTests {
                     "Uma policy ENFORCED negou a operação.");
             case REPLAY_USAGE_RECORDED -> new AgentEventMetadata.ReplayUsageRecorded(
                     UUID.randomUUID(), 1, com.no8do.api.replay.ReplayUsageResult.SUCCESS);
+            case AGENT_SESSION_REVOKED -> new AgentEventMetadata.SessionRevoked(
+                    UUID.randomUUID(), UUID.randomUUID(), null, Instant.parse("2026-01-02T03:04:05Z"));
         };
     }
 

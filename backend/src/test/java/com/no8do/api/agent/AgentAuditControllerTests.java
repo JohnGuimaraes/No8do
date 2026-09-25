@@ -48,7 +48,7 @@ class AgentAuditControllerTests {
         Instant to = Instant.parse("2026-02-01T00:00:00Z");
         User user = mock(User.class);
         when(user.getId()).thenReturn(userId);
-        when(auditTrailService.list(userId, sessionId, workspaceId, AgentEventType.POLICY_DENIED,
+        when(auditTrailService.list(userId, sessionId, workspaceId, AgentAuditEventType.POLICY_DENIED,
                 from, to, 1, 5)).thenReturn(new AgentAuditPageResponse(List.of(), 1, 5, 0, 0));
 
         mockMvc.perform(get("/api/agent-audit")
@@ -62,7 +62,7 @@ class AgentAuditControllerTests {
                         .with(user(new No8doUserDetails(user))))
                 .andExpect(status().isOk());
 
-        verify(auditTrailService).list(userId, sessionId, workspaceId, AgentEventType.POLICY_DENIED,
+        verify(auditTrailService).list(userId, sessionId, workspaceId, AgentAuditEventType.POLICY_DENIED,
                 from, to, 1, 5);
     }
 

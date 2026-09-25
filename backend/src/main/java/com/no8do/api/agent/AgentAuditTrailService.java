@@ -32,14 +32,29 @@ public class AgentAuditTrailService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean record(AgentEvent event) {
-        return repository.insertIfEventAbsent(UUID.randomUUID(), event.eventId(), event.type().name(),
+        return repository.insertIfEventAbsent(UUID.randomUUID(), event.eventId(),
+                AgentAuditEventType.valueOf(event.type().name()).name(),
                 event.sessionId(), event.userId(), event.workspaceId(), event.occurredAt(),
                 metadataCodec.encode(event.metadata())) == 1;
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordRevocation(UUID targetSessionId, UUID affectedUserId, UUID actorUserId,
+            UUID workspaceId, Instant occurredAt) {
+        AgentEventMetadata.SessionRevoked metadata = new AgentEventMetadata.SessionRevoked(
+                targetSessionId, actorUserId, workspaceId, occurredAt);
+        int inserted = repository.insertIfEventAbsent(UUID.randomUUID(),
+                AgentSessionRevocationEventId.forSession(targetSessionId),
+                AgentAuditEventType.AGENT_SESSION_REVOKED.name(), targetSessionId, affectedUserId,
+                workspaceId, occurredAt, metadataCodec.encode(metadata));
+        if (inserted != 1) {
+            throw new IllegalStateException("Audit obrigatório de revogação não foi inserido.");
+        }
+    }
+
     @Transactional(readOnly = true)
     public AgentAuditPageResponse list(UUID currentUserId, UUID sessionId, UUID workspaceId,
-            AgentEventType eventType, Instant from, Instant to, int page, int size) {
+            AgentAuditEventType eventType, Instant from, Instant to, int page, int size) {
         validateFilters(page, size, from, to);
         if (workspaceId != null) {
             workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
