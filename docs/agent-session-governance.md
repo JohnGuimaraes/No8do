@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Este documento define o contrato de governança administrativa de `AgentSession` antes de qualquer implementação de revogação. É uma proposta arquitetural baseada no modelo existente em `add71264d4ff62f698933aade5bf09308cf72587`; não adiciona endpoint, estado, migration ou comportamento executável.
+Este documento define o contrato atual de governança administrativa de `AgentSession`, implementado ao longo das fases 5H.9B–5H.9D.2B. O texto de proposta arquitetural baseado em `add71264d4ff62f698933aade5bf09308cf72587` é histórico; as seções de implementação e reconciliação abaixo registram o comportamento vigente.
 
 ## Existing Session Model
 
@@ -34,7 +34,7 @@ O Agent Protocol é provido pelo backend. Runtime mode e capabilities efetivas s
 
 Para sessão vinculada a workspace, a autoridade mínima já modelada e verificável é `WorkspaceRole.ADMIN` via `requireWorkspaceManager`; `OWNER` também é aceito pelo mesmo guard existente. `MEMBER` e `VIEWER` não podem administrar sessões alheias. A decisão usa o workspace persistido na sessão-alvo, nunca um workspace fornecido pelo chamador.
 
-A sequência futura é: autenticar ator → localizar a sessão dentro de uma resposta não enumerável → verificar ownership para o caso sem workspace, ou verificar `OWNER`/`ADMIN` no workspace persistido → aplicar transição idempotente → gravar auditoria obrigatória na mesma transação → confirmar commit → emitir evento/atualizar métrica conforme contrato. Revoke não substitui capability, Policy Engine, membership/RBAC nem autorização dos recursos Replay.
+A sequência é: autenticar ator → localizar a sessão dentro de uma resposta não enumerável → verificar ownership para o caso sem workspace, ou verificar `OWNER`/`ADMIN` no workspace persistido → aplicar transição idempotente → gravar auditoria obrigatória na mesma transação → confirmar commit → emitir evento/atualizar métrica conforme contrato. Revoke não substitui capability, Policy Engine, membership/RBAC nem autorização dos recursos Replay.
 
 Para requests de operação com AgentSession, a sequência é: autenticação → resolver sessão e confirmar ownership → rejeitar estado `REVOKED` → capability → policy → autorização workspace/RBAC normal → domínio. O gate de revoke deve anteceder capability, policy, workspace/RBAC e domínio, sem permitir que um header de sessão contorne autenticação ou ownership.
 
@@ -54,15 +54,15 @@ O mínimo recomendado para persistência é `revokedAt` (instante do servidor) e
 
 ## State Precedence
 
-Para resolver a apresentação de estado, a precedência proposta é:
+Para resolver a apresentação de estado, a precedência é:
 
 `REVOKED` > `DISCONNECTED` explícito (`disconnectedAt`) > `DISCONNECTED` por timeout > `ACTIVE` > `IDLE` > `CONNECTED`.
 
 Revogação persistida prevalece mesmo se o transporte ainda envia heartbeat. Disconnect explícito prevalece sobre qualquer timestamp de atividade; timeout é avaliado depois de verificar os estados persistidos. `ACTIVE`, `IDLE` e `CONNECTED` são alternativas derivadas quando nenhum estado terminal se aplica. Essa precedência preserva o resolver atual e insere `REVOKED` como estado administrativo de maior prioridade.
 
-## Proposed API Contract
+## Public API Contract
 
-Contrato candidato, ainda não implementado: `POST /api/agent-sessions/{sessionId}/revoke`, autenticado pelo mecanismo normal da API e protegido por CSRF conforme a configuração normal da aplicação. Não requer body nem aceita workspace alvo ou motivo livre. Sucesso retorna `204 No Content`.
+`POST /api/agent-sessions/{sessionId}/revoke` é autenticado pelo mecanismo normal da API e protegido por CSRF conforme a configuração normal da aplicação. Não requer body nem aceita workspace alvo ou motivo livre. Sucesso retorna `204 No Content`.
 
 - Sessão com workspace: exige `OWNER` ou `ADMIN` no workspace persistido da sessão.
 - Sessão sem workspace: exige que o ator seja o owner da sessão.
@@ -71,19 +71,21 @@ Contrato candidato, ainda não implementado: `POST /api/agent-sessions/{sessionI
 - Repetição: `204`, sem alterar timestamps/ator originais, sem novo evento, nova linha de auditoria ou incremento duplicado da métrica.
 - Ausente ou inacessível (outro owner, outro workspace, role insuficiente): resposta indistinguível `404`, sem confirmar existência ou estado. O guard de membership pode internamente produzir `403`; a fronteira de revoke deve normalizar falha de visibilidade/autorização para não permitir enumeração.
 
-## Error Contract
+## Current Error Contract
 
-Erros candidatos estáveis para a operação e o gate de sessão:
+Erros observáveis atuais para a operação e o gate de sessão:
 
 | HTTP | Código | Semântica |
 | --- | --- | --- |
 | `401` | resposta normal de autenticação | Não há identidade autenticada. |
 | `400` | `Invalid request` | UUID/path malformado ou entrada estrutural inválida. |
-| `404` | `AGENT_SESSION_NOT_FOUND` | Sessão inexistente ou não administrável pelo chamador; não distingue owner/workspace/role. |
+| `404` | `Agent session not found` | Sessão inexistente ou não administrável pelo chamador; não distingue owner/workspace/role. |
 | `409` | `AGENT_SESSION_REVOKED` | Operação autenticada e pertencente ao owner tentou usar sessão revogada. |
 | `409` | `AGENT_SESSION_DISCONNECTED` | Lifecycle encerrou, mas não há decisão administrativa de revoke. |
 
 `AGENT_SESSION_REVOKED` é diferente de `AGENT_SESSION_DISCONNECTED`: o primeiro indica bloqueio administrativo persistente; o segundo indica encerramento de lifecycle. Para requests com header, confirmar autenticação e ownership antes de revelar estado; em seguida, `REVOKED` deve ser recusado antes de capability, policy, workspace/RBAC ou domínio. A resposta de erro não precisa incluir session ID, ator, workspace, motivo, fingerprint ou dados de transporte. `AGENT_SESSION_DISCONNECTED` permanece o código já existente e não deve ser renomeado.
+
+Para `404`, o corpo público observado é `{ "error": "Agent session not found" }`. Não existe atualmente um código estruturado público `AGENT_SESSION_NOT_FOUND`; inexistência e inacessibilidade continuam indistinguíveis.
 
 ## Heartbeat and Activity Semantics
 
@@ -96,9 +98,9 @@ Erros candidatos estáveis para a operação e o gate de sessão:
 
 ## Event Contract
 
-Evento canônico futuro: `AGENT_SESSION_REVOKED`, criado pelo servidor somente na primeira transição. Reutiliza `AgentEvent` imutável: `eventId`, `sessionId` (sessão-alvo), `userId` (usuário afetado), `workspaceId` quando aplicável e `occurredAt` (timestamp do servidor). Metadata tipada contém `actorUserId`; não adiciona ator ao envelope compartilhado e não muda a semântica dos eventos atuais. Não incluir motivo livre.
+`AGENT_SESSION_REVOKED` é criado pelo servidor somente na primeira transição. O `AgentEvent` interno imutável contém `eventId`, `sessionId` (sessão-alvo), `userId` (usuário afetado), `workspaceId` quando aplicável, `occurredAt` (timestamp do servidor) e metadata tipada com `actorUserId`. Não inclui motivo livre.
 
-O evento diferencia sujeito, usuário afetado, ator e workspace através de campos estruturados, não de texto livre. Como o SSE existente é autenticado e filtrado para o `userId` afetado, `AgentEventResponse` serializa `sessionId`, `workspaceId` e metadata; portanto `actorUserId` fica visível ao usuário afetado como atribuição administrativa. Não serializar `userId` do envelope no SSE. Estes UUIDs são identificadores internos necessários à atribuição e não são credenciais; nunca incluir PAT/token, fingerprint, ID bruto MCP, conteúdo Replay ou identificadores em tags de métricas/logs. Se o requisito de não expor qualquer UUID em SSE prevalecer, isso exigirá um DTO de transporte sanitizado antes de habilitar o evento; não deve ser resolvido removendo a atribuição do evento/auditoria.
+O evento diferencia sujeito, usuário afetado, ator e workspace por campos estruturados, não por texto livre. O SSE autenticado e filtrado para o `userId` afetado usa `AgentEventResponse` com `AgentEventPublicMetadata`, nunca a metadata interna diretamente. Para revogação, a projeção pública contém somente `targetSessionId`, `workspaceId` quando aplicável e `occurredAt`; `actorUserId` não pertence ao contrato SSE público. O ator permanece no domínio e no audit interno. O envelope SSE também não serializa `userId`, PAT/token, fingerprint, ID bruto MCP ou conteúdo Replay.
 
 Fatos de estado são publicados depois do commit e rollback não produz entrega realtime, seguindo `SpringAgentEventPublisher`. SSE continua efêmero, em-processo e sem replay/history; discovery continua sendo a fonte de estado atual. A publicação realtime é best-effort sob o TECH-DEBT existente de outbox/retry; isso não substitui a linha de Audit Trail obrigatória.
 
@@ -106,13 +108,13 @@ Fatos de estado são publicados depois do commit e rollback não produz entrega 
 
 A primeira transição exige entrada append-only de `AGENT_SESSION_REVOKED`, com `eventId` idempotente, sessão-alvo, usuário afetado, workspace, timestamp e metadata tipada contendo `actorUserId`. Sem motivo livre ou dados de transporte. Uma repetição idempotente conserva a entrada inicial e não cria outra.
 
-Há uma diferença crítica em relação aos eventos atuais: `AgentAuditEventListener` recebe eventos após commit, chama persistência `REQUIRES_NEW` e o publisher contém falhas de listener. Isso não garante que um revoke commitado terá Audit Entry em caso de falha/crash. Portanto, o registro obrigatório do revoke deve ser gravado dentro da mesma transação de banco da mudança para `REVOKED`; falha ao gravar auditoria aborta o revoke. A emissão SSE/métrica pode ocorrer após commit e não é prova de auditoria. A implementação futura deve evitar uma segunda linha duplicada pelo listener, mantendo `eventId` único e integrando o novo tipo com o codec/repositório de forma idempotente.
+Há uma diferença crítica em relação aos eventos gerais: `AgentAuditEventListener` recebe eventos após commit, chama persistência `REQUIRES_NEW` e o publisher contém falhas de listener. Isso não garante que um evento geral commitado terá Audit Entry em caso de falha/crash. Por isso, o registro obrigatório do revoke é gravado dentro da mesma transação de banco da mudança para `REVOKED`; falha ao gravar auditoria aborta o revoke. A emissão SSE/métrica ocorre após commit e não é prova de auditoria. O fluxo evita uma segunda linha pelo listener, mantendo `eventId` único e integração idempotente.
 
 O TECH-DEBT geral de ausência de outbox/retry durável permanece explicitamente aberto: ele afeta entrega do evento após commit, mas não pode tornar a persistência auditável da decisão administrativa best-effort. A consulta atual de Audit Trail filtra pelo usuário afetado e membership de workspace não amplia os resultados para colegas; ampliar leitura administrativa exige contrato/autorização próprio, não é pressuposto deste revoke.
 
 ## Metrics
 
-Métrica candidata: counter `no8do.agent.sessions.revoked`, baixa cardinalidade e sem tags de identidade. Incrementar uma vez após commit da primeira transição; revoke repetido não incrementa. Não usar tags `sessionId`, `userId`, `workspaceId`, `actorUserId`, email, fingerprint, token ou texto livre de motivo. Um `reasonCode` enum finito poderia ser avaliado futuramente, mas não é necessário agora e não deve ser introduzido como tag nesta fase.
+A métrica `no8do.agent.sessions.revoked` possui baixa cardinalidade e não tem tags de identidade. É incrementada uma vez após commit da primeira transição; revoke repetido não incrementa. Não usa tags `sessionId`, `userId`, `workspaceId`, `actorUserId`, email, fingerprint, token ou texto livre de motivo. Um `reasonCode` enum finito poderia ser avaliado futuramente, mas não é necessário agora e não deve ser introduzido como tag nesta fase.
 
 ## Administrative Discovery
 
@@ -122,7 +124,7 @@ A resposta administrativa usa DTO próprio e contém somente `sessionId`, `clien
 
 ## MCP Behavior
 
-Não é necessária tool MCP administrativa de revoke; a governança pertence inicialmente à API/backend. Quando a sessão associada a um MCP for revogada, a próxima chamada de tool que enviar `X-No8do-Agent-Session-Id`, ou o próximo heartbeat, recebe `AGENT_SESSION_REVOKED` sanitizado. O MCP futuro deve tratar o erro como terminal: parar heartbeat, limpar/reter como inválido o ID local, não fazer retry de operação nem re-registrar automaticamente uma nova sessão. O erro deve ser propagado sem token, fingerprint ou raw MCP session ID. O fechamento do transporte ainda pode fazer cleanup local; não desfaz a revogação.
+Não há tool MCP administrativa de revoke; a governança pertence à API/backend. Quando a sessão associada a um MCP é revogada, a próxima chamada de tool que envia `X-No8do-Agent-Session-Id`, ou o próximo heartbeat, recebe `AGENT_SESSION_REVOKED` sanitizado. O MCP trata o erro como terminal: para heartbeat, não faz retry de operação nem re-registra automaticamente uma nova sessão. O erro é propagado sem token, fingerprint ou raw MCP session ID. O fechamento do transporte faz cleanup local e não desfaz a revogação.
 
 ## Security Invariants
 
@@ -139,7 +141,7 @@ Não é necessária tool MCP administrativa de revoke; a governança pertence in
 
 ## Explicitly Out of Scope
 
-Para a etapa posterior à 5H.9D.2A ficam fora de escopo: alteração MCP, autorização global, reason livre, política de retenção, frontend e SSE replay. A API pública, o evento realtime e a métrica da revogação estão implementados abaixo. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
+Após 5H.9D.2B ficam fora de escopo: autorização global, reason livre, política de retenção, frontend e SSE replay. A API pública, o evento realtime, a métrica e a propagação terminal MCP estão implementados. Permanecem preservados os dois TECH-DEBT existentes: Audit Trail sem outbox/retry durável e snapshot do Agent Protocol potencialmente obsoleto.
 
 ## Implementation Plan
 
@@ -209,7 +211,7 @@ TECH-DEBT preservado:
 
 A primeira transição mantém revoke e audit obrigatório na mesma transação. Após commit, publica exatamente um evento realtime `AGENT_SESSION_REVOKED` com metadata tipada segura e `eventId` determinístico compartilhado com o audit. A repetição preserva `revokedAt`/ator e não cria novo audit, evento ou incremento da métrica `no8do.agent.sessions.revoked`. A métrica não possui tags. Rollback do audit desfaz o revoke e não publica evento nem incrementa a métrica. O publisher realtime continua best-effort e after-commit; o audit segue obrigatório e atômico.
 
-Nenhum componente MCP foi alterado. A implementação da 5H.9D.2B permanece não iniciada. Permanecem os TECH-DEBT: Audit Trail geral sem outbox/retry durável e Agent Protocol snapshot potencialmente stale em MCP long-lived.
+Na conclusão histórica da 5H.9D.2A, nenhum componente MCP havia sido alterado e a 5H.9D.2B ainda não havia sido iniciada. Os TECH-DEBT preservados eram Audit Trail geral sem outbox/retry durável e Agent Protocol snapshot potencialmente stale em MCP long-lived.
 
 Validação final executada externamente no host, conforme resultados informados:
 
@@ -243,4 +245,46 @@ O gatilho autoritativo é exclusivamente `409` com `error=AGENT_SESSION_REVOKED`
 
 O heartbeat terminal é cancelado definitivamente; novos ticks e `start()` não o reativam, e não existem retry, auto-renew ou re-registration. HTTP mantém um header e heartbeat próprios por `RemoteSession`, isolando a revogação entre conexões; STDIO compartilha o mesmo sinal entre tools, heartbeat e cleanup. `close()` normal envia disconnect uma vez, enquanto `close()` após revoke faz somente cleanup local, sem converter `REVOKED` em `DISCONNECTED`.
 
-SSE não é consumido e nenhuma tool MCP de revoke foi criada. Validação final: `npm run typecheck` PASS; `npm test` PASS (58 testes, 0 falhas); `npm run build` PASS; `git diff --check` PASS. Os TECH-DEBT preservados são: Audit Trail geral sem outbox/retry durável e snapshot do Agent Protocol potencialmente stale em processo MCP long-lived. A 5H.9E permanece não iniciada.
+Na conclusão histórica da 5H.9D.2B, SSE não era consumido e nenhuma tool MCP de revoke havia sido criada. Validação final daquela fase: `npm run typecheck` PASS; `npm test` PASS (58 testes, 0 falhas); `npm run build` PASS; `git diff --check` PASS. Os TECH-DEBT preservados eram Audit Trail geral sem outbox/retry durável e snapshot do Agent Protocol potencialmente stale em processo MCP long-lived. Naquele momento, a 5H.9E ainda não havia sido iniciada.
+
+## 5H.9E.1 — FINAL GOVERNANCE AUDIT
+
+Escopo: auditoria estática final do Agent Gateway após 5H.9A–5H.9D.2B, cobrindo registro, presença, revogação, discovery, audit trail, eventos/SSE, métricas, MCP HTTP/STDIO e documentação. Não houve alteração de comportamento, dependência, frontend, migration, tool MCP, execução de testes ou acesso a navegador.
+
+### Contagem de achados
+
+- Auditoria original: BLOCKER 0, REQUIRED 2, TECH-DEBT 2 e OPTIONAL 0.
+- Estado após 5H.9E.2B: BLOCKER 0, REQUIRED 0, TECH-DEBT 2 e OPTIONAL 0.
+
+### Achados obrigatórios
+
+1. **REQUIRED-01 — RESOLVED em 5H.9E.2A.** `AgentEventResponse` deixou de serializar a metadata interna diretamente e passou a usar `AgentEventPublicMetadata`. Para `AGENT_SESSION_REVOKED`, SSE expõe somente `targetSessionId`, `workspaceId` quando aplicável e `occurredAt`; `actorUserId` permanece apenas no domínio e no audit interno. `AgentEventStreamHubTests` cobre o payload real entregue pelo hub, incluindo a ausência de `actorUserId`, `revokedByUserId`, fingerprint e credenciais.
+2. **REQUIRED-02 — RESOLVED em 5H.9E.2B.** A referência de 5H.9D.2A agora é inequivocamente histórica; `agent-events.md` inclui `AGENT_SESSION_REVOKED` e sua publicação after-commit; `agent-audit.md` distingue o audit obrigatório de revogação do listener geral; e `agent-presence.md` documenta `REVOKED`, sua precedência e o lifecycle MCP terminal. O histórico útil foi preservado sem se apresentar como estado atual.
+
+### Contratos confirmados
+
+- Revoke vinculado a workspace aceita somente `OWNER`/`ADMIN`; `MEMBER`, `VIEWER` e outsiders não recebem autoridade. Para `workspaceId = null`, somente o owner da sessão é aceito; não existe admin global implícito. Alvos inexistentes ou inacessíveis retornam `404` indistinguível.
+- A precedência é `REVOKED` > disconnect explícito > timeout > `ACTIVE` > `IDLE` > `CONNECTED`. Revoke bloqueia contexto, heartbeat e atividade; disconnect posterior preserva a revogação no resolver e no discovery.
+- A primeira revogação grava audit obrigatório na mesma transação e publica evento/incrementa métrica somente após commit. Repetições preservam campos iniciais e não duplicam audit, evento ou métrica. O evento e a métrica são best-effort após commit; a métrica de revogação não possui tags de identidade.
+- A discovery administrativa exige workspace e `OWNER`/`ADMIN`, filtra no banco antes da paginação e usa DTO operacional sem owner, credenciais ou fingerprint. HTTP mantém lifecycle por `RemoteSession`; STDIO mantém lifecycle único; nenhum deles depende de SSE. O MCP só torna terminal o `409` estruturado `AGENT_SESSION_REVOKED` e não re-registra nem envia disconnect após revoke.
+
+### TECH-DEBT preservado
+
+1. O Audit Trail geral continua sem outbox/retry durável. Não é regressão desta fase: a revogação possui audit obrigatório e transacional; o risco remanescente é a entrega best-effort dos eventos gerais após commit.
+2. O snapshot do Agent Protocol pode ficar obsoleto em processo MCP long-lived. Não é requisito de correção desta fase porque o protocolo não é tratado como dinâmico, não há refresh prometido e o MCP não ganhou capability de revoke; requer decisão explícita de política de refresh/reinício se a versão dinâmica passar a ser necessária.
+
+Conclusão: 5H.9E.1 identificou os achados; 5H.9E.2A resolveu o REQUIRED-01 e 5H.9E.2B resolveu o REQUIRED-02. Não foram identificados BLOCKERs no contrato de autorização, isolamento HTTP, estado terminal MCP, transação de revoke ou cardinalidade da métrica. A 5H.9 permanece pendente de reaudição final independente.
+
+## 5H.9E.2A — SAFE REVOCATION SSE PROJECTION — IMPLEMENTED AND VALIDATED
+
+`AgentEventResponse` usa `AgentEventPublicMetadata` como projeção explícita do evento interno para o transporte SSE. A metadata interna `AgentEventMetadata.SessionRevoked` e a metadata persistida de audit mantêm `actorUserId`; a projeção pública `SessionRevoked` contém somente `targetSessionId`, `workspaceId` quando aplicável e `occurredAt`. Portanto, `actorUserId` não pertence ao contrato SSE público.
+
+`AgentEventStreamHubTests` valida o payload entregue pelo hub SSE real: tipo, envelope e identificadores operacionais permitidos continuam presentes; `actorUserId`, `revokedByUserId`, fingerprints, PAT, token e `Authorization` estão ausentes. Validação executada externamente no PowerShell normal do host: focados 18/18 e backend completo 538/538, ambos com 0 failures, 0 errors e exit 0. O REQUIRED-01 está resolvido. A 5H.9E permanece pendente de reaudição final independente.
+
+## 5H.9E.2B — DOCUMENTATION RECONCILIATION — IMPLEMENTED
+
+Os documentos de governança, eventos, audit e presença foram reconciliados com o comportamento implementado. Declarações de escopo ou implementação anteriores foram preservadas apenas quando explicitamente históricas. O REQUIRED-02 está resolvido; os TECH-DEBT de Audit Trail geral sem outbox/retry durável e de snapshot de protocolo potencialmente stale permanecem abertos e não foram reclassificados.
+
+## 5H.9E.2C — FINAL DOCUMENTATION RECONCILIATION — IMPLEMENTED
+
+A reaudição independente identificou duas formulações residuais no documento de governança. A conclusão da 5H.9D.2B agora está qualificada explicitamente como histórica, inclusive sua informação de que 5H.9E ainda não havia começado naquele ponto. O contrato atual de `404` documenta a mensagem sanitizada `Agent session not found` e deixa explícito que não há código público estruturado `AGENT_SESSION_NOT_FOUND`. O REQUIRED-01 permanece resolvido; o REQUIRED-02 foi corrigido documentalmente e requer nova reaudição final independente antes de encerrar 5H.9.

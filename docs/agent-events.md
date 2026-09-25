@@ -14,14 +14,15 @@ Current canonical events and their originating facts:
 - `CAPABILITY_DENIED`: a request carrying an AgentSession was denied by the capability gate.
 - `POLICY_DENIED`: a request carrying an AgentSession was denied by an `ENFORCED` policy.
 - `REPLAY_USAGE_RECORDED`: a ReplayUsage was persisted by a request carrying an AgentSession.
+- `AGENT_SESSION_REVOKED`: the first administrative revocation was committed. An authorized idempotent repeat does not emit another event.
 
-The four persisted-state events (`AGENT_CONNECTED`, `AGENT_DISCONNECTED`, `RUNTIME_MODE_CHANGED`, and `REPLAY_USAGE_RECORDED`) are emitted only after their corresponding insert/update/usage operation succeeds; transaction-scoped publication is delivered after commit and discarded on rollback. Capability and policy denial events represent authorization decisions, so they do not require a domain commit and do not replace or alter the original HTTP denial.
+The five persisted-state events (`AGENT_CONNECTED`, `AGENT_DISCONNECTED`, `RUNTIME_MODE_CHANGED`, `REPLAY_USAGE_RECORDED`, and `AGENT_SESSION_REVOKED`) are emitted only after their corresponding insert/update/usage operation succeeds; transaction-scoped publication is delivered after commit and discarded on rollback. Revocation also has a mandatory audit record in the same database transaction, so an audit failure rolls back the revocation and produces no realtime event. Capability and policy denial events represent authorization decisions, so they do not require a domain commit and do not replace or alter the original HTTP denial.
 
 Presence remains derived at read time. `ACTIVE` and `IDLE` are not lifecycle transitions in this phase and do not produce synthetic events. The current session state is reconstructed through Session Discovery (`GET /api/agent-sessions`).
 
 ## Payload and safety
 
-Every immutable `AgentEvent` contains a server-generated event ID, type, session/user/workspace identifiers, server clock time, and event-specific typed metadata. Metadata is limited to the previous/new runtime mode, required capability and runtime mode, policy ID and a generic safe reason, or Replay ID/version/result. Events never carry PATs, Bearer tokens, fingerprints, raw MCP session IDs, request bodies, or Replay contents.
+Every immutable `AgentEvent` contains a server-generated event ID, type, session/user/workspace identifiers, server clock time, and event-specific typed metadata. Internal revocation metadata includes the actor needed by the domain and Audit Trail. Public SSE does not serialize internal metadata directly: `AgentEventResponse` projects it to `AgentEventPublicMetadata`. For `AGENT_SESSION_REVOKED`, the public metadata contains only `targetSessionId`, optional `workspaceId`, and `occurredAt`; it never contains `actorUserId` or `revokedByUserId`. Events and their public projections never carry PATs, Bearer tokens, fingerprints, raw MCP session IDs, request bodies, or Replay contents.
 
 ## Publisher and failure behavior
 
@@ -29,7 +30,7 @@ Every immutable `AgentEvent` contains a server-generated event ID, type, session
 
 ## SSE transport (5H.7B)
 
-`GET /api/agent-events/stream` exposes these canonical events over Spring MVC `SseEmitter`; it does not alter `AgentEvent` or make domain producers aware of SSE. The endpoint requires the existing authenticated principal and does not require an AgentSession header. The user ID comes only from that principal; callers cannot select another user through query parameters or headers. Each event uses its canonical `AgentEventType` as the SSE `event`, `eventId` as SSE `id`, and an `AgentEventResponse` JSON payload containing only `eventId`, `type`, `sessionId`, `workspaceId`, `occurredAt`, and the existing safe typed metadata. `userId` and credentials are not serialized.
+`GET /api/agent-events/stream` exposes these canonical events over Spring MVC `SseEmitter`; it does not alter `AgentEvent` or make domain producers aware of SSE. The endpoint requires the existing authenticated principal and does not require an AgentSession header. The user ID comes only from that principal; callers cannot select another user through query parameters or headers. Each event uses its canonical `AgentEventType` as the SSE `event`, `eventId` as SSE `id`, and an `AgentEventResponse` JSON payload containing only `eventId`, `type`, `sessionId`, `workspaceId`, `occurredAt`, and safe public metadata. `userId`, the revocation actor, and credentials are not serialized.
 
 The in-process `AgentEventStreamHub` supports multiple concurrent streams per user and fans each event out only to that user's subscribers. Completion, timeout, send failure, and application shutdown remove/close only the affected subscriber; a failed stream does not prevent delivery to other subscribers or fail the domain publisher. A lightweight SSE comment keepalive is sent every 25 seconds; it is transport-only and is not an AgentEvent or an AgentSession heartbeat.
 
