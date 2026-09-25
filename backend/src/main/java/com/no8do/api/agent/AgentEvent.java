@@ -16,6 +16,7 @@ public record AgentEvent(UUID eventId, AgentEventType type, UUID sessionId, UUID
             case CAPABILITY_DENIED -> metadata instanceof AgentEventMetadata.CapabilityDenied;
             case POLICY_DENIED -> metadata instanceof AgentEventMetadata.PolicyDenied;
             case REPLAY_USAGE_RECORDED -> metadata instanceof AgentEventMetadata.ReplayUsageRecorded;
+            case AGENT_SESSION_REVOKED -> metadata instanceof AgentEventMetadata.SessionRevoked;
         };
         if (!metadataMatches) {
             throw new IllegalArgumentException("Metadata incompatível com o tipo do evento.");

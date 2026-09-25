@@ -319,7 +319,7 @@ class AgentSessionControllerTests {
 
         mockMvc.perform(post("/api/agent-sessions/{sessionId}/revoke", sessionId)
                 .with(user(new No8doUserDetails(owner))).with(csrf()))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNoContent());
     }
 
     private String register(User owner, String fingerprint) throws Exception {
