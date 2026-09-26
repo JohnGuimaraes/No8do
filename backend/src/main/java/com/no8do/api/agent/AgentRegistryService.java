@@ -37,6 +37,21 @@ public class AgentRegistryService {
         this.clock = clock;
     }
 
+    @Transactional(readOnly = true)
+    public List<Agent> listAgents(UUID workspaceId, UUID actorUserId) {
+        requireIds(workspaceId, actorUserId);
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, actorUserId);
+        return agentRepository.findByWorkspaceIdOrderByUpdatedAtDescIdAsc(workspaceId);
+    }
+
+    @Transactional(readOnly = true)
+    public Agent getAgent(UUID workspaceId, UUID agentId, UUID actorUserId) {
+        requireIds(workspaceId, actorUserId);
+        Objects.requireNonNull(agentId, "agentId");
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, actorUserId);
+        return findByWorkspace(workspaceId, agentId);
+    }
+
     @Transactional
     public Agent createAgent(UUID workspaceId, UUID actorUserId, String name, String description,
             String providerDescriptor) {
