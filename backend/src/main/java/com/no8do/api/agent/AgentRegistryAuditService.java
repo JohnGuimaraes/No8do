@@ -42,6 +42,42 @@ public class AgentRegistryAuditService {
         record(AgentRegistryAuditEventType.AGENT_LIFECYCLE_CHANGED, actorUserId, agent, occurredAt, metadata);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordCredentialCreated(UUID actorUserId, Agent agent, AgentCredential credential, Instant occurredAt) {
+        ObjectNode metadata = credentialMetadata(credential, "CREATED", AgentCredentialStatus.ACTIVE.name());
+        record(AgentRegistryAuditEventType.AGENT_CREDENTIAL_CREATED, actorUserId, agent, occurredAt, metadata);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordCredentialRevoked(UUID actorUserId, Agent agent, AgentCredential credential,
+            Instant occurredAt, String reason) {
+        ObjectNode metadata = credentialMetadata(credential, "REVOKED", AgentCredentialStatus.REVOKED.name());
+        metadata.put("reason", reason);
+        record(AgentRegistryAuditEventType.AGENT_CREDENTIAL_REVOKED, actorUserId, agent, occurredAt, metadata);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordCredentialRotated(UUID actorUserId, Agent agent, AgentCredential previous,
+            AgentCredential replacement, Instant occurredAt) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("operation", "ROTATED");
+        metadata.put("status", AgentCredentialStatus.ACTIVE.name());
+        metadata.put("credentialId", replacement.getId().toString());
+        metadata.put("publicCredentialId", replacement.getPublicCredentialId());
+        metadata.put("replacedCredentialId", previous.getId().toString());
+        metadata.put("replacedPublicCredentialId", previous.getPublicCredentialId());
+        record(AgentRegistryAuditEventType.AGENT_CREDENTIAL_ROTATED, actorUserId, agent, occurredAt, metadata);
+    }
+
+    private ObjectNode credentialMetadata(AgentCredential credential, String operation, String status) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("operation", operation);
+        metadata.put("status", status);
+        metadata.put("credentialId", credential.getId().toString());
+        metadata.put("publicCredentialId", credential.getPublicCredentialId());
+        return metadata;
+    }
+
     private void record(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
             Instant occurredAt, ObjectNode metadata) {
         repository.saveAndFlush(new AgentRegistryAuditEntry(UUID.randomUUID(), UUID.randomUUID(), eventType,
