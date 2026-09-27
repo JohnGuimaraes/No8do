@@ -10,6 +10,7 @@ import { createStdioSessionCloseHandler } from "./stdioSessionLifecycle.js";
 import { createMcpServer, StdioAgentSessionTransport } from "./server.js";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
 import { AgentSessionHeader, No8doClient, type AgentProtocol } from "./no8doClient.js";
+import { takeStdioAgentCredential } from "./stdioAgentCredential.js";
 
 const protocol: AgentProtocol = {
   protocolName: "no8do-agent-protocol", protocolVersion: 1, systemName: "No8do", purpose: "Memória técnica",
@@ -46,8 +47,8 @@ function nextMessage(output: PassThrough) {
   });
 }
 
-test("stdio registra no initialize antes de responder, preserva bootstrap e não registra tools novamente", async () => {
-  const registrations: Array<{ body: Record<string, unknown>; authorization: string }> = [];
+test("stdio registra no initialize antes de responder, preserva bootstrap e encaminha credential uma vez", async () => {
+  const registrations: Array<{ body: Record<string, unknown>; authorization: string; credential?: string }> = [];
   const toolHeaders: Array<string | undefined> = [];
   const heartbeatCalls: Array<{ url: string; authorization: string; agentSessionId?: string }> = [];
   const lifecycleEvents: string[] = [];
@@ -58,6 +59,8 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
   const heartbeatReceived = new Promise<void>(resolve => { resolveHeartbeatRequest = resolve; });
   let runtimeMode = "FULL";
   const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const stdioEnvironment: { NO8DO_AGENT_CREDENTIAL?: string } = { NO8DO_AGENT_CREDENTIAL: "no8do_agent_private" };
+  let agentCredential = takeStdioAgentCredential(stdioEnvironment);
   const api = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
     if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(protocol));
@@ -87,7 +90,8 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     }
     const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-    registrations.push({ body, authorization: request.headers.authorization ?? "" });
+    registrations.push({ body, authorization: request.headers.authorization ?? "",
+      credential: request.headers["x-no8do-agent-credential"] as string | undefined });
     response.writeHead(201);
     response.end(JSON.stringify({ sessionId, ...body, runtimeMode: "FULL", protocolName: protocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
   });
@@ -100,9 +104,13 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
     () => heartbeat,
     () => { heartbeat = undefined; lifecycleEvents.push("cleanup"); }
   );
-  const transport = new StdioAgentSessionTransport(new StdioServerTransport(input, output), (clientName, clientVersion, transportSessionFingerprint) =>
-    new No8doClient(apiUrl, "PAT_STDIO_ONLY").registerAgentSession({ clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint })
-      .then(session => session),
+  const transport = new StdioAgentSessionTransport(new StdioServerTransport(input, output), (clientName, clientVersion, transportSessionFingerprint) => {
+    const credential = agentCredential;
+    agentCredential = undefined;
+    return new No8doClient(apiUrl, "PAT_STDIO_ONLY").registerAgentSession({
+      clientName, clientVersion, workspaceId: null, transport: "MCP", transportSessionFingerprint
+    }, credential);
+  },
     session => {
       assert.equal(registrations.length, 1);
       agentSessionHeader.set(session.sessionId);
@@ -124,7 +132,9 @@ test("stdio registra no initialize antes de responder, preserva bootstrap e não
       transportSessionFingerprint: createHash("sha256").update(transport.sessionId, "utf8").digest("hex")
     });
     assert.equal(registrations[0]?.authorization, "Bearer PAT_STDIO_ONLY");
+    assert.equal(registrations[0]?.credential, "no8do_agent_private");
     assert.doesNotMatch(JSON.stringify(registrations[0]?.body), /PAT_STDIO_ONLY|sessionId/);
+    assert.doesNotMatch(JSON.stringify(registrations[0]?.body), /no8do_agent_private/);
     assert.equal(heartbeatTicks.length, 1);
     assert.equal(heartbeatCalls.length, 0);
     heartbeatTicks[0]?.();

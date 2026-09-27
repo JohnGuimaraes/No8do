@@ -63,14 +63,17 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID
     @Modifying
     @Query(value = """
         insert into agent_sessions (id, user_id, workspace_id, client_name, client_version, transport,
-            protocol_name, protocol_version, registered_at, last_seen_at, last_activity_at, transport_session_fingerprint)
+            protocol_name, protocol_version, registered_at, last_seen_at, last_activity_at, transport_session_fingerprint,
+            agent_id, agent_credential_id)
         values (:id, :userId, :workspaceId, :clientName, :clientVersion, :transport,
-            :protocolName, :protocolVersion, :registeredAt, :registeredAt, null, :fingerprint)
+            :protocolName, :protocolVersion, :registeredAt, :registeredAt, null, :fingerprint,
+            :agentId, :agentCredentialId)
         on conflict (transport, transport_session_fingerprint) where revoked_at is null do nothing
         """, nativeQuery = true)
     int insertIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId,
             @Param("workspaceId") UUID workspaceId, @Param("clientName") String clientName,
             @Param("clientVersion") String clientVersion, @Param("transport") String transport,
             @Param("protocolName") String protocolName, @Param("protocolVersion") int protocolVersion,
-            @Param("registeredAt") Instant registeredAt, @Param("fingerprint") String fingerprint);
+            @Param("registeredAt") Instant registeredAt, @Param("fingerprint") String fingerprint,
+            @Param("agentId") UUID agentId, @Param("agentCredentialId") UUID agentCredentialId);
 }

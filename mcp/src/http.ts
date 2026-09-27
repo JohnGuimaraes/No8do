@@ -56,6 +56,8 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
         return json(response, 400, { error: "A new MCP connection must begin with initialize." });
       }
       const agentProtocol = await new No8doClient(apiUrl, token).getAgentProtocol();
+      const credentialHeader = request.headers["x-no8do-agent-credential"];
+      let agentCredential = typeof credentialHeader === "string" ? credentialHeader : undefined;
       const agentSessionHeader = new AgentSessionHeader();
       const server = createMcpServer({ apiUrl, token, agentProtocol, defaultWorkspaceId: scopedWorkspaceId, transport: "http", agentSessionHeader });
       const transport = new StreamableHTTPServerTransport({
@@ -64,13 +66,15 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
         onsessioninitialized: async (createdSessionId) => {
           const clientInfo = initialize.data.params.clientInfo;
           const client = new No8doClient(apiUrl, token);
+          const credential = agentCredential;
+          agentCredential = undefined;
           const registeredSession = await client.registerAgentSession({
             clientName: clientInfo.name,
             clientVersion: clientInfo.version,
             workspaceId: scopedWorkspaceId ?? null,
             transport: "MCP",
             transportSessionFingerprint: fingerprintTransportSession(createdSessionId)
-          });
+          }, credential);
           agentSessionHeader.set(registeredSession.sessionId);
           const heartbeat = heartbeatFactory(client, registeredSession.sessionId);
           agentSessionHeader.setRevocationHandler(() => heartbeat.markRevoked());

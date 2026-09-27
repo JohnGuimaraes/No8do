@@ -43,6 +43,8 @@ class AgentSessionControllerTests {
     @Autowired private AgentSessionRevocationService revocationService;
     @Autowired private AgentSessionPresenceService presenceService;
     @Autowired private No8doAgentProtocolProvider protocolProvider;
+    @Autowired private AgentRegistryService agentRegistryService;
+    @Autowired private AgentCredentialService credentialService;
 
     @Test
     void registrationRequiresAuthentication() throws Exception {
@@ -82,6 +84,41 @@ class AgentSessionControllerTests {
         org.assertj.core.api.Assertions.assertThat(response.has("userId")).isFalse();
         org.assertj.core.api.Assertions.assertThat(session.getTransportSessionFingerprint()).isEqualTo(FINGERPRINT);
         org.assertj.core.api.Assertions.assertThat(session.getRuntimeMode()).isEqualTo(AgentRuntimeMode.FULL);
+    }
+
+    @Test
+    void registrationHeaderBindsAgentWithoutReturningCredentialMaterial() throws Exception {
+        User owner = userRepository.save(new User("binding-controller", "binding-controller@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Binding controller workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        Agent agent = agentRegistryService.createAgent(workspace.getId(), owner.getId(), "Controller Agent", null, null);
+        AgentCredentialIssueResponse credential = credentialService.create(workspace.getId(), agent.getId(), owner.getId());
+        String request = request(null).replace(FINGERPRINT, "7".repeat(64))
+                .replace("\"workspaceId\":null", "\"workspaceId\":\"" + workspace.getId() + "\"");
+
+        MvcResult result = mockMvc.perform(post("/api/agent-sessions").with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionController.AGENT_CREDENTIAL_HEADER, credential.credential())
+                .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.agentId").doesNotExist())
+                .andExpect(jsonPath("$.agentCredentialId").doesNotExist())
+                .andReturn();
+        String responseBody = result.getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(responseBody).doesNotContain(credential.credential(), "secretHash", "credential");
+        UUID sessionId = UUID.fromString(objectMapper.readTree(responseBody).get("sessionId").asText());
+        AgentSession session = sessionRepository.findById(sessionId).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(session.getAgent().getId()).isEqualTo(agent.getId());
+        org.assertj.core.api.Assertions.assertThat(session.getAgentCredential().getId()).isEqualTo(credential.id());
+
+        String invalid = "no8do_ac1.private_secret_value";
+        String invalidRequest = request(null).replace(FINGERPRINT, "8".repeat(64));
+        MvcResult rejected = mockMvc.perform(post("/api/agent-sessions").with(user(new No8doUserDetails(owner))).with(csrf())
+                .header(AgentSessionController.AGENT_CREDENTIAL_HEADER, invalid)
+                .contentType(MediaType.APPLICATION_JSON).content(invalidRequest))
+                .andExpect(status().isUnauthorized()).andReturn();
+        org.assertj.core.api.Assertions.assertThat(rejected.getResponse().getContentAsString()).doesNotContain(invalid);
+        org.assertj.core.api.Assertions.assertThat(sessionRepository.findByTransportAndTransportSessionFingerprint(
+                AgentTransport.MCP, "8".repeat(64))).isEmpty();
     }
 
     @Test

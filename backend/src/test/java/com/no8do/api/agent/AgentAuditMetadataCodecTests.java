@@ -37,6 +37,12 @@ class AgentAuditMetadataCodecTests {
                 codec.decode(AgentAuditEventType.AGENT_SESSION_REVOKED, read(revokeJson));
         assertThat(nullWorkspace.workspaceId()).isNull();
 
+        AgentEventMetadata.SessionBound binding = new AgentEventMetadata.SessionBound(UUID.randomUUID(), UUID.randomUUID());
+        String bindingJson = codec.encode(binding);
+        assertThat(codec.decode(AgentAuditEventType.AGENT_SESSION_BOUND, read(bindingJson))).isEqualTo(binding);
+        assertThat(bindingJson).contains("agentId", "agentCredentialId").doesNotContain("secret", "credential.");
+        assertThat(AgentEventPublicMetadata.from(binding)).isEqualTo(new AgentEventPublicMetadata.Empty());
+
         String encoded = codec.encode(new AgentEventMetadata.PolicyDenied("workspace-isolation-required",
                 "raw credential must never be persisted"));
         assertThat(encoded).doesNotContain("raw credential");

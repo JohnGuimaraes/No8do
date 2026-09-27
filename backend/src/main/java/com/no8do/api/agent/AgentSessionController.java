@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/agent-sessions")
 public class AgentSessionController {
+    public static final String AGENT_CREDENTIAL_HEADER = "X-No8do-Agent-Credential";
     private final AgentSessionRegistry registry;
     private final AgentSessionContextService contextService;
     private final AgentSessionPresenceService presenceService;
@@ -64,8 +66,9 @@ public class AgentSessionController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public AgentSessionResponse register(@AuthenticationPrincipal No8doUserDetails principal,
-            @Valid @RequestBody AgentSessionRegistrationRequest request) {
-        return registry.register(principal.user().getId(), request);
+            @Valid @RequestBody AgentSessionRegistrationRequest request,
+            @RequestHeader(name = AGENT_CREDENTIAL_HEADER, required = false) String agentCredential) {
+        return registry.register(principal.user().getId(), request, agentCredential);
     }
 
     @PostMapping("/{sessionId}/revoke")

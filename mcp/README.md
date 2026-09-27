@@ -8,6 +8,8 @@ Requer Node.js 20+ e uma Personal API Token criada no No8do. Instale com `npm in
 
 Defina `NO8DO_API_URL` como a origem da API, por exemplo `http://localhost:8080`; o cliente acrescenta `/api`. Defina `NO8DO_API_TOKEN` com uma token `no8do_pat_...`. Opcionalmente, defina `NO8DO_WORKSPACE_ID` para usar esse workspace quando uma chamada não enviar `workspaceId`; o valor explícito na chamada sempre tem prioridade. Sem um dos dois, a tool retorna erro claro. Nunca inclua a token em arquivos de configuração versionados.
 
+Opcionalmente, `NO8DO_AGENT_CREDENTIAL` pode fornecer uma credential `no8do_ac1...` para vincular a AgentSession inicial. STDIO a remove do ambiente do processo e a consome apenas no registration. Como contém segredo, o envio exige HTTPS; HTTP é permitido somente para `localhost`, `127.0.0.1` ou `::1`. A requisição sensível não segue redirects.
+
 Exemplo de configuração MCP:
 
 ```json
@@ -35,5 +37,7 @@ PORT=3000
 ```
 
 O servidor não usa `NO8DO_API_TOKEN`: cada cliente envia `Authorization: Bearer <PAT pessoal>`, encaminhado somente à API No8do para aquela requisição. Sem `workspaceId`, uma tool usa o workspace configurado; com o mesmo ID, é permitida; com ID divergente, é rejeitada antes de qualquer chamada à API. O MCP nunca acessa outro workspace. O PAT identifica o usuário, enquanto o workspace configurado limita a instância; a API continua validando membership e RBAC. O STDIO mantém o comportamento anterior: `workspaceId` explícito tem prioridade e `NO8DO_WORKSPACE_ID` é apenas fallback.
+
+Um cliente remote pode enviar `X-No8do-Agent-Credential` no `initialize` inicial. O serviço encaminha esse header somente ao `POST {NO8DO_API_URL}/api/agent-sessions`; nunca o guarda na sessão MCP nem o inclui em body, URL, fingerprint ou resposta. Sem o header, o registration continua legado. Com o header, falha de verificação rejeita o registration sem fallback. O envio de credenciais também exige HTTPS, exceto loopback de desenvolvimento, e não segue redirects.
 
 Para Docker: `docker build -t no8do-mcp .`; configure `NO8DO_API_URL`, `NO8DO_WORKSPACE_ID` e `PORT`. Para Coolify, publique `/mcp`, use `/health` como health check e crie uma instância separada para cada workspace futuro. OAuth, rate limiting e auditoria de abuso permanecem pendentes antes de exposição pública ampla.

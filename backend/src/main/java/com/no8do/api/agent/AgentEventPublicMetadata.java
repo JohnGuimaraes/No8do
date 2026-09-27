@@ -22,6 +22,7 @@ public sealed interface AgentEventPublicMetadata permits AgentEventPublicMetadat
                     new ReplayUsageRecorded(value.replayId(), value.replayVersion(), value.result());
             case AgentEventMetadata.SessionRevoked value ->
                     new SessionRevoked(value.targetSessionId(), value.workspaceId(), value.occurredAt());
+            case AgentEventMetadata.SessionBound ignored -> new Empty();
         };
     }
 

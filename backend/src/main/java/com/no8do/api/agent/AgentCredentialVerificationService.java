@@ -18,4 +18,9 @@ public class AgentCredentialVerificationService {
     public Optional<VerifiedAgentCredential> verify(String presentedCredential) {
         return credentialService.verify(presentedCredential);
     }
+
+    @Transactional
+    public Optional<VerifiedAgentCredential> verifyForSessionBinding(String presentedCredential) {
+        return credentialService.verifyForSessionBinding(presentedCredential);
+    }
 }

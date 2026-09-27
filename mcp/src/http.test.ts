@@ -77,6 +77,56 @@ test("Streamable HTTP limita cada instância ao workspace configurado e isola PA
   } finally { await close(service); await close(api); }
 });
 
+test("remote MCP encaminha Agent Credential somente ao registration e não a retém na sessão", async () => {
+  const agentCredential = "no8do_agent_secret_private";
+  const registrations: Array<{ path: string; authorization: string; credential?: string; body: string }> = [];
+  const laterRequests: Array<{ path: string; credential?: string }> = [];
+  const api = createServer(async (request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/agent-protocol") return response.end(JSON.stringify(agentProtocol));
+    if (request.url === "/api/agent-sessions") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      registrations.push({ path: request.url, authorization: request.headers.authorization ?? "",
+        credential: request.headers["x-no8do-agent-credential"] as string | undefined,
+        body: Buffer.concat(chunks).toString("utf8") });
+      return response.end(JSON.stringify({ sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        clientName: "test", clientVersion: "1", workspaceId, transport: "MCP", runtimeMode: "FULL",
+        protocolName: agentProtocol.protocolName, protocolVersion: 1, registeredAt: "2026-01-01T00:00:00Z" }));
+    }
+    laterRequests.push({ path: request.url ?? "", credential: request.headers["x-no8do-agent-credential"] as string | undefined });
+    response.end(JSON.stringify([]));
+  });
+  const apiUrl = await listen(api); const service = createRemoteMcpService(apiUrl, workspaceId); const url = await listen(service);
+  const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: {
+    protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" }
+  } };
+  try {
+    const initialized = await postJson(`${url}/mcp`, {
+      Authorization: "Bearer PAT_PRIVATE", "X-No8do-Agent-Credential": agentCredential
+    }, initialize);
+    assert.equal(initialized.statusCode, 200);
+    const sessionId = initialized.headers["mcp-session-id"] as string;
+    const ack = await postJson(`${url}/mcp`, {
+      Authorization: "Bearer PAT_PRIVATE", "mcp-session-id": sessionId,
+      "mcp-protocol-version": "2025-03-26"
+    }, { jsonrpc: "2.0", method: "notifications/initialized" });
+    assert.equal(ack.statusCode, 202);
+    const toolCall = await postJson(`${url}/mcp`, {
+      Authorization: "Bearer PAT_PRIVATE", "mcp-session-id": sessionId,
+      "mcp-protocol-version": "2025-03-26"
+    }, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_replays", arguments: {} } });
+    assert.equal(toolCall.statusCode, 200);
+    assert.deepEqual(registrations, [{ path: "/api/agent-sessions", authorization: "Bearer PAT_PRIVATE",
+      credential: agentCredential, body: JSON.stringify({ clientName: "test", clientVersion: "1", workspaceId,
+        transport: "MCP", transportSessionFingerprint: createHash("sha256").update(sessionId, "utf8").digest("hex") }) }]);
+    assert.doesNotMatch(JSON.stringify(registrations[0]?.body), new RegExp(agentCredential));
+    assert.ok(laterRequests.length > 0);
+    assert.ok(laterRequests.every(call => call.credential === undefined));
+    assert.ok(laterRequests.some(call => call.path === `/api/workspaces/${workspaceId}/replays`));
+  } finally { await close(service); await close(api); }
+});
+
 test("Streamable HTTP propaga 401 e 403 da API sem vazar PAT", async () => {
   for (const status of [401, 403]) {
     const api = createServer((request, response) => {
