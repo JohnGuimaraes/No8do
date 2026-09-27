@@ -24,16 +24,19 @@ public class AgentRegistryService {
     private final UserRepository userRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final AgentRegistryAuditService auditService;
+    private final AgentCredentialLifecycleService credentialLifecycleService;
     private final Clock clock;
 
     public AgentRegistryService(AgentRepository agentRepository, WorkspaceRepository workspaceRepository,
             UserRepository userRepository, WorkspaceAuthorizationService workspaceAuthorizationService,
-            AgentRegistryAuditService auditService, Clock clock) {
+            AgentRegistryAuditService auditService, AgentCredentialLifecycleService credentialLifecycleService,
+            Clock clock) {
         this.agentRepository = agentRepository;
         this.workspaceRepository = workspaceRepository;
         this.userRepository = userRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.auditService = auditService;
+        this.credentialLifecycleService = credentialLifecycleService;
         this.clock = clock;
     }
 
@@ -94,7 +97,8 @@ public class AgentRegistryService {
         if (nextStatus == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Lifecycle status is required");
         workspaceAuthorizationService.requireWorkspaceManager(workspaceId, actorUserId);
         requireEnabledActor(actorUserId);
-        Agent agent = findByWorkspace(workspaceId, agentId);
+        Agent agent = agentRepository.findByIdAndWorkspaceIdForUpdate(agentId, workspaceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent not found"));
         AgentLifecycleStatus previousStatus = agent.getLifecycleStatus();
         if (previousStatus == nextStatus) return agent;
         if (!isAllowedTransition(previousStatus, nextStatus)) {
@@ -102,7 +106,11 @@ public class AgentRegistryService {
         }
         agent.changeLifecycleStatus(nextStatus);
         Agent saved = agentRepository.saveAndFlush(agent);
-        auditService.recordLifecycleChanged(actorUserId, saved, previousStatus, clock.instant());
+        Instant occurredAt = clock.instant();
+        if (nextStatus == AgentLifecycleStatus.ARCHIVED) {
+            credentialLifecycleService.revokeActiveForArchivedAgent(actorUserId, saved, occurredAt);
+        }
+        auditService.recordLifecycleChanged(actorUserId, saved, previousStatus, occurredAt);
         return saved;
     }
 
