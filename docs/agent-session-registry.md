@@ -1,5 +1,15 @@
 # Agent Session Registry
 
+## Agent Hub read API
+
+The administrative Agent Hub reads only sessions bound to the requested Agent and derives operational values from existing session timestamps and audit rows:
+
+- `GET /api/workspaces/{workspaceId}/agents/{agentId}/sessions` returns a deterministic, paginated history with the existing `AgentPresenceStatus` projection.
+- `GET /api/workspaces/{workspaceId}/agents/{agentId}/overview` returns lifecycle plus computed session counts, presence, and latest timestamps; no aggregate is persisted.
+- `GET /api/workspaces/{workspaceId}/agents/{agentId}/activity?limit=50` merges recent safe session audit and non-credential Agent registry audit, capped at 100 items.
+
+All three reads require workspace `OWNER` or `ADMIN`. The `(workspaceId, agentId)` lookup is scoped before related data is read. Legacy unbound sessions are not inferred or included. Activity metadata is whitelisted; raw audit JSON and credential audit details are not returned.
+
 No8do distingue **User** (conta autenticada), **Client** (software MCP declarado em `initialize.params.clientInfo`) e **Session** (uma conexão MCP). Cada conexão HTTP stateful recebe um registro automático antes da resposta de initialize; chamadas subsequentes reutilizam essa sessão, sem criar registros adicionais.
 
 O usuário vem exclusivamente do principal autenticado pelo Spring Security. `workspaceId` é opcional e, quando presente, o backend valida membership. O transporte é `MCP`; o servidor obtém `protocolName` e `protocolVersion` de `No8doAgentProtocolProvider`, e define `registeredAt` no momento da gravação.

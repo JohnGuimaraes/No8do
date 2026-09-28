@@ -13,6 +13,28 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID> {
+    @Query("select session from AgentSession session where session.agent.id = :agentId")
+    Page<AgentSession> findAgentSessions(@Param("agentId") UUID agentId, Pageable pageable);
+
+    @Query("""
+        select new com.no8do.api.agent.AgentSessionAggregate(
+            count(session.id),
+            coalesce(sum(case when session.revokedAt is null and session.disconnectedAt is null
+                and coalesce(session.lastSeenAt, session.registeredAt) >= :disconnectCutoff then 1 else 0 end), 0),
+            coalesce(sum(case when session.revokedAt is null and session.disconnectedAt is null
+                and coalesce(session.lastSeenAt, session.registeredAt) >= :disconnectCutoff
+                and session.lastActivityAt is not null and session.lastActivityAt >= :activeCutoff then 1 else 0 end), 0),
+            coalesce(sum(case when session.revokedAt is null and session.disconnectedAt is null
+                and coalesce(session.lastSeenAt, session.registeredAt) >= :disconnectCutoff
+                and session.lastActivityAt is null then 1 else 0 end), 0),
+            max(session.lastSeenAt), max(session.lastActivityAt), max(session.registeredAt)
+        )
+        from AgentSession session
+        where session.agent.id = :agentId
+        """)
+    AgentSessionAggregate aggregateForAgent(@Param("agentId") UUID agentId,
+            @Param("activeCutoff") Instant activeCutoff, @Param("disconnectCutoff") Instant disconnectCutoff);
+
     @Query("""
         select session from AgentSession session
         where session.userId = :userId
