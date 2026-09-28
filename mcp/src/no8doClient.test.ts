@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import test from "node:test";
 import { AgentSessionHeader, compactReplay, No8doApiError, No8doClient, type AgentProtocol, type Replay } from "./no8doClient.js";
+import { takeStdioAgentCredential } from "./stdioAgentCredential.js";
 
 const replay: Replay = { id: "r1", workspaceId: "w1", projectId: null, title: "Replay", type: "FIX", problem: "p", solution: "s", context: null, tags: ["java"], stack: ["spring"], status: "DRAFT", version: 1, usageCount: 0, successCount: 0, failureCount: 0, lastUsedAt: null, createdBy: "u1", createdByName: "User", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z" };
 
@@ -129,9 +132,72 @@ test("registra Agent Session com somente a identidade MCP e fingerprint do trans
   await setup.client.registerAgentSession({ clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
   assert.equal(setup.calls[0]?.[0], "http://localhost:8080/api/agent-sessions");
   assert.equal(setup.calls[0]?.[1]?.method, "POST");
+  assert.equal(new Headers(setup.calls[0]?.[1]?.headers).get("X-No8do-Agent-Credential"), null);
   assert.deepEqual(JSON.parse(String(setup.calls[0]?.[1]?.body)), { clientName: "Codex Desktop", clientVersion: "9.8", workspaceId: null, transport: "MCP", transportSessionFingerprint: "a".repeat(64) });
   assert.equal(JSON.stringify(setup.calls[0]?.[1]?.body).includes("PAT"), false);
   assert.equal(JSON.stringify(response).includes("transportSessionFingerprint"), false);
+});
+
+test("encaminha credential somente no header do registration e não segue redirects", async () => {
+  const setup = client(201, { sessionId: "s1" });
+  await setup.client.registerAgentSession({ clientName: "Codex", clientVersion: "1", workspaceId: null,
+    transport: "MCP", transportSessionFingerprint: "a".repeat(64) }, "no8do_agent_private");
+  const [url, init] = setup.calls[0]!;
+  assert.equal(url, "http://localhost:8080/api/agent-sessions");
+  const headers = new Headers(init?.headers);
+  assert.equal(headers.get("X-No8do-Agent-Credential"), "no8do_agent_private");
+  assert.equal(headers.get("Authorization"), "Bearer no8do_pat_secret-value");
+  assert.equal(init?.redirect, "error");
+  assert.doesNotMatch(String(init?.body), /no8do_agent_private/);
+  assert.doesNotMatch(JSON.stringify({ ...init, headers: undefined }), /no8do_agent_private/);
+});
+
+test("credential de Agent rejeita destino sem HTTPS fora de loopback sem ecoá-la", async () => {
+  const fetchImpl = (async () => { throw new Error("fetch must not be called"); }) as typeof fetch;
+  const unsafe = new No8doClient("http://api.example", "PAT_PRIVATE", fetchImpl);
+  await assert.rejects(() => unsafe.registerAgentSession({ clientName: "Codex", clientVersion: "1", workspaceId: null,
+    transport: "MCP", transportSessionFingerprint: "a".repeat(64) }, "agent_secret_private"),
+  (error: unknown) => error instanceof Error && error.message.includes("requires HTTPS")
+    && !error.message.includes("agent_secret_private"));
+});
+
+test("401 de binding devolve erro genérico sem ecoar credential", async () => {
+  const setup = client(401, { message: "agent_secret_private" });
+  await assert.rejects(() => setup.client.registerAgentSession({ clientName: "Codex", clientVersion: "1", workspaceId: null,
+    transport: "MCP", transportSessionFingerprint: "a".repeat(64) }, "agent_secret_private"),
+  (error: unknown) => error instanceof No8doApiError && error.status === 401
+    && error.message === "Credencial de Agent inválida." && !JSON.stringify(error).includes("agent_secret_private"));
+});
+
+test("STDIO consome a credential do ambiente uma vez", () => {
+  const env: { NO8DO_AGENT_CREDENTIAL?: string } = { NO8DO_AGENT_CREDENTIAL: "agent_secret_private" };
+  assert.equal(takeStdioAgentCredential(env), "agent_secret_private");
+  assert.equal(env.NO8DO_AGENT_CREDENTIAL, undefined);
+  assert.equal(takeStdioAgentCredential(env), undefined);
+});
+
+test("credential não atravessa redirect para outro origin", async () => {
+  let otherOriginRequests = 0;
+  const otherOrigin = createServer((_request, response) => { otherOriginRequests++; response.end("{}"); });
+  otherOrigin.listen(0, "127.0.0.1"); await once(otherOrigin, "listening");
+  const otherAddress = otherOrigin.address();
+  assert.ok(otherAddress && typeof otherAddress !== "string");
+  const otherUrl = `http://127.0.0.1:${otherAddress.port}/collect`;
+  const configured = createServer((_request, response) => {
+    response.writeHead(302, { location: otherUrl }); response.end();
+  });
+  configured.listen(0, "127.0.0.1"); await once(configured, "listening");
+  const configuredAddress = configured.address();
+  assert.ok(configuredAddress && typeof configuredAddress !== "string");
+  try {
+    const api = new No8doClient(`http://127.0.0.1:${configuredAddress.port}`, "PAT_PRIVATE");
+    await assert.rejects(() => api.registerAgentSession({ clientName: "Codex", clientVersion: "1", workspaceId: null,
+      transport: "MCP", transportSessionFingerprint: "a".repeat(64) }, "agent_secret_private"));
+    assert.equal(otherOriginRequests, 0);
+  } finally {
+    const configuredClosed = once(configured, "close"); configured.close(); configured.closeAllConnections(); await configuredClosed;
+    const otherClosed = once(otherOrigin, "close"); otherOrigin.close(); otherOrigin.closeAllConnections(); await otherClosed;
+  }
 });
 
 test("anexa session header apenas após initialize e obtém contexto atualizado sem parâmetros", async () => {

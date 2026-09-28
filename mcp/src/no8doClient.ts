@@ -158,8 +158,13 @@ export class No8doClient {
   getAgentProtocol(): Promise<AgentProtocol> {
     return this.request("/api/agent-protocol");
   }
-  registerAgentSession(registration: AgentSessionRegistration): Promise<AgentSession> {
-    return this.request("/api/agent-sessions", { method: "POST", body: JSON.stringify(registration) });
+  registerAgentSession(registration: AgentSessionRegistration, agentCredential?: string): Promise<AgentSession> {
+    const headers = new Headers();
+    if (agentCredential !== undefined) headers.set("X-No8do-Agent-Credential", agentCredential);
+    return this.request("/api/agent-sessions", {
+      method: "POST", headers, body: JSON.stringify(registration),
+      ...(agentCredential !== undefined ? { redirect: "error" as const } : {})
+    }, agentCredential !== undefined);
   }
   getAgentContext(): Promise<AgentSessionContext> {
     const sessionId = this.agentSessionHeader?.get();
@@ -210,7 +215,14 @@ export class No8doClient {
   registerReplayUsage(workspaceId: string, replayId: string, body: RegisterReplayUsageMutation): Promise<ReplayUsage> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/usages`, { method: "POST", body: JSON.stringify({ ...body, source: "MCP" }) });
   }
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}, sensitiveRegistration = false): Promise<T> {
+    if (sensitiveRegistration) {
+      const destination = new URL(`${this.baseUrl}${path}`);
+      const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(destination.hostname);
+      if (destination.protocol !== "https:" && !(destination.protocol === "http:" && loopback)) {
+        throw new Error("Agent credential registration requires HTTPS except for loopback development.");
+      }
+    }
     const sessionId = this.agentSessionHeader?.get();
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${this.token}`);
@@ -233,7 +245,10 @@ export class No8doClient {
         ...(isCapabilityDenied && typeof rawMetadata.runtimeMode === "string" ? { runtimeMode: rawMetadata.runtimeMode } : {}),
         ...(isCapabilityDenied && typeof rawMetadata.requiredCapability === "string" ? { requiredCapability: rawMetadata.requiredCapability } : {})
       } : undefined;
-      const message = isCapabilityDenied
+      const invalidAgentCredential = sensitiveRegistration && response.status === 401;
+      const message = invalidAgentCredential
+        ? "Credencial de Agent inválida."
+        : isCapabilityDenied
         ? `AGENT_CAPABILITY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`
         : isPolicyDenied
           ? `AGENT_POLICY_DENIED${metadata && Object.keys(metadata).length ? `: ${JSON.stringify(metadata)}` : ""}`

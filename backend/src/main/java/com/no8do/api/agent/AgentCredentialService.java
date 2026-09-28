@@ -97,7 +97,7 @@ public class AgentCredentialService {
 
     @Transactional(readOnly = true)
     public java.util.Optional<VerifiedAgentCredential> verify(String presentedCredential) {
-        AgentCredentialSecretCodec.ParsedCredential parsed = secretCodec.parse(presentedCredential).orElse(null);
+        AgentCredentialSecretCodec.ParsedCredential parsed = parsePresented(presentedCredential);
         if (parsed == null) return java.util.Optional.empty();
         AgentCredential credential = credentialRepository.findByPublicCredentialId(parsed.publicCredentialId())
                 .orElse(null);
@@ -108,8 +108,43 @@ public class AgentCredentialService {
         }
         Agent agent = credential.getAgent();
         if (agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE) return java.util.Optional.empty();
-        return java.util.Optional.of(new VerifiedAgentCredential(credential.getId(), agent.getId(),
-                agent.getWorkspace().getId()));
+        return java.util.Optional.of(verifiedCredential(credential, agent));
+    }
+
+    /** Serializes session binding against revoke, rotate, and archive using the same Agent lock order. */
+    @Transactional
+    public java.util.Optional<VerifiedAgentCredential> verifyForSessionBinding(String presentedCredential) {
+        AgentCredentialSecretCodec.ParsedCredential parsed = parsePresented(presentedCredential);
+        if (parsed == null) return java.util.Optional.empty();
+
+        AgentCredential candidate = credentialRepository.findByPublicCredentialId(parsed.publicCredentialId())
+                .orElse(null);
+        if (candidate == null) {
+            secretCodec.matches(null, parsed.secret());
+            return java.util.Optional.empty();
+        }
+
+        UUID agentId = candidate.getAgent().getId();
+        UUID workspaceId = candidate.getAgent().getWorkspace().getId();
+        Agent agent = agentRepository.findByIdAndWorkspaceIdForUpdate(agentId, workspaceId).orElse(null);
+        AgentCredential credential = credentialRepository.findByPublicCredentialIdForUpdate(parsed.publicCredentialId())
+                .orElse(null);
+        boolean secretMatches = secretCodec.matches(credential == null ? null : credential.getSecretHash(),
+                parsed.secret());
+        if (agent == null || credential == null || !credential.getAgent().getId().equals(agentId)
+                || credential.getStatus() != AgentCredentialStatus.ACTIVE || !secretMatches
+                || agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(verifiedCredential(credential, agent));
+    }
+
+    private AgentCredentialSecretCodec.ParsedCredential parsePresented(String presentedCredential) {
+        return secretCodec.parse(presentedCredential).orElse(null);
+    }
+
+    private static VerifiedAgentCredential verifiedCredential(AgentCredential credential, Agent agent) {
+        return new VerifiedAgentCredential(credential.getId(), agent.getId(), agent.getWorkspace().getId());
     }
 
     private void authorize(UUID workspaceId, UUID actorUserId, boolean requireEnabledActor) {

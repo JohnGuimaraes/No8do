@@ -166,6 +166,7 @@ class AgentAuditEntryRepositoryTests {
                     UUID.randomUUID(), 1, com.no8do.api.replay.ReplayUsageResult.SUCCESS);
             case AGENT_SESSION_REVOKED -> new AgentEventMetadata.SessionRevoked(
                     UUID.randomUUID(), UUID.randomUUID(), null, Instant.parse("2026-01-02T03:04:05Z"));
+            case AGENT_SESSION_BOUND -> new AgentEventMetadata.SessionBound(UUID.randomUUID(), UUID.randomUUID());
         };
     }
 

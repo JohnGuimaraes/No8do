@@ -4,7 +4,10 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -26,6 +29,14 @@ public class AgentSession {
 
     @Column(name = "workspace_id", updatable = false)
     private UUID workspaceId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "agent_id", updatable = false)
+    private Agent agent;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "agent_credential_id", updatable = false)
+    private AgentCredential agentCredential;
 
     @Column(name = "client_name", nullable = false, length = 255, updatable = false)
     private String clientName;
@@ -70,9 +81,17 @@ public class AgentSession {
 
     AgentSession(UUID id, UUID userId, UUID workspaceId, AgentClientIdentity clientIdentity,
             AgentTransport transport, No8doAgentProtocol protocol, String fingerprint) {
+        this(id, userId, workspaceId, null, null, clientIdentity, transport, protocol, fingerprint);
+    }
+
+    AgentSession(UUID id, UUID userId, UUID workspaceId, Agent agent, AgentCredential agentCredential,
+            AgentClientIdentity clientIdentity,
+            AgentTransport transport, No8doAgentProtocol protocol, String fingerprint) {
         this.id = id;
         this.userId = userId;
         this.workspaceId = workspaceId;
+        this.agent = agent;
+        this.agentCredential = agentCredential;
         this.clientName = clientIdentity.clientName();
         this.clientVersion = clientIdentity.clientVersion();
         this.transport = transport;

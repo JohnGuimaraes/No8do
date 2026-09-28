@@ -7,7 +7,7 @@ import java.util.UUID;
 public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         AgentEventMetadata.RuntimeModeChanged, AgentEventMetadata.CapabilityDenied,
         AgentEventMetadata.PolicyDenied, AgentEventMetadata.ReplayUsageRecorded,
-        AgentEventMetadata.SessionRevoked {
+        AgentEventMetadata.SessionRevoked, AgentEventMetadata.SessionBound {
 
     record Empty() implements AgentEventMetadata {}
 
@@ -51,6 +51,14 @@ public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         public SessionRevoked {
             if (targetSessionId == null || actorUserId == null || occurredAt == null) {
                 throw new IllegalArgumentException("Sessão-alvo, ator e instante da revogação são obrigatórios.");
+            }
+        }
+    }
+
+    record SessionBound(UUID agentId, UUID agentCredentialId) implements AgentEventMetadata {
+        public SessionBound {
+            if (agentId == null || agentCredentialId == null) {
+                throw new IllegalArgumentException("Agent e credential vinculados são obrigatórios.");
             }
         }
     }

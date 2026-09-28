@@ -41,6 +41,9 @@ public class AgentAuditMetadataCodec {
             encoded.put("actorUserId", revoked.actorUserId().toString());
             if (revoked.workspaceId() != null) encoded.put("workspaceId", revoked.workspaceId().toString());
             encoded.put("occurredAt", revoked.occurredAt().toString());
+        } else if (metadata instanceof AgentEventMetadata.SessionBound bound) {
+            encoded.put("agentId", bound.agentId().toString());
+            encoded.put("agentCredentialId", bound.agentCredentialId().toString());
         } else {
             throw new IllegalArgumentException("Tipo de metadata de AgentEvent não suportado.");
         }
@@ -75,6 +78,9 @@ public class AgentAuditMetadataCodec {
                         UUID.fromString(requiredText(metadata, "actorUserId")),
                         optionalUuid(metadata, "workspaceId"),
                         Instant.parse(requiredText(metadata, "occurredAt")));
+                case AGENT_SESSION_BOUND -> new AgentEventMetadata.SessionBound(
+                        UUID.fromString(requiredText(metadata, "agentId")),
+                        UUID.fromString(requiredText(metadata, "agentCredentialId")));
             };
         } catch (Exception exception) {
             throw new IllegalStateException("Metadata persistida de AgentEvent é inválida.", exception);
