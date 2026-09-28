@@ -31,7 +31,9 @@ public class AgentHubReadService {
             AgentRegistryAuditEventType.AGENT_PROJECT_ASSIGNED,
             AgentRegistryAuditEventType.AGENT_PROJECT_UNASSIGNED,
             AgentRegistryAuditEventType.AGENT_CONNECTION_ASSIGNED,
-            AgentRegistryAuditEventType.AGENT_CONNECTION_UNASSIGNED);
+            AgentRegistryAuditEventType.AGENT_CONNECTION_UNASSIGNED,
+            AgentRegistryAuditEventType.AGENT_CAPABILITY_GRANTED,
+            AgentRegistryAuditEventType.AGENT_CAPABILITY_REVOKED);
 
     private final AgentRepository agentRepository;
     private final AgentSessionRepository sessionRepository;
@@ -178,6 +180,11 @@ public class AgentHubReadService {
                 || entry.getEventType() == AgentRegistryAuditEventType.AGENT_CONNECTION_UNASSIGNED) {
             String connectionId = textField(metadata, "connectionId");
             if (connectionId != null) return Map.of("connectionId", connectionId);
+        }
+        if (entry.getEventType() == AgentRegistryAuditEventType.AGENT_CAPABILITY_GRANTED
+                || entry.getEventType() == AgentRegistryAuditEventType.AGENT_CAPABILITY_REVOKED) {
+            String capability = textField(metadata, "capability");
+            if (capability != null) return Map.of("capability", capability);
         }
         return Map.of();
     }

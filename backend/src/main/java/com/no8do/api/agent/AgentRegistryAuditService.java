@@ -93,6 +93,18 @@ public class AgentRegistryAuditService {
                 connectionId, unassignedAt, "unassignedAt");
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordCapabilityGranted(UUID actorUserId, Agent agent, AgentCapability capability, Instant grantedAt) {
+        recordCapabilityChange(AgentRegistryAuditEventType.AGENT_CAPABILITY_GRANTED, actorUserId, agent,
+                capability, grantedAt, "grantedAt");
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordCapabilityRevoked(UUID actorUserId, Agent agent, AgentCapability capability, Instant revokedAt) {
+        recordCapabilityChange(AgentRegistryAuditEventType.AGENT_CAPABILITY_REVOKED, actorUserId, agent,
+                capability, revokedAt, "revokedAt");
+    }
+
     private void recordProjectAssignment(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
             UUID projectId, Instant occurredAt, String timestampField) {
         ObjectNode metadata = objectMapper.createObjectNode();
@@ -109,6 +121,17 @@ public class AgentRegistryAuditService {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("agentId", agent.getId().toString());
         metadata.put("connectionId", connectionId.toString());
+        metadata.put("actorUserId", actorUserId.toString());
+        metadata.put("workspaceId", agent.getWorkspace().getId().toString());
+        metadata.put(timestampField, occurredAt.toString());
+        record(eventType, actorUserId, agent, occurredAt, metadata);
+    }
+
+    private void recordCapabilityChange(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
+            AgentCapability capability, Instant occurredAt, String timestampField) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("agentId", agent.getId().toString());
+        metadata.put("capability", capability.id());
         metadata.put("actorUserId", actorUserId.toString());
         metadata.put("workspaceId", agent.getWorkspace().getId().toString());
         metadata.put(timestampField, occurredAt.toString());

@@ -15,7 +15,7 @@ class AgentSessionContextResolverRevocationTests {
     void revokedSessionFailsAfterOwnershipAndBeforeProtocolCapabilityOrPolicyResolution() {
         AgentSessionRepository repository = mock(AgentSessionRepository.class);
         No8doAgentProtocolProvider protocolProvider = mock(No8doAgentProtocolProvider.class);
-        AgentEffectiveCapabilityResolver capabilityResolver = mock(AgentEffectiveCapabilityResolver.class);
+        AgentPersistentCapabilityResolver capabilityResolver = mock(AgentPersistentCapabilityResolver.class);
         AgentPresenceProperties thresholds = new AgentPresenceProperties(null, null);
         UUID ownerId = UUID.randomUUID();
         AgentSession session = new AgentSession(UUID.randomUUID(), ownerId, null,
