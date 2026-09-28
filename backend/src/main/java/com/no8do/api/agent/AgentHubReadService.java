@@ -29,7 +29,9 @@ public class AgentHubReadService {
             AgentRegistryAuditEventType.AGENT_UPDATED,
             AgentRegistryAuditEventType.AGENT_LIFECYCLE_CHANGED,
             AgentRegistryAuditEventType.AGENT_PROJECT_ASSIGNED,
-            AgentRegistryAuditEventType.AGENT_PROJECT_UNASSIGNED);
+            AgentRegistryAuditEventType.AGENT_PROJECT_UNASSIGNED,
+            AgentRegistryAuditEventType.AGENT_CONNECTION_ASSIGNED,
+            AgentRegistryAuditEventType.AGENT_CONNECTION_UNASSIGNED);
 
     private final AgentRepository agentRepository;
     private final AgentSessionRepository sessionRepository;
@@ -171,6 +173,11 @@ public class AgentHubReadService {
                 return timestamp == null ? Map.of("projectId", projectId)
                         : Map.of("projectId", projectId, timestampField, timestamp);
             }
+        }
+        if (entry.getEventType() == AgentRegistryAuditEventType.AGENT_CONNECTION_ASSIGNED
+                || entry.getEventType() == AgentRegistryAuditEventType.AGENT_CONNECTION_UNASSIGNED) {
+            String connectionId = textField(metadata, "connectionId");
+            if (connectionId != null) return Map.of("connectionId", connectionId);
         }
         return Map.of();
     }
