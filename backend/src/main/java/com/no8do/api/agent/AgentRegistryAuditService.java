@@ -69,6 +69,29 @@ public class AgentRegistryAuditService {
         record(AgentRegistryAuditEventType.AGENT_CREDENTIAL_ROTATED, actorUserId, agent, occurredAt, metadata);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordProjectAssigned(UUID actorUserId, Agent agent, UUID projectId, Instant assignedAt) {
+        recordProjectAssignment(AgentRegistryAuditEventType.AGENT_PROJECT_ASSIGNED, actorUserId, agent,
+                projectId, assignedAt, "assignedAt");
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordProjectUnassigned(UUID actorUserId, Agent agent, UUID projectId, Instant unassignedAt) {
+        recordProjectAssignment(AgentRegistryAuditEventType.AGENT_PROJECT_UNASSIGNED, actorUserId, agent,
+                projectId, unassignedAt, "unassignedAt");
+    }
+
+    private void recordProjectAssignment(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
+            UUID projectId, Instant occurredAt, String timestampField) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("agentId", agent.getId().toString());
+        metadata.put("projectId", projectId.toString());
+        metadata.put("actorUserId", actorUserId.toString());
+        metadata.put("workspaceId", agent.getWorkspace().getId().toString());
+        metadata.put(timestampField, occurredAt.toString());
+        record(eventType, actorUserId, agent, occurredAt, metadata);
+    }
+
     private ObjectNode credentialMetadata(AgentCredential credential, String operation, String status) {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("operation", operation);
