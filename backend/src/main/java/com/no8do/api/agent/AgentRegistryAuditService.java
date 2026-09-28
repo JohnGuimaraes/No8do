@@ -81,11 +81,34 @@ public class AgentRegistryAuditService {
                 projectId, unassignedAt, "unassignedAt");
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordConnectionAssigned(UUID actorUserId, Agent agent, UUID connectionId, Instant assignedAt) {
+        recordConnectionAssignment(AgentRegistryAuditEventType.AGENT_CONNECTION_ASSIGNED, actorUserId, agent,
+                connectionId, assignedAt, "assignedAt");
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordConnectionUnassigned(UUID actorUserId, Agent agent, UUID connectionId, Instant unassignedAt) {
+        recordConnectionAssignment(AgentRegistryAuditEventType.AGENT_CONNECTION_UNASSIGNED, actorUserId, agent,
+                connectionId, unassignedAt, "unassignedAt");
+    }
+
     private void recordProjectAssignment(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
             UUID projectId, Instant occurredAt, String timestampField) {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("agentId", agent.getId().toString());
         metadata.put("projectId", projectId.toString());
+        metadata.put("actorUserId", actorUserId.toString());
+        metadata.put("workspaceId", agent.getWorkspace().getId().toString());
+        metadata.put(timestampField, occurredAt.toString());
+        record(eventType, actorUserId, agent, occurredAt, metadata);
+    }
+
+    private void recordConnectionAssignment(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
+            UUID connectionId, Instant occurredAt, String timestampField) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("agentId", agent.getId().toString());
+        metadata.put("connectionId", connectionId.toString());
         metadata.put("actorUserId", actorUserId.toString());
         metadata.put("workspaceId", agent.getWorkspace().getId().toString());
         metadata.put(timestampField, occurredAt.toString());
