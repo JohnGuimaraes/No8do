@@ -27,7 +27,9 @@ public class AgentHubReadService {
     private static final List<AgentRegistryAuditEventType> SAFE_REGISTRY_EVENTS = List.of(
             AgentRegistryAuditEventType.AGENT_CREATED,
             AgentRegistryAuditEventType.AGENT_UPDATED,
-            AgentRegistryAuditEventType.AGENT_LIFECYCLE_CHANGED);
+            AgentRegistryAuditEventType.AGENT_LIFECYCLE_CHANGED,
+            AgentRegistryAuditEventType.AGENT_PROJECT_ASSIGNED,
+            AgentRegistryAuditEventType.AGENT_PROJECT_UNASSIGNED);
 
     private final AgentRepository agentRepository;
     private final AgentSessionRepository sessionRepository;
@@ -157,6 +159,17 @@ public class AgentHubReadService {
                     if (field.isTextual() && SAFE_CHANGED_FIELDS.contains(field.asText())) safeFields.add(field.asText());
                 });
                 if (!safeFields.isEmpty()) return Map.of("changedFields", List.copyOf(safeFields));
+            }
+        }
+        if (entry.getEventType() == AgentRegistryAuditEventType.AGENT_PROJECT_ASSIGNED
+                || entry.getEventType() == AgentRegistryAuditEventType.AGENT_PROJECT_UNASSIGNED) {
+            String projectId = textField(metadata, "projectId");
+            if (projectId != null) {
+                String timestampField = entry.getEventType() == AgentRegistryAuditEventType.AGENT_PROJECT_ASSIGNED
+                        ? "assignedAt" : "unassignedAt";
+                String timestamp = textField(metadata, timestampField);
+                return timestamp == null ? Map.of("projectId", projectId)
+                        : Map.of("projectId", projectId, timestampField, timestamp);
             }
         }
         return Map.of();

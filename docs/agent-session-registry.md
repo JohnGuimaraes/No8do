@@ -10,6 +10,14 @@ The administrative Agent Hub reads only sessions bound to the requested Agent an
 
 All three reads require workspace `OWNER` or `ADMIN`. The `(workspaceId, agentId)` lookup is scoped before related data is read. Legacy unbound sessions are not inferred or included. Activity metadata is whitelisted; raw audit JSON and credential audit details are not returned.
 
+## Agent ↔ Project assignments
+
+`agent_project_assignments` stores the administrative many-to-many association between an Agent and a Project. `GET /api/workspaces/{workspaceId}/agents/{agentId}/projects` lists safe Project summaries; idempotent `PUT` and `DELETE` endpoints create/remove only the association. All operations require workspace `OWNER` or `ADMIN`, scope both Agent and Project to the path Workspace, and never grant capabilities, policies, Connections, or operation authorization.
+
+Assignments are retained for `DISABLED` and `ARCHIVED` Agents; administrators may remove them from an archived Agent, but cannot add new ones. Project status/archive state does not add an assignment restriction because the current Project domain has no such rule. Deleting an Agent or Project cascades only its assignment rows; Workspace deletion follows the existing Project cleanup and Agent workspace cascade. Assignment audit entries are append-only and survive those deletions. `assigned_by_user_id` is required for a new association and becomes null on account deletion. Activity includes assignment events only through a safe metadata projection.
+
+The repository has no persistent `Area`, `ProjectArea`, or `WorkspaceArea` domain model. Agent ↔ Area is deferred; this phase does not introduce an Area entity or table.
+
 No8do distingue **User** (conta autenticada), **Client** (software MCP declarado em `initialize.params.clientInfo`) e **Session** (uma conexão MCP). Cada conexão HTTP stateful recebe um registro automático antes da resposta de initialize; chamadas subsequentes reutilizam essa sessão, sem criar registros adicionais.
 
 O usuário vem exclusivamente do principal autenticado pelo Spring Security. `workspaceId` é opcional e, quando presente, o backend valida membership. O transporte é `MCP`; o servidor obtém `protocolName` e `protocolVersion` de `No8doAgentProtocolProvider`, e define `registeredAt` no momento da gravação.
