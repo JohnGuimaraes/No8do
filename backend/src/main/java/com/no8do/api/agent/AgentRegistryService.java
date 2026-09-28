@@ -24,18 +24,20 @@ public class AgentRegistryService {
     private final UserRepository userRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final AgentRegistryAuditService auditService;
+    private final AgentCapabilityGrantService capabilityGrantService;
     private final AgentCredentialLifecycleService credentialLifecycleService;
     private final Clock clock;
 
     public AgentRegistryService(AgentRepository agentRepository, WorkspaceRepository workspaceRepository,
             UserRepository userRepository, WorkspaceAuthorizationService workspaceAuthorizationService,
-            AgentRegistryAuditService auditService, AgentCredentialLifecycleService credentialLifecycleService,
-            Clock clock) {
+            AgentRegistryAuditService auditService, AgentCapabilityGrantService capabilityGrantService,
+            AgentCredentialLifecycleService credentialLifecycleService, Clock clock) {
         this.agentRepository = agentRepository;
         this.workspaceRepository = workspaceRepository;
         this.userRepository = userRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.auditService = auditService;
+        this.capabilityGrantService = capabilityGrantService;
         this.credentialLifecycleService = credentialLifecycleService;
         this.clock = clock;
     }
@@ -66,6 +68,7 @@ public class AgentRegistryService {
         Agent agent = new Agent(workspace, normalizeName(name), normalizeOptionalText(description),
                 normalizeOptionalText(providerDescriptor), actor);
         Agent saved = agentRepository.saveAndFlush(agent);
+        capabilityGrantService.initializePublishedCapabilities(saved, actorUserId, clock.instant());
         auditService.recordCreated(actorUserId, saved, clock.instant());
         return saved;
     }

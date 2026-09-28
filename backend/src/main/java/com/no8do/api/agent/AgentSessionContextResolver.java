@@ -12,14 +12,14 @@ public final class AgentSessionContextResolver {
 
     private final AgentSessionRepository repository;
     private final No8doAgentProtocolProvider protocolProvider;
-    private final AgentEffectiveCapabilityResolver capabilityResolver;
+    private final AgentPersistentCapabilityResolver capabilityResolver;
     private final AgentPresenceResolver presenceResolver;
     private final AgentPresenceProperties presenceProperties;
     private final Clock clock;
 
     public AgentSessionContextResolver(AgentSessionRepository repository,
             No8doAgentProtocolProvider protocolProvider,
-            AgentEffectiveCapabilityResolver capabilityResolver,
+            AgentPersistentCapabilityResolver capabilityResolver,
             AgentPresenceProperties presenceProperties, Clock clock) {
         this.repository = repository;
         this.protocolProvider = protocolProvider;
@@ -46,7 +46,7 @@ public final class AgentSessionContextResolver {
         if (!allowRevoked && session.getRevokedAt() != null) throw new AgentSessionRevokedException();
         No8doAgentProtocol protocol = protocolProvider.current();
         return new AgentSessionContext(session,
-                capabilityResolver.resolve(protocol, session.getRuntimeMode()), protocol.policies(),
+                capabilityResolver.resolve(session, protocol), protocol.policies(),
                 presenceResolver.resolve(session.getRegisteredAt(), session.getLastSeenAt(), session.getLastActivityAt(),
                         session.getDisconnectedAt(), session.getRevokedAt(), clock.instant(), presenceProperties), session.getLastSeenAt(),
                 session.getLastActivityAt(), session.getDisconnectedAt());
