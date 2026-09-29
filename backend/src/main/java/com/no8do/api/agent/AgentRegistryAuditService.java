@@ -105,6 +105,20 @@ public class AgentRegistryAuditService {
                 capability, revokedAt, "revokedAt");
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordWorkItemAssigned(UUID actorUserId, Agent agent, UUID workItemId, UUID projectId,
+            Instant assignedAt) {
+        recordWorkItemAssignment(AgentRegistryAuditEventType.AGENT_WORK_ITEM_ASSIGNED, actorUserId, agent,
+                workItemId, projectId, assignedAt, "assignedAt");
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordWorkItemUnassigned(UUID actorUserId, Agent agent, UUID workItemId, UUID projectId,
+            Instant unassignedAt) {
+        recordWorkItemAssignment(AgentRegistryAuditEventType.AGENT_WORK_ITEM_UNASSIGNED, actorUserId, agent,
+                workItemId, projectId, unassignedAt, "unassignedAt");
+    }
+
     private void recordProjectAssignment(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
             UUID projectId, Instant occurredAt, String timestampField) {
         ObjectNode metadata = objectMapper.createObjectNode();
@@ -132,6 +146,18 @@ public class AgentRegistryAuditService {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("agentId", agent.getId().toString());
         metadata.put("capability", capability.id());
+        metadata.put("actorUserId", actorUserId.toString());
+        metadata.put("workspaceId", agent.getWorkspace().getId().toString());
+        metadata.put(timestampField, occurredAt.toString());
+        record(eventType, actorUserId, agent, occurredAt, metadata);
+    }
+
+    private void recordWorkItemAssignment(AgentRegistryAuditEventType eventType, UUID actorUserId, Agent agent,
+            UUID workItemId, UUID projectId, Instant occurredAt, String timestampField) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.put("agentId", agent.getId().toString());
+        metadata.put("workItemId", workItemId.toString());
+        metadata.put("projectId", projectId.toString());
         metadata.put("actorUserId", actorUserId.toString());
         metadata.put("workspaceId", agent.getWorkspace().getId().toString());
         metadata.put(timestampField, occurredAt.toString());

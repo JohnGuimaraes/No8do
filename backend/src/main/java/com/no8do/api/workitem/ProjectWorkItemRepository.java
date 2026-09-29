@@ -1,9 +1,11 @@
 package com.no8do.api.workitem;
 
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -43,6 +45,19 @@ public interface ProjectWorkItemRepository extends JpaRepository<ProjectWorkItem
     );
 
     Optional<ProjectWorkItem> findByIdAndProjectId(UUID id, UUID projectId);
+
+    Optional<ProjectWorkItem> findByIdAndProject_Workspace_Id(UUID id, UUID workspaceId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        select item
+        from ProjectWorkItem item
+        join item.project project
+        where item.id = :workItemId
+            and project.workspace.id = :workspaceId
+        """)
+    Optional<ProjectWorkItem> findScopedForAgentAssignment(@Param("workItemId") UUID workItemId,
+            @Param("workspaceId") UUID workspaceId);
 
     void deleteByProjectId(UUID projectId);
 }
