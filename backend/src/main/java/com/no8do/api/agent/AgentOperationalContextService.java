@@ -53,10 +53,20 @@ public class AgentOperationalContextService {
         return AgentOperationalContextResponse.from(context);
     }
 
+    @Transactional(readOnly = true)
+    public AgentOperationalContextStateResponse getState(UUID sessionId, UUID authenticatedUserId) {
+        AgentSession session = requireOwned(sessionId, authenticatedUserId);
+        if (session.getRevokedAt() != null) throw new AgentSessionRevokedException();
+        AgentOperationalContext context = contextRepository.findWithReferencesBySessionId(sessionId).orElse(null);
+        return context == null ? AgentOperationalContextStateResponse.absent()
+                : AgentOperationalContextStateResponse.present(AgentOperationalContextResponse.from(context));
+    }
+
     public AgentOperationalContextResponse replace(UUID sessionId, UUID authenticatedUserId,
             AgentOperationalContextUpdateRequest request) {
         OperationalContextSnapshot snapshot = snapshotReader.read(sessionId, authenticatedUserId);
         requireWritable(snapshot);
+        requireExpectedVersion(request.expectedVersionValue(), snapshot.contextVersion());
         UUID effectiveWorkspaceId = snapshot.workspaceId();
         if (request.workspaceHint() != null && !request.workspaceHint().equals(effectiveWorkspaceId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Operational context is inconsistent");
@@ -80,24 +90,9 @@ public class AgentOperationalContextService {
         ProjectResolution resolution = resolveProject(effectiveWorkspaceId, providerRepositoryId,
                 providerRepositoryId != null && signal.repository() != null
                         && "github".equals(signal.repository().provider()) && "github.com".equals(signal.repository().host()));
-        try {
-            return writeService.persist(sessionId, authenticatedUserId, snapshot, signal, hash,
-                    resolution.status(), resolution.projectId(), resolution.confidence(), providerRepositoryId,
-                    resolution.evidence());
-        } catch (ResponseStatusException conflict) {
-            if (conflict.getStatusCode() != HttpStatus.CONFLICT) throw conflict;
-            OperationalContextSnapshot current = snapshotReader.read(sessionId, authenticatedUserId);
-            boolean sameRepository = sameRepositoryIdentity(current.repository(), signal.repository());
-            boolean providerIdentityStillCurrent = !repositoryChanged
-                    || java.util.Objects.equals(current.projectResolutionRepositoryId(), providerRepositoryId);
-            if (!sameRepository || !providerIdentityStillCurrent) throw conflict;
-            String currentProviderId = current.projectResolutionRepositoryId();
-            ProjectResolution currentResolution = resolveProject(current.workspaceId(), currentProviderId,
-                    currentProviderId != null);
-            return writeService.persist(sessionId, authenticatedUserId, current, signal, hash,
-                    currentResolution.status(), currentResolution.projectId(), currentResolution.confidence(),
-                    currentProviderId, currentResolution.evidence());
-        }
+        return writeService.persist(sessionId, authenticatedUserId, snapshot, signal, hash,
+                resolution.status(), resolution.projectId(), resolution.confidence(), providerRepositoryId,
+                resolution.evidence());
     }
 
     public void refreshRepositoryResolution(UUID sessionId) {
@@ -158,6 +153,12 @@ public class AgentOperationalContextService {
                 snapshot.lastActivityAt(), snapshot.disconnectedAt(), snapshot.revokedAt(), clock.instant(),
                 presenceProperties);
         if (status == AgentPresenceStatus.DISCONNECTED) throw new AgentSessionDisconnectedException(snapshot.sessionId());
+    }
+
+    private static void requireExpectedVersion(Long expectedVersion, Long actualVersion) {
+        if (!java.util.Objects.equals(expectedVersion, actualVersion)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Operational context version conflict");
+        }
     }
 
     private record ProjectResolution(OperationalContextResolutionStatus status, UUID projectId,

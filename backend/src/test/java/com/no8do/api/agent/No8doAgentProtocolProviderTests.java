@@ -14,7 +14,7 @@ class No8doAgentProtocolProviderTests {
         No8doAgentProtocol protocol = provider.current();
 
         assertThat(protocol.protocolName()).isEqualTo("no8do-agent-protocol");
-        assertThat(protocol.protocolVersion()).isEqualTo(1);
+        assertThat(protocol.protocolVersion()).isEqualTo(2);
         assertThat(protocol.systemName()).isEqualTo("No8do");
         assertThat(protocol.purpose()).contains("memória", "conhecimento técnico reutilizável");
     }
@@ -101,7 +101,7 @@ class No8doAgentProtocolProviderTests {
         No8doAgentProtocol protocol = provider.current();
 
         assertThat(protocol.systemName()).isEqualTo("No8do");
-        assertThat(protocol.protocolVersion()).isEqualTo(1);
+        assertThat(protocol.protocolVersion()).isEqualTo(2);
         assertThat(protocol.replayGuidance().searchBeforeCreate()).isTrue();
         assertThat(protocol.capabilities().capabilities()).isNotEmpty();
         assertThat(protocol.policies().policies()).isNotEmpty();

@@ -22,7 +22,8 @@ const protocol: AgentProtocol = {
     avoidDiscardedAttempts: false
   },
   capabilities: { capabilities: [{ id: "REPLAY_SEARCH", description: "Search Replays", readOnly: true }] },
-  policies: { policies: [{ id: "sample-policy", description: "A fixture policy", enforcement: "ADVISORY" }] }
+  policies: { policies: [{ id: "sample-policy", description: "A fixture policy", enforcement: "ADVISORY" }] },
+  integrationExtensions: { extensions: [] }
 };
 
 test("instructions are short, deterministic and rendered from the supplied protocol", () => {

@@ -12,13 +12,29 @@ export function requireRemoteWorkspaceId(workspaceId: string | undefined): strin
   return assertValidWorkspaceId(workspaceId, "NO8DO_WORKSPACE_ID deve ser um UUID válido no MCP remoto.");
 }
 
-export function resolveWorkspaceId(explicitWorkspaceId: string | undefined, defaultWorkspaceId: string | undefined, transport: WorkspaceTransport = "stdio"): string {
+export function resolveWorkspaceId(explicitWorkspaceId: string | undefined, defaultWorkspaceId: string | undefined,
+  transport: WorkspaceTransport = "stdio", sessionId?: string, sessionWorkspaceId?: string | null): string {
   if (transport === "http") {
+    if (sessionId) {
+      if (!sessionWorkspaceId) throw new Error("Agent-bound MCP session has no authorized Workspace.");
+      const effectiveWorkspaceId = assertValidWorkspaceId(sessionWorkspaceId, "Agent session Workspace is invalid.");
+      if (explicitWorkspaceId !== undefined && explicitWorkspaceId !== effectiveWorkspaceId) {
+        throw new Error("Workspace fora do escopo deste MCP remoto.");
+      }
+      return effectiveWorkspaceId;
+    }
     const scopedWorkspaceId = requireRemoteWorkspaceId(defaultWorkspaceId);
     if (explicitWorkspaceId !== undefined && explicitWorkspaceId !== scopedWorkspaceId) {
       throw new Error("Workspace fora do escopo deste MCP remoto.");
     }
     return scopedWorkspaceId;
+  }
+  if (sessionId && sessionWorkspaceId) {
+    const effectiveWorkspaceId = assertValidWorkspaceId(sessionWorkspaceId, "Agent session Workspace is invalid.");
+    if (explicitWorkspaceId !== undefined && explicitWorkspaceId !== effectiveWorkspaceId) {
+      throw new Error("Workspace fora do escopo desta sessão Agent.");
+    }
+    return effectiveWorkspaceId;
   }
   const workspaceId = explicitWorkspaceId ?? defaultWorkspaceId;
   if (!workspaceId) {

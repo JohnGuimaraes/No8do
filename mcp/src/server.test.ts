@@ -27,7 +27,9 @@ const protocol: AgentProtocol = {
     { id: "REPLAY_UPDATE", description: "Atualiza Replays.", readOnly: false },
     { id: "REPLAY_USAGE_HISTORY_READ", description: "Lê o histórico de uso de um Replay.", readOnly: true },
     { id: "REPLAY_USAGE_RECORD", description: "Registra uso de Replay.", readOnly: false }
-  ] }, policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence", enforcement: "ENFORCED" }] }
+  ] }, policies: { policies: [{ id: "evidence-required-for-validated", description: "Require evidence", enforcement: "ENFORCED" }] },
+  integrationExtensions: { extensions: [{ id: "no8do-integration", version: 1, operationalContext: { version: 1,
+    getMethod: "no8do/operational-context/get", updateMethod: "no8do/operational-context/update", optimisticConcurrency: "EXPECTED_VERSION" } }] }
 };
 
 async function listen(server: Server) { server.listen(0, "127.0.0.1"); await once(server, "listening"); return `http://127.0.0.1:${(server.address() as { port: number }).port}`; }

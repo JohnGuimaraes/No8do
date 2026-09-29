@@ -35,28 +35,38 @@ class AgentOperationalContextConcurrencyTests {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var one = executor.submit(() -> updateAfterBarrier(sessionId, owner.getId(), "first", ready, start));
-            var two = executor.submit(() -> updateAfterBarrier(sessionId, owner.getId(), "second", ready, start));
+            var one = executor.submit(() -> updateAfterBarrier(sessionId, owner.getId(), initial.version(), "first", ready, start));
+            var two = executor.submit(() -> updateAfterBarrier(sessionId, owner.getId(), initial.version(), "second", ready, start));
             assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
             start.countDown();
-            List<Long> versions = List.of(one.get(10, TimeUnit.SECONDS), two.get(10, TimeUnit.SECONDS)).stream().sorted().toList();
-            assertThat(versions).containsExactly(initial.version() + 1, initial.version() + 2);
+            List<Long> versions = List.of(one.get(10, TimeUnit.SECONDS), two.get(10, TimeUnit.SECONDS)).stream()
+                    .filter(version -> version >= 0).sorted().toList();
+            assertThat(versions).containsExactly(initial.version() + 1);
         }
         AgentOperationalContextResponse current = contextService.get(sessionId, owner.getId());
-        assertThat(current.version()).isEqualTo(initial.version() + 2);
+        assertThat(current.version()).isEqualTo(initial.version() + 1);
         assertThat(current.signal().branch()).isIn("first", "second");
         assertThat(contextRepository.findById(sessionId)).isPresent();
         assertThat(sessionRepository.findById(sessionId)).isPresent();
     }
 
-    private long updateAfterBarrier(UUID sessionId, UUID userId, String branch,
+    private long updateAfterBarrier(UUID sessionId, UUID userId, long expectedVersion, String branch,
             CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown();
         if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Concurrency test start timed out");
-        return contextService.replace(sessionId, userId, empty(branch)).version();
+        try {
+            return contextService.replace(sessionId, userId, empty(expectedVersion, branch)).version();
+        } catch (org.springframework.web.server.ResponseStatusException conflict) {
+            return -1;
+        }
     }
 
     private static AgentOperationalContextUpdateRequest empty(String branch) {
         return new AgentOperationalContextUpdateRequest(null, branch, null, List.of(), null);
+    }
+
+    private static AgentOperationalContextUpdateRequest empty(long expectedVersion, String branch) {
+        return new AgentOperationalContextUpdateRequest(
+                com.fasterxml.jackson.databind.node.LongNode.valueOf(expectedVersion), null, branch, null, List.of(), null);
     }
 }

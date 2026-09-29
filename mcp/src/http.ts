@@ -19,7 +19,6 @@ async function body(request: IncomingMessage): Promise<unknown> { const chunks: 
 
 export function createRemoteMcpService(apiUrl: string, workspaceId: string | undefined,
   heartbeatFactory: HeartbeatFactory = (client, agentSessionId) => new AgentSessionHeartbeat(client, agentSessionId)): Server {
-  const scopedWorkspaceId = requireRemoteWorkspaceId(workspaceId);
   const sessions = new Map<string, RemoteSession>();
   const heartbeats = new Set<AgentSessionHeartbeat>();
   const closeSession = async (sessionId: string) => {
@@ -55,9 +54,15 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
       if (request.method !== "POST" || !initialize.success) {
         return json(response, 400, { error: "A new MCP connection must begin with initialize." });
       }
-      const agentProtocol = await new No8doClient(apiUrl, token).getAgentProtocol();
       const credentialHeader = request.headers["x-no8do-agent-credential"];
       let agentCredential = typeof credentialHeader === "string" ? credentialHeader : undefined;
+      const agentBoundRegistration = agentCredential !== undefined;
+      let scopedWorkspaceId: string | undefined;
+      if (!agentBoundRegistration) {
+        try { scopedWorkspaceId = requireRemoteWorkspaceId(workspaceId); }
+        catch { return json(response, 400, { error: "Legacy remote MCP requires a valid NO8DO_WORKSPACE_ID." }); }
+      }
+      const agentProtocol = await new No8doClient(apiUrl, token).getAgentProtocol();
       const agentSessionHeader = new AgentSessionHeader();
       const server = createMcpServer({ apiUrl, token, agentProtocol, defaultWorkspaceId: scopedWorkspaceId, transport: "http", agentSessionHeader });
       const transport = new StreamableHTTPServerTransport({
@@ -71,11 +76,17 @@ export function createRemoteMcpService(apiUrl: string, workspaceId: string | und
           const registeredSession = await client.registerAgentSession({
             clientName: clientInfo.name,
             clientVersion: clientInfo.version,
-            workspaceId: scopedWorkspaceId ?? null,
+            workspaceId: agentBoundRegistration ? null : scopedWorkspaceId ?? null,
             transport: "MCP",
             transportSessionFingerprint: fingerprintTransportSession(createdSessionId)
           }, credential);
-          agentSessionHeader.set(registeredSession.sessionId);
+          if (agentBoundRegistration && !registeredSession.workspaceId) {
+            throw new Error("Agent-bound AgentSession has no authorized Workspace.");
+          }
+          if (!agentBoundRegistration && registeredSession.workspaceId !== scopedWorkspaceId) {
+            throw new Error("Legacy AgentSession Workspace does not match its configured scope.");
+          }
+          agentSessionHeader.set(registeredSession.sessionId, registeredSession.workspaceId);
           const heartbeat = heartbeatFactory(client, registeredSession.sessionId);
           agentSessionHeader.setRevocationHandler(() => heartbeat.markRevoked());
           sessions.set(createdSessionId, { transport, server, token, heartbeat });

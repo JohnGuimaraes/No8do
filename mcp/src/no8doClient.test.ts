@@ -86,6 +86,41 @@ test("força source MCP mesmo diante de entrada não tipada", async () => {
   assert.equal(JSON.parse(String(setup.calls[0][1]?.body)).source, "MCP");
 });
 
+test("Operational Context MCP client usa apenas sessão corrente e contrato expectedVersion", async () => {
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const sessionHeader = new AgentSessionHeader();
+  sessionHeader.set(sessionId, "11111111-1111-4111-8111-111111111111");
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const context = { sessionId, version: 0, signal: { repository: null, branch: "main", workingDirectory: null, references: [] },
+    resolution: { project: { id: null, status: "UNRESOLVED", confidence: null }, workItem: { id: null, status: "UNRESOLVED", confidence: null } },
+    updatedAt: "2026-01-01T00:00:00Z" };
+  const fetchImpl = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    if (init?.method === "PUT") return new Response(JSON.stringify(context), { status: 200 });
+    return new Response(JSON.stringify({ exists: false, context: null }), { status: 200 });
+  }) as typeof fetch;
+  const api = new No8doClient("http://localhost:8080", "PAT", fetchImpl, sessionHeader);
+  assert.deepEqual(await api.getOperationalContext(), { exists: false });
+  const updated = await api.replaceOperationalContext({ expectedVersion: null, repository: null, branch: "main",
+    workingDirectory: null, references: [] });
+  assert.deepEqual(updated, context);
+  assert.equal(calls[0]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/operational-context/state`);
+  assert.equal(calls[1]?.url, `http://localhost:8080/api/agent-sessions/${sessionId}/operational-context`);
+  assert.deepEqual(JSON.parse(String(calls[1]?.init?.body)), { expectedVersion: null, repository: null, branch: "main", workingDirectory: null, references: [] });
+  assert.equal(new Headers(calls[1]?.init?.headers).get("X-No8do-Agent-Session-Id"), sessionId);
+  assert.doesNotMatch(String(calls[1]?.init?.body), /workspaceId|agentId|sessionId/);
+});
+
+test("Operational Context 409 fica distinguível para reconciliação futura", async () => {
+  const sessionHeader = new AgentSessionHeader();
+  sessionHeader.set("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  const api = new No8doClient("http://localhost:8080", "PAT", (async () =>
+    new Response(JSON.stringify({ error: "conflict" }), { status: 409 })) as typeof fetch, sessionHeader);
+  await assert.rejects(() => api.replaceOperationalContext({ expectedVersion: 4, repository: null, branch: "main",
+    workingDirectory: null, references: [] }), (error: unknown) => error instanceof No8doApiError
+      && error.code === "OPERATIONAL_CONTEXT_CONFLICT" && error.message === "Operational context version conflict.");
+});
+
 for (const [status, expected] of [[400, "Request inválido."], [401, "Token No8do ausente, inválido ou revogado."], [403, "Usuário sem permissão no workspace."], [404, "Recurso não encontrado."], [500, "Falha da API No8do."]] as const) {
   test(`trata ${status} sem vazar token`, async () => {
     const setup = client(status, { message: "no8do_pat_secret-value" });
@@ -115,7 +150,8 @@ test("obtém o protocolo canônico global pelo endpoint autenticado sem workspac
     purpose: "Test fixture",
     replayGuidance: { summary: "fixture", searchBeforeNonTrivialWork: true, preferExistingKnowledge: true, searchBeforeCreate: true, recordUsageOnlyWhenMateriallyUsed: true, validatedRequiresEvidence: true, avoidTrivialKnowledge: true, avoidDuplicateKnowledge: true, neverStoreSecrets: true, neverStoreCredentials: true, avoidDiscardedAttempts: true },
     capabilities: { capabilities: [{ id: "CONTROLLED", description: "controlled capability", readOnly: true }] },
-    policies: { policies: [{ id: "controlled-policy", description: "controlled policy", enforcement: "ADVISORY" }] }
+    policies: { policies: [{ id: "controlled-policy", description: "controlled policy", enforcement: "ADVISORY" }] },
+    integrationExtensions: { extensions: [] }
   };
   const setup = client(200, protocol);
   const result = await setup.client.getAgentProtocol();

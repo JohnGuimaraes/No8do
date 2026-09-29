@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { InitializeRequestSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
+import { InitializeRequestSchema, RequestSchema, ErrorCode, McpError, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
+import { z as z4 } from "zod/v4";
 import { renderAgentProtocolBootstrap } from "./agentProtocolBootstrap.js";
-import { compactReplay, No8doClient, type AgentProtocol, type AgentSession, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate, type ReplayValidationEvidence } from "./no8doClient.js";
+import { compactReplay, No8doApiError, No8doClient, type AgentProtocol, type AgentSession, type AgentSessionHeader, type FindReusableKnowledgeInput, type RegisterReplayUsageMutation, type ReplayMutation, type ReplayRelationType, type ReplayUpdate, type ReplayValidationEvidence } from "./no8doClient.js";
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 
@@ -102,7 +103,39 @@ const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSO
 export function createMcpServer(context: McpServerContext) {
   const client = new No8doClient(context.apiUrl, context.token, fetch, context.agentSessionHeader);
   const server = new McpServer({ name: "no8do-replays", version: "0.1.0" }, { instructions: renderAgentProtocolBootstrap(context.agentProtocol) });
-  const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId, context.transport);
+  const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId,
+    context.transport, context.agentSessionHeader?.get(), context.agentSessionHeader?.getWorkspaceId());
+  const integrationManifest = context.agentProtocol.integrationExtensions;
+  server.server.setRequestHandler(RequestSchema.extend({
+    method: z4.literal("no8do/integration/capabilities"), params: z4.object({}).strict()
+  }), async () => integrationManifest);
+  server.server.setRequestHandler(RequestSchema.extend({
+    method: z4.literal("no8do/operational-context/get"), params: z4.object({}).strict()
+  }), async () => {
+    requireRegisteredSession(context.agentSessionHeader);
+    try {
+      return await client.getOperationalContext();
+    } catch (error) {
+      throw operationalContextMcpError(error);
+    }
+  });
+  const operationalContextUpdateSchema = z4.object({
+    expectedVersion: z4.number().int().nonnegative().nullable(),
+    repository: z4.object({ vcs: z4.string(), provider: z4.string(), host: z4.string(), namespace: z4.string(), name: z4.string() }).strict().nullable(),
+    branch: z4.string().nullable(),
+    workingDirectory: z4.string().nullable(),
+    references: z4.array(z4.object({ kind: z4.enum(["ISSUE", "TICKET", "TASK", "WORK_ITEM"]), provider: z4.string(), key: z4.string() }).strict())
+  }).strict();
+  server.server.setRequestHandler(RequestSchema.extend({
+    method: z4.literal("no8do/operational-context/update"), params: operationalContextUpdateSchema
+  }), async request => {
+    requireRegisteredSession(context.agentSessionHeader);
+    try {
+      return await client.replaceOperationalContext(request.params);
+    } catch (error) {
+      throw operationalContextMcpError(error);
+    }
+  });
   const protocolOutput = z.object({
     protocolName: z.string(),
     protocolVersion: z.number().int().positive(),
@@ -122,7 +155,12 @@ export function createMcpServer(context: McpServerContext) {
       avoidDiscardedAttempts: z.boolean()
     }),
     capabilities: z.object({ capabilities: z.array(z.object({ id: z.string(), description: z.string(), readOnly: z.boolean() })) }),
-    policies: z.object({ policies: z.array(z.object({ id: z.string(), description: z.string(), enforcement: z.enum(["ADVISORY", "ENFORCED"]) })) })
+    policies: z.object({ policies: z.array(z.object({ id: z.string(), description: z.string(), enforcement: z.enum(["ADVISORY", "ENFORCED"]) })) }),
+    integrationExtensions: z.object({ extensions: z.array(z.object({
+      id: z.string(), version: z.number().int().positive(),
+      operationalContext: z.object({ version: z.number().int().positive(), getMethod: z.string(),
+        updateMethod: z.string(), optimisticConcurrency: z.literal("EXPECTED_VERSION") })
+    })) })
   });
   server.registerTool("get_agent_protocol", {
     description: "Obtenha o Agent Protocol canônico do No8do, incluindo orientação, capabilities e policies atuais.",
@@ -173,4 +211,18 @@ export function createMcpServer(context: McpServerContext) {
   server.registerTool("update_replay", { description: "Atualize conteúdo de um Replay existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), ...updateMutation }, }, async ({ workspaceId, replayId, ...body }: { workspaceId?: string; replayId: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.updateReplay(resolve(workspaceId), replayId, body as ReplayUpdate)));
   server.registerTool("register_replay_usage", { description: "Chame somente após aplicar materialmente o Replay. Para AgentSession, declare materiallyUsed=true e descreva em context, de forma breve, como o Replay foi aplicado; não infira nem invente essa declaração.", inputSchema: { ...workspace, replayId: z.string().uuid(), result: usageResult, materiallyUsed: z.boolean().optional(), projectId: z.string().uuid().nullable().optional(), replayVersion: z.number().int().min(1).optional(), context: z.string().optional() } }, async ({ workspaceId, replayId, ...body }) => text(await client.registerReplayUsage(resolve(workspaceId), replayId, body as RegisterReplayUsageMutation)));
   return server;
+}
+
+function requireRegisteredSession(header: AgentSessionHeader | undefined): void {
+  if (!header?.get()) throw new McpError(ErrorCode.InvalidRequest, "AGENT_SESSION_REQUIRED");
+}
+
+function operationalContextMcpError(error: unknown): Error {
+  if (error instanceof No8doApiError && error.code) {
+    return new McpError(ErrorCode.InvalidRequest, error.code);
+  }
+  if (error instanceof No8doApiError && error.status === 409) {
+    return new McpError(ErrorCode.InvalidRequest, "OPERATIONAL_CONTEXT_CONFLICT");
+  }
+  return error instanceof Error ? error : new Error("Operational Context request failed.");
 }

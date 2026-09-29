@@ -119,4 +119,10 @@ public class AgentSessionController {
             @AuthenticationPrincipal No8doUserDetails principal) {
         return operationalContextService.get(sessionId, principal.user().getId());
     }
+
+    @GetMapping("/{sessionId}/operational-context/state")
+    public AgentOperationalContextStateResponse getOperationalContextState(@PathVariable UUID sessionId,
+            @AuthenticationPrincipal No8doUserDetails principal) {
+        return operationalContextService.getState(sessionId, principal.user().getId());
+    }
 }

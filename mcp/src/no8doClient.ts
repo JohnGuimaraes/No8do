@@ -71,6 +71,12 @@ export type AgentProtocol = {
   };
   capabilities: { capabilities: AgentCapability[] };
   policies: { policies: AgentPolicy[] };
+  integrationExtensions: { extensions: AgentProtocolIntegrationExtension[] };
+};
+export type AgentProtocolIntegrationExtension = {
+  id: string;
+  version: number;
+  operationalContext: { version: number; getMethod: string; updateMethod: string; optimisticConcurrency: "EXPECTED_VERSION" };
 };
 export type AgentSessionRegistration = {
   clientName: string;
@@ -112,13 +118,23 @@ export type AgentSessionContext = {
 };
 
 export type AgentSessionHeartbeat = { sessionId: string; lastSeenAt: string };
+export type AgentOperationalContext = {
+  sessionId: string;
+  version: number;
+  signal: { repository: { vcs: string; provider: string; host: string; namespace: string; name: string } | null; branch: string | null; workingDirectory: string | null; references: { kind: string; provider: string; key: string }[] };
+  resolution: { project: { id: string | null; status: string; confidence: string | null }; workItem: { id: string | null; status: string; confidence: string | null } };
+  updatedAt: string;
+};
+export type AgentOperationalContextRead = { exists: false } | { exists: true; context: AgentOperationalContext };
 
 export class AgentSessionHeader {
   private sessionId?: string;
+  private workspaceId?: string | null;
   private onRevoked?: () => void;
 
-  set(sessionId: string): void { this.sessionId = sessionId; }
+  set(sessionId: string, workspaceId?: string | null): void { this.sessionId = sessionId; this.workspaceId = workspaceId; }
   get(): string | undefined { return this.sessionId; }
+  getWorkspaceId(): string | null | undefined { return this.workspaceId; }
   setRevocationHandler(handler: () => void): void { this.onRevoked = handler; }
   markRevoked(): void { this.onRevoked?.(); }
 }
@@ -136,7 +152,7 @@ export type RegisterReplayUsageMutation = {
 export class No8doApiError extends Error {
   constructor(public readonly status: number, message = messageForStatus(status),
       public readonly metadata?: Record<string, unknown>,
-      public readonly code?: "AGENT_CAPABILITY_DENIED" | "AGENT_POLICY_DENIED" | "AGENT_SESSION_DISCONNECTED" | "AGENT_SESSION_REVOKED") { super(message); }
+      public readonly code?: "AGENT_CAPABILITY_DENIED" | "AGENT_POLICY_DENIED" | "AGENT_SESSION_DISCONNECTED" | "AGENT_SESSION_REVOKED" | "OPERATIONAL_CONTEXT_CONFLICT") { super(message); }
 }
 
 function messageForStatus(status: number): string {
@@ -170,6 +186,35 @@ export class No8doClient {
     const sessionId = this.agentSessionHeader?.get();
     if (!sessionId) throw new Error("Agent session has not been registered.");
     return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/context`);
+  }
+  async getOperationalContext(): Promise<AgentOperationalContextRead> {
+    const sessionId = this.agentSessionHeader?.get();
+    if (!sessionId) throw new Error("Agent session has not been registered.");
+    const state = await this.request<{ exists: boolean; context: AgentOperationalContext | null }>(
+      `/api/agent-sessions/${encodeURIComponent(sessionId)}/operational-context/state`);
+    if (!state.exists) return { exists: false };
+    if (!state.context) throw new Error("No8do returned an inconsistent Operational Context state.");
+    return { exists: true, context: state.context };
+  }
+  async replaceOperationalContext(input: {
+    expectedVersion: number | null;
+    repository: AgentOperationalContext["signal"]["repository"];
+    branch: string | null;
+    workingDirectory: string | null;
+    references: AgentOperationalContext["signal"]["references"];
+  }): Promise<AgentOperationalContext> {
+    const sessionId = this.agentSessionHeader?.get();
+    if (!sessionId) throw new Error("Agent session has not been registered.");
+    try {
+      return await this.request<AgentOperationalContext>(`/api/agent-sessions/${encodeURIComponent(sessionId)}/operational-context`, {
+        method: "PUT", body: JSON.stringify(input)
+      });
+    } catch (error) {
+      if (error instanceof No8doApiError && error.status === 409 && !error.code) {
+        throw new No8doApiError(409, "Operational context version conflict.", undefined, "OPERATIONAL_CONTEXT_CONFLICT");
+      }
+      throw error;
+    }
   }
   heartbeatAgentSession(sessionId: string): Promise<AgentSessionHeartbeat> {
     return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/heartbeat`, { method: "POST" });
