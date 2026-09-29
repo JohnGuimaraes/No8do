@@ -25,15 +25,18 @@ public class AgentSessionController {
     private final AgentSessionPresenceService presenceService;
     private final AgentSessionDiscoveryService discoveryService;
     private final AgentSessionRevocationService revocationService;
+    private final AgentOperationalContextService operationalContextService;
 
     public AgentSessionController(AgentSessionRegistry registry, AgentSessionContextService contextService,
             AgentSessionPresenceService presenceService, AgentSessionDiscoveryService discoveryService,
-            AgentSessionRevocationService revocationService) {
+            AgentSessionRevocationService revocationService,
+            AgentOperationalContextService operationalContextService) {
         this.registry = registry;
         this.contextService = contextService;
         this.presenceService = presenceService;
         this.discoveryService = discoveryService;
         this.revocationService = revocationService;
+        this.operationalContextService = operationalContextService;
     }
 
     @GetMapping
@@ -102,5 +105,18 @@ public class AgentSessionController {
             @AuthenticationPrincipal No8doUserDetails principal,
             @Valid @RequestBody AgentRuntimeModeRequest request) {
         return contextService.updateRuntimeMode(sessionId, principal.user().getId(), request.runtimeMode());
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/{sessionId}/operational-context")
+    public AgentOperationalContextResponse replaceOperationalContext(@PathVariable UUID sessionId,
+            @AuthenticationPrincipal No8doUserDetails principal,
+            @Valid @RequestBody AgentOperationalContextUpdateRequest request) {
+        return operationalContextService.replace(sessionId, principal.user().getId(), request);
+    }
+
+    @GetMapping("/{sessionId}/operational-context")
+    public AgentOperationalContextResponse getOperationalContext(@PathVariable UUID sessionId,
+            @AuthenticationPrincipal No8doUserDetails principal) {
+        return operationalContextService.get(sessionId, principal.user().getId());
     }
 }

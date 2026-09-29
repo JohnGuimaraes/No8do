@@ -262,6 +262,9 @@ class AgentEventStreamHubTests {
                     UUID.randomUUID(), 2, com.no8do.api.replay.ReplayUsageResult.SUCCESS);
             case AGENT_SESSION_REVOKED -> new AgentEventMetadata.SessionRevoked(
                     UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), Instant.parse("2026-09-23T12:00:00Z"));
+            case AGENT_OPERATIONAL_CONTEXT_CHANGED -> new AgentEventMetadata.OperationalContextChanged(
+                    1, java.util.List.of("branch"), OperationalContextResolutionStatus.UNRESOLVED,
+                    OperationalContextResolutionStatus.UNRESOLVED);
         };
         return event(userId, type, metadata);
     }

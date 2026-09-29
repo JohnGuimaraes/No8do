@@ -7,7 +7,8 @@ import java.util.UUID;
 public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         AgentEventMetadata.RuntimeModeChanged, AgentEventMetadata.CapabilityDenied,
         AgentEventMetadata.PolicyDenied, AgentEventMetadata.ReplayUsageRecorded,
-        AgentEventMetadata.SessionRevoked, AgentEventMetadata.SessionBound {
+        AgentEventMetadata.SessionRevoked, AgentEventMetadata.SessionBound,
+        AgentEventMetadata.OperationalContextChanged {
 
     record Empty() implements AgentEventMetadata {}
 
@@ -60,6 +61,17 @@ public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
             if (agentId == null || agentCredentialId == null) {
                 throw new IllegalArgumentException("Agent e credential vinculados são obrigatórios.");
             }
+        }
+    }
+
+    record OperationalContextChanged(long version, java.util.List<String> changedFields,
+            OperationalContextResolutionStatus projectResolutionStatus,
+            OperationalContextResolutionStatus workItemResolutionStatus) implements AgentEventMetadata {
+        public OperationalContextChanged {
+            if (version < 0 || changedFields == null || changedFields.isEmpty()) {
+                throw new IllegalArgumentException("Versão e campos alterados são obrigatórios.");
+            }
+            changedFields = java.util.List.copyOf(changedFields);
         }
     }
 }

@@ -8,6 +8,7 @@ import java.util.UUID;
 public sealed interface AgentEventPublicMetadata permits AgentEventPublicMetadata.Empty,
         AgentEventPublicMetadata.RuntimeModeChanged, AgentEventPublicMetadata.CapabilityDenied,
         AgentEventPublicMetadata.PolicyDenied, AgentEventPublicMetadata.ReplayUsageRecorded,
+        AgentEventPublicMetadata.OperationalContextChanged,
         AgentEventPublicMetadata.SessionRevoked {
 
     static AgentEventPublicMetadata from(AgentEventMetadata metadata) {
@@ -23,6 +24,9 @@ public sealed interface AgentEventPublicMetadata permits AgentEventPublicMetadat
             case AgentEventMetadata.SessionRevoked value ->
                     new SessionRevoked(value.targetSessionId(), value.workspaceId(), value.occurredAt());
             case AgentEventMetadata.SessionBound ignored -> new Empty();
+            case AgentEventMetadata.OperationalContextChanged value -> new OperationalContextChanged(
+                    value.version(), value.changedFields(), value.projectResolutionStatus(),
+                    value.workItemResolutionStatus());
         };
     }
 
@@ -41,4 +45,8 @@ public sealed interface AgentEventPublicMetadata permits AgentEventPublicMetadat
 
     record SessionRevoked(UUID targetSessionId, UUID workspaceId, Instant occurredAt)
             implements AgentEventPublicMetadata {}
+
+    record OperationalContextChanged(long version, java.util.List<String> changedFields,
+            OperationalContextResolutionStatus projectResolutionStatus,
+            OperationalContextResolutionStatus workItemResolutionStatus) implements AgentEventPublicMetadata {}
 }
