@@ -3,6 +3,7 @@ package com.no8do.api.github;
 import com.no8do.api.activity.ProjectActivity;
 import com.no8do.api.activity.ProjectActivityRepository;
 import com.no8do.api.activity.ProjectActivityType;
+import com.no8do.api.agent.AgentOperationalContextService;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
 import com.no8do.api.user.UserRepository;
@@ -12,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class ProjectGithubRepositoryService {
@@ -23,6 +26,7 @@ public class ProjectGithubRepositoryService {
     private final GithubAppClient githubAppClient;
     private final ProjectActivityRepository projectActivityRepository;
     private final UserRepository userRepository;
+    private final AgentOperationalContextService operationalContextService;
 
     public ProjectGithubRepositoryService(
             ProjectRepository projectRepository,
@@ -31,7 +35,8 @@ public class ProjectGithubRepositoryService {
             WorkspaceGithubAppAuthenticationService authenticationService,
             GithubAppClient githubAppClient,
             ProjectActivityRepository projectActivityRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            AgentOperationalContextService operationalContextService
     ) {
         this.projectRepository = projectRepository;
         this.projectGithubRepositoryRepository = projectGithubRepositoryRepository;
@@ -40,6 +45,7 @@ public class ProjectGithubRepositoryService {
         this.githubAppClient = githubAppClient;
         this.projectActivityRepository = projectActivityRepository;
         this.userRepository = userRepository;
+        this.operationalContextService = operationalContextService;
     }
 
     @Transactional(readOnly = true)
@@ -63,6 +69,7 @@ public class ProjectGithubRepositoryService {
         Project project = requireProjectForWrite(workspaceId, projectId, currentUserId);
         GithubAppRepositoryResponse repository = authorizedRepository(project, repositoryId);
         ProjectGithubRepository association = projectGithubRepositoryRepository.findById(projectId).orElse(null);
+        Long oldRepositoryId = association == null ? null : association.getRepositoryId();
 
         if (association == null) {
             projectGithubRepositoryRepository.save(new ProjectGithubRepository(project, repositoryId));
@@ -72,6 +79,10 @@ public class ProjectGithubRepositoryService {
             registerActivity(project, currentUserId, "Repositório GitHub alterado: " + repository.fullName() + ".");
         }
 
+        if (oldRepositoryId == null || oldRepositoryId != repositoryId) {
+            scheduleResolutionRefresh(project.getWorkspace().getId(), oldRepositoryId, repositoryId);
+        }
+
         return ProjectGithubRepositoryResponse.associated(repository);
     }
 
@@ -79,9 +90,16 @@ public class ProjectGithubRepositoryService {
     public void dissociate(UUID workspaceId, UUID projectId, UUID currentUserId) {
         Project project = requireProjectForWrite(workspaceId, projectId, currentUserId);
         projectGithubRepositoryRepository.findById(projectId).ifPresent(association -> {
+            long oldRepositoryId = association.getRepositoryId();
             projectGithubRepositoryRepository.delete(association);
             registerActivity(project, currentUserId, "Repositório GitHub desassociado.");
+            scheduleResolutionRefresh(project.getWorkspace().getId(), oldRepositoryId, null);
         });
+    }
+
+    public void prepareProjectDeletion(UUID workspaceId, UUID projectId) {
+        projectGithubRepositoryRepository.findById(projectId).ifPresent(association ->
+                scheduleResolutionRefresh(workspaceId, association.getRepositoryId(), null));
     }
 
     private ProjectGithubRepositoryResponse currentAssociation(Project project, long repositoryId) {
@@ -120,5 +138,22 @@ public class ProjectGithubRepositoryService {
             ProjectActivityType.UPDATE,
             content
         ));
+    }
+
+    private void scheduleResolutionRefresh(UUID workspaceId, Long oldRepositoryId, Long newRepositoryId) {
+        Runnable refresh = () -> {
+            if (oldRepositoryId != null) operationalContextService.refreshRepositoryResolutionForWorkspaceAfterCommit(workspaceId, oldRepositoryId);
+            if (newRepositoryId != null && !newRepositoryId.equals(oldRepositoryId)) {
+                operationalContextService.refreshRepositoryResolutionForWorkspaceAfterCommit(workspaceId, newRepositoryId);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() { refresh.run(); }
+            });
+        } else {
+            refresh.run();
+        }
     }
 }

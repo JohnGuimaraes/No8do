@@ -66,7 +66,14 @@ public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
 
     record OperationalContextChanged(long version, java.util.List<String> changedFields,
             OperationalContextResolutionStatus projectResolutionStatus,
-            OperationalContextResolutionStatus workItemResolutionStatus) implements AgentEventMetadata {
+            OperationalContextResolutionStatus workItemResolutionStatus,
+            OperationalContextResolutionStatus previousProjectResolutionStatus,
+            UUID resolvedProjectId, String projectResolutionEvidence) implements AgentEventMetadata {
+        public OperationalContextChanged(long version, java.util.List<String> changedFields,
+                OperationalContextResolutionStatus projectResolutionStatus,
+                OperationalContextResolutionStatus workItemResolutionStatus) {
+            this(version, changedFields, projectResolutionStatus, workItemResolutionStatus, null, null, null);
+        }
         public OperationalContextChanged {
             if (version < 0 || changedFields == null || changedFields.isEmpty()) {
                 throw new IllegalArgumentException("Versão e campos alterados são obrigatórios.");

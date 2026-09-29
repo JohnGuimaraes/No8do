@@ -44,4 +44,11 @@ public class AgentOperationalContextReference {
         this.provider = provider;
         this.referenceKey = referenceKey;
     }
+
+    void update(int ordinal, AgentContextReferenceKind kind, String provider, String referenceKey) {
+        this.ordinal = ordinal;
+        this.kind = kind;
+        this.provider = provider;
+        this.referenceKey = referenceKey;
+    }
 }

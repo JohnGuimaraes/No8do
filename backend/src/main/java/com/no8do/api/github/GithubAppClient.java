@@ -15,6 +15,9 @@ public interface GithubAppClient {
 
     GithubAppRepositoryResponse getInstallationRepository(GithubAppInstallationAccessToken accessToken, long repositoryId);
 
+    GithubAppRepositoryResponse getInstallationRepositoryByFullName(
+            GithubAppInstallationAccessToken accessToken, String owner, String repository);
+
     GithubAppRepositoryPreviewResponse previewInstallationRepository(GithubAppInstallationAccessToken accessToken, long repositoryId);
 
     static ResponseStatusException configurationMissing() {

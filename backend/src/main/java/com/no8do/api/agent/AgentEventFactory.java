@@ -65,6 +65,16 @@ public final class AgentEventFactory {
                 new AgentEventMetadata.OperationalContextChanged(version, changedFields, projectStatus, workItemStatus));
     }
 
+    public AgentEvent operationalContextChanged(AgentSession session, long version,
+            java.util.List<String> changedFields, OperationalContextResolutionStatus previousProjectStatus,
+            OperationalContextResolutionStatus projectStatus,
+            OperationalContextResolutionStatus workItemStatus, UUID resolvedProjectId, String evidence) {
+        return create(AgentEventType.AGENT_OPERATIONAL_CONTEXT_CHANGED, session,
+                new AgentEventMetadata.OperationalContextChanged(version, changedFields, projectStatus,
+                        workItemStatus, previousProjectStatus,
+                        projectStatus == OperationalContextResolutionStatus.RESOLVED ? resolvedProjectId : null, evidence));
+    }
+
     private AgentEvent create(AgentEventType type, AgentSession session, AgentEventMetadata metadata) {
         if (session == null) throw new IllegalArgumentException("AgentSession é obrigatória para emitir eventos.");
         return new AgentEvent(UUID.randomUUID(), type, session.getId(), session.getUserId(),
