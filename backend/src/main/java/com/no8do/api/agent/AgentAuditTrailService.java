@@ -32,6 +32,7 @@ public class AgentAuditTrailService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean record(AgentEvent event) {
+        if (event.type() == AgentEventType.AGENT_OPERATIONAL_CONTEXT_CHANGED) return false;
         return repository.insertIfEventAbsent(UUID.randomUUID(), event.eventId(),
                 AgentAuditEventType.valueOf(event.type().name()).name(),
                 event.sessionId(), event.userId(), event.workspaceId(), event.occurredAt(),
