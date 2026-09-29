@@ -3,8 +3,36 @@
 Thumbs.db
 *.log
 .env
+.env.*
+!.env.example
+!*.env.example
 .env.local
 .env.*.local
+
+## ===== Credenciais / backups / temporários =====
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+secrets.json
+*.dump
+*.backup
+*.bak
+*.tmp
+*.swp
+*.orig
+*.rej
+# Temporary test command exit-code artifacts, at any directory depth.
+*.exit
+
+## ===== Artefatos gerados =====
+coverage/
+dist/
+target/
+node_modules/
 
 ## ===== IDEs =====
 .idea/
