@@ -31,20 +31,18 @@ public class HttpGithubAppClient implements GithubAppClient {
     private final ObjectMapper objectMapper;
     private volatile HttpClient httpClient;
     private final GithubAppJwtGenerator jwtGenerator;
-    private final URI githubApiUri;
 
     @Autowired
     public HttpGithubAppClient(GithubAppConfiguration configuration, ObjectMapper objectMapper, GithubAppJwtGenerator jwtGenerator) {
-        this(configuration, objectMapper, jwtGenerator, null, GITHUB_API_URI);
+        this(configuration, objectMapper, jwtGenerator, null);
     }
 
     HttpGithubAppClient(GithubAppConfiguration configuration, ObjectMapper objectMapper, GithubAppJwtGenerator jwtGenerator,
-            HttpClient httpClient, URI githubApiUri) {
+            HttpClient httpClient) {
         this.configuration = configuration;
         this.objectMapper = objectMapper;
         this.jwtGenerator = jwtGenerator;
         this.httpClient = httpClient;
-        this.githubApiUri = githubApiUri;
     }
 
     @Override
@@ -104,7 +102,7 @@ public class HttpGithubAppClient implements GithubAppClient {
     public GithubAppRepositoryPageResponse listInstallationRepositories(GithubAppInstallationAccessToken accessToken, int page, int perPage) {
         requireValidInstallationAccessToken(accessToken);
         try {
-            URI repositoriesUri = githubApiUri.resolve("/installation/repositories?per_page=" + perPage + "&page=" + page);
+            URI repositoriesUri = GITHUB_API_URI.resolve("/installation/repositories?per_page=" + perPage + "&page=" + page);
             JsonNode response = readBody(installationRequest(repositoriesUri, accessToken).GET().build());
             int totalCount = response.path("total_count").asInt(-1);
             JsonNode items = response.path("repositories");
@@ -126,9 +124,24 @@ public class HttpGithubAppClient implements GithubAppClient {
         if (repositoryId <= 0) throw repositoryNotFound();
         try {
             JsonNode repository = readRepositoryBody(installationRequest(
-                githubApiUri.resolve("/repositories/" + repositoryId), accessToken
+                GITHUB_API_URI.resolve("/repositories/" + repositoryId), accessToken
             ).GET().build());
             return repositoryResponse(repository);
+        } catch (DateTimeException | IOException | InterruptedException exception) {
+            if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw installationUnavailable();
+        }
+    }
+
+    @Override
+    public GithubAppRepositoryResponse getInstallationRepositoryByFullName(
+            GithubAppInstallationAccessToken accessToken, String owner, String repository) {
+        requireValidInstallationAccessToken(accessToken);
+        if (!safeLocatorSegment(owner) || !safeLocatorSegment(repository)) throw repositoryNotFound();
+        try {
+            String path = "/repos/" + encodePath(owner) + "/" + encodePath(repository);
+            JsonNode response = readRepositoryBody(installationRequest(GITHUB_API_URI.resolve(path), accessToken).GET().build());
+            return repositoryResponse(response);
         } catch (DateTimeException | IOException | InterruptedException exception) {
             if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
             throw installationUnavailable();
@@ -142,12 +155,12 @@ public class HttpGithubAppClient implements GithubAppClient {
         try {
             GithubAppRepositoryResponse repositoryResponse = getInstallationRepository(accessToken, repositoryId);
             String repositoryPath = "/repos/" + encodePath(repositoryResponse.ownerLogin()) + "/" + encodePath(repositoryResponse.name());
-            String readme = readOptionalText(installationRequest(githubApiUri.resolve(repositoryPath + "/readme"), accessToken)
+            String readme = readOptionalText(installationRequest(GITHUB_API_URI.resolve(repositoryPath + "/readme"), accessToken)
                 .setHeader("Accept", "application/vnd.github.raw+json")
                 .GET()
                 .build());
             JsonNode rootContents = readRepositoryBody(installationRequest(
-                githubApiUri.resolve(repositoryPath + "/contents"), accessToken
+                GITHUB_API_URI.resolve(repositoryPath + "/contents"), accessToken
             ).GET().build());
             List<String> rootFiles = rootFiles(rootContents);
             return new GithubAppRepositoryPreviewResponse(repositoryResponse, readme, rootFiles, detectStacks(rootFiles));
@@ -200,7 +213,7 @@ public class HttpGithubAppClient implements GithubAppClient {
     private JsonNode findInstallation(String accessToken, long installationId) throws IOException, InterruptedException {
         int page = 1;
         while (true) {
-            URI installationsUri = githubApiUri.resolve("/user/installations?per_page=100&page=" + page);
+            URI installationsUri = GITHUB_API_URI.resolve("/user/installations?per_page=100&page=" + page);
             JsonNode response = readBody(HttpRequest.newBuilder(installationsUri)
                 .timeout(Duration.ofSeconds(15))
                 .header("Accept", "application/vnd.github+json")
@@ -233,7 +246,7 @@ public class HttpGithubAppClient implements GithubAppClient {
     }
 
     private URI installationAccessTokenUri(long installationId) {
-        return githubApiUri.resolve("/app/installations/" + installationId + "/access_tokens");
+        return GITHUB_API_URI.resolve("/app/installations/" + installationId + "/access_tokens");
     }
 
     private GithubAppRepositoryResponse repositoryResponse(JsonNode repository) {
@@ -334,6 +347,11 @@ public class HttpGithubAppClient implements GithubAppClient {
 
     private String encodePath(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static boolean safeLocatorSegment(String value) {
+        return value != null && value.matches("[A-Za-z0-9][A-Za-z0-9._~-]{0,127}")
+                && !value.equals(".") && !value.equals("..");
     }
 
     private ResponseStatusException installationUnavailable() {

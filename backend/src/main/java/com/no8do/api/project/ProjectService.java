@@ -4,6 +4,7 @@ import com.no8do.api.activity.ProjectActivity;
 import com.no8do.api.activity.ProjectActivityRepository;
 import com.no8do.api.activity.ProjectActivityType;
 import com.no8do.api.credential.ProjectCredentialRepository;
+import com.no8do.api.github.ProjectGithubRepositoryService;
 import com.no8do.api.idea.IdeaRepository;
 import com.no8do.api.note.ProjectNoteRepository;
 import com.no8do.api.technicalinfo.ProjectTechnicalInfoRepository;
@@ -42,6 +43,7 @@ public class ProjectService {
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final WorkspaceRepository workspaceRepository;
     private final FileStorageService fileStorageService;
+    private final ProjectGithubRepositoryService projectGithubRepositoryService;
 
     public ProjectService(
             ProjectRepository projectRepository,
@@ -54,7 +56,8 @@ public class ProjectService {
             UserRepository userRepository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
             WorkspaceRepository workspaceRepository,
-            FileStorageService fileStorageService
+            FileStorageService fileStorageService,
+            ProjectGithubRepositoryService projectGithubRepositoryService
     ) {
         this.projectRepository = projectRepository;
         this.projectActivityRepository = projectActivityRepository;
@@ -67,6 +70,7 @@ public class ProjectService {
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.workspaceRepository = workspaceRepository;
         this.fileStorageService = fileStorageService;
+        this.projectGithubRepositoryService = projectGithubRepositoryService;
     }
 
     @Transactional
@@ -219,6 +223,8 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Project is linked to an idea");
         }
         String coverImageKey = project.getCoverImageKey();
+
+        projectGithubRepositoryService.prepareProjectDeletion(workspaceId, projectId);
 
         projectTechnicalInfoRepository.deleteByProjectId(projectId);
         projectWorkItemRepository.deleteByProjectId(projectId);

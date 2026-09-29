@@ -78,6 +78,12 @@ public class AgentOperationalContext {
     @Column(name = "project_confidence", length = 12)
     private OperationalContextConfidence projectConfidence;
 
+    @Column(name = "project_resolution_repository_id", length = 20)
+    private String projectResolutionRepositoryId;
+
+    @Column(name = "project_resolution_evidence", length = 32)
+    private String projectResolutionEvidence;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "work_item_resolution_status", nullable = false, length = 20)
     private OperationalContextResolutionStatus workItemResolutionStatus;
@@ -116,12 +122,44 @@ public class AgentOperationalContext {
         branch = signal.branch();
         workingDirectory = signal.workingDirectory();
         this.signalHash = signalHash;
-        references.clear();
         for (int i = 0; i < signal.references().size(); i++) {
             AgentOperationalContextSignal.Reference reference = signal.references().get(i);
-            references.add(new AgentOperationalContextReference(sessionId, i,
-                    reference.kind(), reference.provider(), reference.key()));
+            if (i < references.size()) {
+                references.get(i).update(i, reference.kind(), reference.provider(), reference.key());
+            } else {
+                references.add(new AgentOperationalContextReference(sessionId, i,
+                        reference.kind(), reference.provider(), reference.key()));
+            }
         }
+        while (references.size() > signal.references().size()) references.removeLast();
+    }
+
+    boolean referencesMatch(List<AgentOperationalContextSignal.Reference> values) {
+        if (references.size() != values.size()) return false;
+        for (int i = 0; i < values.size(); i++) {
+            AgentOperationalContextReference current = references.get(i);
+            AgentOperationalContextSignal.Reference next = values.get(i);
+            if (current.getOrdinal() != i || current.getKind() != next.kind()
+                    || !current.getProvider().equals(next.provider())
+                    || !current.getReferenceKey().equals(next.key())) return false;
+        }
+        return true;
+    }
+
+    void parkReferenceIdentities() {
+        for (AgentOperationalContextReference reference : references) {
+            reference.update(reference.getOrdinal(), reference.getKind(), reference.getProvider(),
+                    "pending-" + reference.getId());
+        }
+    }
+
+    void applyProjectResolution(OperationalContextResolutionStatus status, UUID projectId,
+            OperationalContextConfidence confidence, String repositoryId, String evidence) {
+        this.projectResolutionStatus = status;
+        this.resolvedProjectId = projectId;
+        this.projectConfidence = confidence;
+        this.projectResolutionRepositoryId = repositoryId;
+        this.projectResolutionEvidence = evidence;
     }
 
     @PrePersist

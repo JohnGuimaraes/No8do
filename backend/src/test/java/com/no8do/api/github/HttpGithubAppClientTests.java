@@ -7,10 +7,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.net.URI;
+import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.security.KeyPair;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -111,16 +112,75 @@ class HttpGithubAppClientTests {
             );
     }
 
+    @Test
+    void looksUpRepositoryByEncodedOwnerAndNameUsingInstallationTokenAndFixedGithubApiHost() {
+        enqueue(200, repositoryJson(42, "repo-name", false));
+
+        GithubAppRepositoryResponse repository = productionClient().getInstallationRepositoryByFullName(
+                accessToken(), "octo", "repo-name");
+
+        HttpRequest request = requests.removeFirst();
+        assertThat(request.uri().getHost()).isEqualTo("api.github.com");
+        assertThat(request.uri().getPath()).isEqualTo("/repos/octo/repo-name");
+        assertThat(request.headers().firstValue("Authorization")).hasValue("Bearer temporary-installation-token");
+        assertThat(repository.repositoryId()).isEqualTo(42L);
+    }
+
+    @Test
+    void rejectsUnsafeRepositoryPathSegmentsBeforeSendingARequest() {
+        assertThatThrownBy(() -> client().getInstallationRepositoryByFullName(accessToken(), "../other", "repo"))
+            .isInstanceOf(ResponseStatusException.class);
+        assertThat(requests).isEmpty();
+    }
+
+    @Test
+    void distinguishesRepositoryNotFoundFromGithubOperationalFailure() {
+        enqueue(404, "{}");
+        assertThatThrownBy(() -> client().getInstallationRepositoryByFullName(accessToken(), "octo", "missing"))
+            .isInstanceOfSatisfying(ResponseStatusException.class, exception ->
+                    assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        for (int status : new int[] {401, 403, 429, 500, 503}) {
+            enqueue(status, "{}");
+            assertThatThrownBy(() -> client().getInstallationRepositoryByFullName(accessToken(), "octo", "repo"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception ->
+                        assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+        }
+    }
+
+    @Test
+    void turnsTimeoutAndNetworkErrorsIntoSafeOperationalFailures() throws Exception {
+        org.mockito.Mockito.doThrow(new HttpTimeoutException("timeout"))
+                .when(httpClient).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        assertThatThrownBy(() -> client().getInstallationRepositoryByFullName(accessToken(), "octo", "repo"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getReason()).doesNotContain("timeout", "octo", "repo");
+                });
+
+        org.mockito.Mockito.doThrow(new IOException("network details"))
+                .when(httpClient).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        assertThatThrownBy(() -> client().getInstallationRepositoryByFullName(accessToken(), "octo", "repo"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getReason()).doesNotContain("network details");
+                });
+    }
+
     private HttpGithubAppClient client() {
         try {
             KeyPair keyPair = GithubAppJwtGeneratorTests.keyPair();
-            return new HttpGithubAppClient(
-                GithubAppJwtGeneratorTests.configuration(keyPair),
-                new ObjectMapper(),
-                new GithubAppJwtGenerator(),
-                httpClient,
-                URI.create("https://api.github.test")
-            );
+            return new HttpGithubAppClient(GithubAppJwtGeneratorTests.configuration(keyPair), new ObjectMapper(),
+                    new GithubAppJwtGenerator(), httpClient);
+        } catch (Exception exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private HttpGithubAppClient productionClient() {
+        try {
+            KeyPair keyPair = GithubAppJwtGeneratorTests.keyPair();
+            return new HttpGithubAppClient(GithubAppJwtGeneratorTests.configuration(keyPair), new ObjectMapper(),
+                    new GithubAppJwtGenerator(), httpClient);
         } catch (Exception exception) {
             throw new AssertionError(exception);
         }

@@ -5,14 +5,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -20,23 +19,29 @@ public class AgentOperationalContextService {
     private final AgentSessionRepository sessionRepository;
     private final AgentOperationalContextRepository contextRepository;
     private final AgentOperationalContextValidator validator;
-    private final AgentEventFactory eventFactory;
-    private final AgentEventPublisher eventPublisher;
     private final AgentPresenceResolver presenceResolver = new AgentPresenceResolver();
     private final AgentPresenceProperties presenceProperties;
     private final Clock clock;
+    private final AgentOperationalContextSnapshotReader snapshotReader;
+    private final AgentOperationalContextWriteService writeService;
+    private final OperationalRepositoryResolver repositoryResolver;
+    private final OperationalProjectRepositoryAssociationLookup projectAssociationLookup;
 
     public AgentOperationalContextService(AgentSessionRepository sessionRepository,
             AgentOperationalContextRepository contextRepository, AgentOperationalContextValidator validator,
-            AgentEventFactory eventFactory, AgentEventPublisher eventPublisher,
-            AgentPresenceProperties presenceProperties, Clock clock) {
+            AgentPresenceProperties presenceProperties, Clock clock,
+            AgentOperationalContextSnapshotReader snapshotReader, AgentOperationalContextWriteService writeService,
+            OperationalRepositoryResolver repositoryResolver,
+            OperationalProjectRepositoryAssociationLookup projectAssociationLookup) {
         this.sessionRepository = sessionRepository;
         this.contextRepository = contextRepository;
         this.validator = validator;
-        this.eventFactory = eventFactory;
-        this.eventPublisher = eventPublisher;
         this.presenceProperties = presenceProperties;
         this.clock = clock;
+        this.snapshotReader = snapshotReader;
+        this.writeService = writeService;
+        this.repositoryResolver = repositoryResolver;
+        this.projectAssociationLookup = projectAssociationLookup;
     }
 
     @Transactional(readOnly = true)
@@ -48,41 +53,115 @@ public class AgentOperationalContextService {
         return AgentOperationalContextResponse.from(context);
     }
 
-    @Transactional
     public AgentOperationalContextResponse replace(UUID sessionId, UUID authenticatedUserId,
             AgentOperationalContextUpdateRequest request) {
-        AgentSession session = sessionRepository.findByIdForUpdate(sessionId)
-                .orElseThrow(AgentOperationalContextService::notFound);
-        requireOwner(session, authenticatedUserId);
-        requireWritable(session);
-        UUID effectiveWorkspaceId = session.getAgent() == null ? session.getWorkspaceId()
-                : session.getAgent().getWorkspace().getId();
+        OperationalContextSnapshot snapshot = snapshotReader.read(sessionId, authenticatedUserId);
+        requireWritable(snapshot);
+        UUID effectiveWorkspaceId = snapshot.workspaceId();
         if (request.workspaceHint() != null && !request.workspaceHint().equals(effectiveWorkspaceId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Operational context is inconsistent");
         }
-
         AgentOperationalContextSignal signal = validator.canonicalize(request);
         String hash = signalHash(signal);
-        AgentOperationalContext context = contextRepository.findWithReferencesBySessionId(sessionId).orElse(null);
-        List<String> changedFields;
-        if (context == null) {
-            context = new AgentOperationalContext(sessionId, signal, hash);
-            context = contextRepository.saveAndFlush(context);
-            changedFields = List.of("repository", "branch", "workingDirectory", "references", "resolution");
-        } else {
-            if (context.getSignalHash().equals(hash)) return AgentOperationalContextResponse.from(context);
-            changedFields = changedFields(context, signal);
-            context.applySignal(signal, hash);
-            try {
-                context = contextRepository.saveAndFlush(context);
-            } catch (OptimisticLockingFailureException conflict) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Operational context changed concurrently");
+        boolean repositoryChanged = !sameRepositoryIdentity(snapshot.repository(), signal.repository());
+        String providerRepositoryId = repositoryChanged ? null : snapshot.projectResolutionRepositoryId();
+        if (repositoryChanged && signal.repository() != null) {
+            boolean githubSupported = "GIT".equals(signal.repository().vcs())
+                    && "github".equals(signal.repository().provider()) && "github.com".equals(signal.repository().host());
+            if (githubSupported && effectiveWorkspaceId == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Workspace GitHub integration is unavailable");
             }
         }
-        eventPublisher.publish(eventFactory.operationalContextChanged(session, context.getVersion(), changedFields,
-                context.getProjectResolutionStatus(), context.getWorkItemResolutionStatus()));
-        return AgentOperationalContextResponse.from(context);
+        if (repositoryChanged && signal.repository() != null && effectiveWorkspaceId != null) {
+            OperationalRepositoryResolver.RepositoryIdentityResolution identity =
+                    repositoryResolver.resolve(OperationalRepositoryLocator.from(signal.repository()), effectiveWorkspaceId);
+            if (identity.found()) providerRepositoryId = identity.providerRepositoryId();
+        }
+        ProjectResolution resolution = resolveProject(effectiveWorkspaceId, providerRepositoryId,
+                providerRepositoryId != null && signal.repository() != null
+                        && "github".equals(signal.repository().provider()) && "github.com".equals(signal.repository().host()));
+        try {
+            return writeService.persist(sessionId, authenticatedUserId, snapshot, signal, hash,
+                    resolution.status(), resolution.projectId(), resolution.confidence(), providerRepositoryId,
+                    resolution.evidence());
+        } catch (ResponseStatusException conflict) {
+            if (conflict.getStatusCode() != HttpStatus.CONFLICT) throw conflict;
+            OperationalContextSnapshot current = snapshotReader.read(sessionId, authenticatedUserId);
+            boolean sameRepository = sameRepositoryIdentity(current.repository(), signal.repository());
+            boolean providerIdentityStillCurrent = !repositoryChanged
+                    || java.util.Objects.equals(current.projectResolutionRepositoryId(), providerRepositoryId);
+            if (!sameRepository || !providerIdentityStillCurrent) throw conflict;
+            String currentProviderId = current.projectResolutionRepositoryId();
+            ProjectResolution currentResolution = resolveProject(current.workspaceId(), currentProviderId,
+                    currentProviderId != null);
+            return writeService.persist(sessionId, authenticatedUserId, current, signal, hash,
+                    currentResolution.status(), currentResolution.projectId(), currentResolution.confidence(),
+                    currentProviderId, currentResolution.evidence());
+        }
     }
+
+    public void refreshRepositoryResolution(UUID sessionId) {
+        OperationalContextSnapshot snapshot = snapshotReader.readInternal(sessionId);
+        if (!snapshot.hasContext()) return;
+        refresh(snapshot);
+    }
+
+    public void refreshRepositoryResolutionForWorkspace(UUID workspaceId, long repositoryId) {
+        if (workspaceId == null || repositoryId <= 0) return;
+        for (UUID sessionId : contextRepository.findSessionIdsForRepositoryResolution(workspaceId,
+                Long.toString(repositoryId))) refreshRepositoryResolution(sessionId);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void refreshRepositoryResolutionForWorkspaceAfterCommit(UUID workspaceId, long repositoryId) {
+        refreshRepositoryResolutionForWorkspace(workspaceId, repositoryId);
+    }
+
+    private void refresh(OperationalContextSnapshot snapshot) {
+        if (snapshot.projectResolutionRepositoryId() == null || snapshot.workspaceId() == null) return;
+        ProjectResolution resolution = resolveProject(snapshot.workspaceId(), snapshot.projectResolutionRepositoryId(), true);
+        AgentOperationalContextSignal signal = signalFromSnapshot(snapshot);
+        writeService.persist(snapshot.sessionId(), snapshot.userId(), snapshot, signal, snapshot.signalHash(),
+                resolution.status(), resolution.projectId(), resolution.confidence(),
+                snapshot.projectResolutionRepositoryId(), resolution.evidence());
+    }
+
+    private ProjectResolution resolveProject(UUID workspaceId, String repositoryId, boolean supported) {
+        if (!supported || workspaceId == null || repositoryId == null) {
+            return new ProjectResolution(OperationalContextResolutionStatus.UNRESOLVED, null, null, null);
+        }
+        List<UUID> candidates = projectAssociationLookup.findProjectIds(workspaceId, repositoryId);
+        if (candidates.isEmpty()) return new ProjectResolution(OperationalContextResolutionStatus.UNRESOLVED,
+                null, null, "REPOSITORY_PROVIDER_ID");
+        if (candidates.size() == 1) return new ProjectResolution(OperationalContextResolutionStatus.RESOLVED,
+                candidates.getFirst(), OperationalContextConfidence.HIGH, "REPOSITORY_PROVIDER_ID");
+        return new ProjectResolution(OperationalContextResolutionStatus.AMBIGUOUS, null, null,
+                "REPOSITORY_PROVIDER_ID");
+    }
+
+    private static AgentOperationalContextSignal signalFromSnapshot(OperationalContextSnapshot snapshot) {
+        return new AgentOperationalContextSignal(snapshot.repository(), snapshot.branch(), snapshot.workingDirectory(),
+                snapshot.references());
+    }
+
+    private static boolean sameRepositoryIdentity(AgentOperationalContextSignal.Repository first,
+            AgentOperationalContextSignal.Repository second) {
+        if (first == null || second == null) return first == second;
+        return first.vcs().equalsIgnoreCase(second.vcs()) && first.provider().equalsIgnoreCase(second.provider())
+                && first.host().equalsIgnoreCase(second.host()) && first.namespace().equalsIgnoreCase(second.namespace())
+                && first.name().equalsIgnoreCase(second.name());
+    }
+
+    private void requireWritable(OperationalContextSnapshot snapshot) {
+        if (snapshot.revokedAt() != null) throw new AgentSessionRevokedException();
+        AgentPresenceStatus status = presenceResolver.resolve(snapshot.registeredAt(), snapshot.lastSeenAt(),
+                snapshot.lastActivityAt(), snapshot.disconnectedAt(), snapshot.revokedAt(), clock.instant(),
+                presenceProperties);
+        if (status == AgentPresenceStatus.DISCONNECTED) throw new AgentSessionDisconnectedException(snapshot.sessionId());
+    }
+
+    private record ProjectResolution(OperationalContextResolutionStatus status, UUID projectId,
+            OperationalContextConfidence confidence, String evidence) {}
 
     private AgentSession requireOwned(UUID sessionId, UUID userId) {
         AgentSession session = sessionRepository.findById(sessionId)
@@ -95,36 +174,6 @@ public class AgentOperationalContextService {
         if (!session.getUserId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agent session access denied");
         }
-    }
-
-    private void requireWritable(AgentSession session) {
-        if (session.getRevokedAt() != null) throw new AgentSessionRevokedException();
-        AgentPresenceStatus status = presenceResolver.resolve(session.getRegisteredAt(), session.getLastSeenAt(),
-                session.getLastActivityAt(), session.getDisconnectedAt(), session.getRevokedAt(), clock.instant(),
-                presenceProperties);
-        if (status == AgentPresenceStatus.DISCONNECTED) throw new AgentSessionDisconnectedException(session.getId());
-    }
-
-    private static List<String> changedFields(AgentOperationalContext previous,
-            AgentOperationalContextSignal next) {
-        List<String> fields = new ArrayList<>();
-        AgentOperationalContextSignal.Repository repository = next.repository();
-        if (!java.util.Objects.equals(previous.getRepositoryVcs(), repository == null ? null : repository.vcs())
-                || !java.util.Objects.equals(previous.getRepositoryProvider(), repository == null ? null : repository.provider())
-                || !java.util.Objects.equals(previous.getRepositoryHost(), repository == null ? null : repository.host())
-                || !java.util.Objects.equals(previous.getRepositoryNamespace(), repository == null ? null : repository.namespace())
-                || !java.util.Objects.equals(previous.getRepositoryName(), repository == null ? null : repository.name())) {
-            fields.add("repository");
-        }
-        if (!java.util.Objects.equals(previous.getBranch(), next.branch())) fields.add("branch");
-        if (!java.util.Objects.equals(previous.getWorkingDirectory(), next.workingDirectory())) fields.add("workingDirectory");
-        List<String> oldReferences = previous.getReferences().stream()
-                .map(ref -> ref.getKind().name() + ":" + ref.getProvider() + ":" + ref.getReferenceKey()).sorted().toList();
-        List<String> newReferences = next.references().stream()
-                .map(ref -> ref.kind().name() + ":" + ref.provider() + ":" + ref.key()).sorted().toList();
-        if (!oldReferences.equals(newReferences)) fields.add("references");
-        if (fields.isEmpty()) fields.add("signal");
-        return List.copyOf(fields);
     }
 
     private static String signalHash(AgentOperationalContextSignal signal) {

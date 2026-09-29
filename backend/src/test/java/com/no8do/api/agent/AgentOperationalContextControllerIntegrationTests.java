@@ -16,6 +16,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.auth.No8doUserDetails;
 import com.no8do.api.project.Project;
 import com.no8do.api.project.ProjectRepository;
+import com.no8do.api.github.ProjectGithubRepository;
+import com.no8do.api.github.ProjectGithubRepositoryRepository;
 import com.no8do.api.user.User;
 import com.no8do.api.user.UserRepository;
 import com.no8do.api.workitem.ProjectWorkItem;
@@ -27,7 +29,12 @@ import com.no8do.api.workspace.WorkspaceMemberRepository;
 import com.no8do.api.workspace.WorkspaceRepository;
 import com.no8do.api.workspace.WorkspaceRole;
 import java.util.UUID;
+import java.time.Instant;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +43,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -65,12 +73,24 @@ class AgentOperationalContextControllerIntegrationTests {
     @Autowired private AgentCapabilityGrantRepository capabilityGrantRepository;
     @Autowired private ProjectRepository projectRepository;
     @Autowired private ProjectWorkItemRepository workItemRepository;
+    @Autowired private ProjectGithubRepositoryRepository githubRepositoryRepository;
+    @Autowired private AgentOperationalContextService operationalContextService;
+    @Autowired private AgentOperationalContextSnapshotReader snapshotReader;
+    @Autowired private AgentOperationalContextWriteService contextWriteService;
     @MockitoBean private AgentEventPublisher eventPublisher;
+    @MockitoBean private OperationalRepositoryResolver repositoryResolver;
+
+    @BeforeEach
+    void defaultRepositoryResolution() {
+        when(repositoryResolver.resolve(any(), any())).thenReturn(OperationalRepositoryResolver.RepositoryIdentityResolution.unsupported());
+    }
 
     @Test
     void putGetReplacementAndIdempotenceAreSessionScopedAndPublishOnlySafeChangeMetadata() throws Exception {
         User owner = userRepository.save(new User("operational-owner", "operational-owner@example.test", "hash"));
-        UUID sessionId = register(owner, null, FINGERPRINT);
+        Workspace workspace = workspaceRepository.save(new Workspace("Operational context signal workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.MEMBER));
+        UUID sessionId = register(owner, workspace.getId(), FINGERPRINT);
         AgentOperationalContextUpdateRequest firstRequest = request("main", "src\\service", "Q-12", null);
 
         MvcResult firstResult = mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
@@ -120,6 +140,30 @@ class AgentOperationalContextControllerIntegrationTests {
                 OperationalContextResolutionStatus.UNRESOLVED);
         org.assertj.core.api.Assertions.assertThat(auditTrailService.record(changed)).isFalse();
         org.assertj.core.api.Assertions.assertThat(contextRepository.findById(sessionId)).isPresent();
+    }
+
+    @Test
+    void replacingOverlappingReferencesDoesNotViolateUniqueReferenceIdentity() throws Exception {
+        User owner = userRepository.save(new User("reference-order-owner", "reference-order@example.test", "hash"));
+        UUID sessionId = register(owner, null, "f".repeat(64));
+        var first = new AgentOperationalContextUpdateRequest.ReferenceSignal(
+                AgentContextReferenceKind.TICKET, "Tracker", "REF-A");
+        var second = new AgentOperationalContextUpdateRequest.ReferenceSignal(
+                AgentContextReferenceKind.TICKET, "Tracker", "REF-B");
+        var third = new AgentOperationalContextUpdateRequest.ReferenceSignal(
+                AgentContextReferenceKind.TICKET, "Tracker", "REF-C");
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        new AgentOperationalContextUpdateRequest(null, "main", null, java.util.List.of(first, second), null))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        new AgentOperationalContextUpdateRequest(null, "main", null, java.util.List.of(second, third), null))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.signal.references[0].key").value("REF-B"))
+                .andExpect(jsonPath("$.signal.references[1].key").value("REF-C"));
     }
 
     @Test
@@ -197,6 +241,7 @@ class AgentOperationalContextControllerIntegrationTests {
         workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
         Agent agent = agentRegistryService.createAgent(workspace.getId(), owner.getId(), "Context Agent", null, null);
         Project project = projectRepository.save(new Project(workspace, "Context project", owner));
+        githubRepositoryRepository.save(new ProjectGithubRepository(project, 66778899L));
         ProjectWorkItem item = workItemRepository.save(new ProjectWorkItem(project, ProjectWorkItemType.NEXT_STEP,
                 "Context task", null, owner));
         projectAssignmentService.assign(workspace.getId(), agent.getId(), project.getId(), owner.getId());
@@ -211,11 +256,15 @@ class AgentOperationalContextControllerIntegrationTests {
                 issued.credential());
         UUID sessionId = registered.sessionId();
         sessionContextService.updateRuntimeMode(sessionId, owner.getId(), AgentRuntimeMode.RETRIEVAL);
+        when(repositoryResolver.resolve(any(), any())).thenReturn(
+                new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "66778899"));
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request(
                         "topic/context", "src", "TASK-7", workspace.getId()))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.sessionId").value(sessionId.toString()));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.sessionId").value(sessionId.toString()))
+                .andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.resolution.project.id").value(project.getId().toString()));
 
         AgentSession unchangedSession = sessionRepository.findById(sessionId).orElseThrow();
         org.assertj.core.api.Assertions.assertThat(unchangedSession.getRuntimeMode()).isEqualTo(AgentRuntimeMode.RETRIEVAL);
@@ -229,6 +278,172 @@ class AgentOperationalContextControllerIntegrationTests {
                 .isEqualTo(connectionAssignmentsBefore);
         org.assertj.core.api.Assertions.assertThat(capabilityGrantRepository.countByAgent_Id(agent.getId()))
                 .isEqualTo(capabilityGrantsBefore);
+    }
+
+    @Test
+    void repositoryIdResolvesArchivedProjectWithinSessionWorkspaceAndBranchUpdateDoesNotCallGithubAgain() throws Exception {
+        User owner = userRepository.save(new User("repo-resolution-owner", "repo-resolution@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Repository resolution workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        Project project = projectRepository.save(new Project(workspace, "Archived project", owner));
+        project.setArchivedAt(Instant.now());
+        githubRepositoryRepository.save(new ProjectGithubRepository(project, 123456789L));
+        UUID sessionId = register(owner, workspace.getId(), "9".repeat(64));
+        when(repositoryResolver.resolve(any(), any())).thenReturn(
+                new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "123456789"));
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("main", "src", "T-1", workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.resolution.project.id").value(project.getId().toString()))
+                .andExpect(jsonPath("$.resolution.project.confidence").value("HIGH"));
+        org.mockito.Mockito.verify(repositoryResolver).resolve(any(), any());
+        verify(eventPublisher, org.mockito.Mockito.times(1)).publish(argThat(event ->
+                event.type() == AgentEventType.AGENT_OPERATIONAL_CONTEXT_CHANGED
+                        && event.metadata() instanceof AgentEventMetadata.OperationalContextChanged metadata
+                        && metadata.changedFields().contains("resolution")
+                        && metadata.projectResolutionStatus() == OperationalContextResolutionStatus.RESOLVED
+                        && project.getId().equals(metadata.resolvedProjectId())
+                        && "REPOSITORY_PROVIDER_ID".equals(metadata.projectResolutionEvidence())
+                        && !event.toString().contains("Owner/Repo")));
+        org.mockito.Mockito.clearInvocations(repositoryResolver);
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("feature", "src", "T-1", workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"));
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("feature", "src/test", "T-1", workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"));
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
+    }
+
+    @Test
+    void multipleProjectsForSameRepositoryAreAmbiguousAndOtherWorkspaceIsNotLeaked() throws Exception {
+        User owner = userRepository.save(new User("ambiguous-resolution-owner", "ambiguous@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Ambiguous resolution workspace"));
+        Workspace otherWorkspace = workspaceRepository.save(new Workspace("Other resolution workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        Project first = projectRepository.save(new Project(workspace, "First", owner));
+        Project second = projectRepository.save(new Project(workspace, "Second", owner));
+        Project other = projectRepository.save(new Project(otherWorkspace, "Other", owner));
+        githubRepositoryRepository.save(new ProjectGithubRepository(first, 987654321L));
+        githubRepositoryRepository.save(new ProjectGithubRepository(second, 987654321L));
+        githubRepositoryRepository.save(new ProjectGithubRepository(other, 987654321L));
+        UUID sessionId = register(owner, workspace.getId(), "8".repeat(64));
+        when(repositoryResolver.resolve(any(), any())).thenReturn(
+                new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "987654321"));
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("main", "src", "T-2", workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("AMBIGUOUS"))
+                .andExpect(jsonPath("$.resolution.project.id").doesNotExist())
+                .andExpect(jsonPath("$.resolution.project.confidence").doesNotExist());
+        String response = mockMvc.perform(get(path(sessionId)).with(user(new No8doUserDetails(owner))))
+                .andReturn().getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(response).doesNotContain(first.getId().toString(),
+                second.getId().toString(), other.getId().toString());
+    }
+
+    @Test
+    void localAssociationRefreshAndRepositoryRemovalDoNotRepeatGithubLookup() throws Exception {
+        User owner = userRepository.save(new User("refresh-resolution-owner", "refresh@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Refresh resolution workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        Project project = projectRepository.save(new Project(workspace, "Refresh target", owner));
+        UUID sessionId = register(owner, workspace.getId(), "7".repeat(64));
+        when(repositoryResolver.resolve(any(), any())).thenReturn(
+                new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "22334455"));
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("main", "src", "T-3", workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("UNRESOLVED"));
+        org.mockito.Mockito.clearInvocations(repositoryResolver);
+
+        githubRepositoryRepository.save(new ProjectGithubRepository(project, 22334455L));
+        operationalContextService.refreshRepositoryResolutionForWorkspace(workspace.getId(), 22334455L);
+        mockMvc.perform(get(path(sessionId)).with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.resolution.project.id").value(project.getId().toString()));
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        requestForRepository("owner-b", "repo-new", "main", "src", "T-3", workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.resolution.project.id").value(project.getId().toString()));
+        org.mockito.Mockito.verify(repositoryResolver).resolve(any(), any());
+        org.mockito.Mockito.clearInvocations(repositoryResolver);
+
+        githubRepositoryRepository.deleteByProjectId(project.getId());
+        operationalContextService.refreshRepositoryResolutionForWorkspace(workspace.getId(), 22334455L);
+        mockMvc.perform(get(path(sessionId)).with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("UNRESOLVED"));
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        new AgentOperationalContextUpdateRequest(null, "main", "src", java.util.List.of(), workspace.getId()))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("UNRESOLVED"));
+        org.assertj.core.api.Assertions.assertThat(contextRepository.findById(sessionId).orElseThrow()
+                .getProjectResolutionRepositoryId()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
+    }
+
+    @Test
+    void staleExternalResolutionCannotOverwriteAConcurrentRepositoryUpdate() throws Exception {
+        User owner = userRepository.save(new User("concurrent-resolution-owner", "concurrent@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Concurrent resolution workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        UUID sessionId = register(owner, workspace.getId(), "6".repeat(64));
+        when(repositoryResolver.resolve(any(), any())).thenReturn(
+                new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "111"));
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("main", "src", "T-4", workspace.getId())))).andExpect(status().isOk());
+        OperationalContextSnapshot stale = snapshotReader.read(sessionId, owner.getId());
+
+        when(repositoryResolver.resolve(any(), any())).thenReturn(
+                new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "222"));
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        requestForRepository("owner-b", "repo-b", "main", "src", "T-4", workspace.getId()))))
+                .andExpect(status().isOk());
+
+        AgentOperationalContextSignal staleSignal = new AgentOperationalContextValidator().canonicalize(
+                request("stale", "src", "T-4", workspace.getId()));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> contextWriteService.persist(sessionId, owner.getId(),
+                stale, staleSignal, "a".repeat(64), OperationalContextResolutionStatus.RESOLVED, UUID.randomUUID(),
+                OperationalContextConfidence.HIGH, "111", "REPOSITORY_PROVIDER_ID"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(failure -> org.assertj.core.api.Assertions.assertThat(
+                        ((ResponseStatusException) failure).getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+        org.assertj.core.api.Assertions.assertThat(contextRepository.findById(sessionId).orElseThrow()
+                .getProjectResolutionRepositoryId()).isEqualTo("222");
+    }
+
+    @Test
+    void providerOutageRejectsNewRepositoryWithoutPersistingFalseResolution() throws Exception {
+        User owner = userRepository.save(new User("repository-outage-owner", "outage@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Outage resolution workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        UUID sessionId = register(owner, workspace.getId(), "5".repeat(64));
+        when(repositoryResolver.resolve(any(), any())).thenThrow(
+                new ResponseStatusException(org.springframework.http.HttpStatus.BAD_GATEWAY, "safe outage"));
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request("main", "src", "T-5", null))))
+                .andExpect(status().isBadGateway());
+
+        org.assertj.core.api.Assertions.assertThat(contextRepository.findById(sessionId)).isEmpty();
+        org.mockito.Mockito.verify(repositoryResolver).resolve(any(), any());
     }
 
     private UUID register(User owner, UUID workspaceId, String fingerprint) throws Exception {
@@ -247,6 +462,16 @@ class AgentOperationalContextControllerIntegrationTests {
         AgentOperationalContextUpdateRequest.RepositorySignal repository = referenceKey == null ? null
                 : new AgentOperationalContextUpdateRequest.RepositorySignal(
                         "GIT", "GitHub", "GITHUB.com", "Owner", "Repo");
+        java.util.List<AgentOperationalContextUpdateRequest.ReferenceSignal> references = referenceKey == null
+                ? java.util.List.of() : java.util.List.of(new AgentOperationalContextUpdateRequest.ReferenceSignal(
+                        AgentContextReferenceKind.TICKET, "Tracker", referenceKey));
+        return new AgentOperationalContextUpdateRequest(repository, branch, cwd, references, workspaceHint);
+    }
+
+    private static AgentOperationalContextUpdateRequest requestForRepository(String owner, String repositoryName,
+            String branch, String cwd, String referenceKey, UUID workspaceHint) {
+        AgentOperationalContextUpdateRequest.RepositorySignal repository = new AgentOperationalContextUpdateRequest.RepositorySignal(
+                "GIT", "GitHub", "GITHUB.com", owner, repositoryName);
         java.util.List<AgentOperationalContextUpdateRequest.ReferenceSignal> references = referenceKey == null
                 ? java.util.List.of() : java.util.List.of(new AgentOperationalContextUpdateRequest.ReferenceSignal(
                         AgentContextReferenceKind.TICKET, "Tracker", referenceKey));
