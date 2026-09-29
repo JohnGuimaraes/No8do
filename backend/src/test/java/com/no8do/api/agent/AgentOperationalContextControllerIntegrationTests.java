@@ -107,8 +107,9 @@ class AgentOperationalContextControllerIntegrationTests {
         long firstVersion = objectMapper.readTree(firstBody).get("version").asLong();
         clearInvocations(eventPublisher);
 
+        AgentOperationalContextUpdateRequest idempotentRequest = request(firstVersion, "main", "src\\service", "Q-12", null);
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(firstRequest)))
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(idempotentRequest)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(firstVersion))
                 .andExpect(jsonPath("$.updatedAt").value(objectMapper.readTree(firstBody).get("updatedAt").asText()));
         verify(eventPublisher, times(0)).publish(org.mockito.ArgumentMatchers.any());
@@ -118,7 +119,7 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        new AgentOperationalContextUpdateRequest(null, null, null, java.util.List.of(), null))))
+                        request(firstVersion, null, null, null, null))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(firstVersion + 1))
                 .andExpect(jsonPath("$.signal.branch").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.signal.workingDirectory").value(org.hamcrest.Matchers.nullValue()))
@@ -131,7 +132,7 @@ class AgentOperationalContextControllerIntegrationTests {
                 && !event.toString().contains("github.com") && !event.toString().contains("Q-12")));
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request(null, null, "Q-13", null))))
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request(firstVersion + 1, null, null, "Q-13", null))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(firstVersion + 2))
                 .andExpect(jsonPath("$.signal.references[0].key").value("Q-13"));
 
@@ -155,15 +156,72 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        new AgentOperationalContextUpdateRequest(null, "main", null, java.util.List.of(first, second), null))))
+                        new AgentOperationalContextUpdateRequest(com.fasterxml.jackson.databind.node.NullNode.instance, null, "main", null, java.util.List.of(first, second), null))))
                 .andExpect(status().isOk());
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        new AgentOperationalContextUpdateRequest(null, "main", null, java.util.List.of(second, third), null))))
+                        new AgentOperationalContextUpdateRequest(com.fasterxml.jackson.databind.node.LongNode.valueOf(1), null, "main", null, java.util.List.of(second, third), null))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.signal.references[0].key").value("REF-B"))
                 .andExpect(jsonPath("$.signal.references[1].key").value("REF-C"));
+    }
+
+    @Test
+    void expectedVersionDistinguishesAbsentSnapshotFromVersionZeroAndIsRequired() throws Exception {
+        User owner = userRepository.save(new User("expected-version-owner", "expected-version@example.test", "hash"));
+        UUID sessionId = register(owner, null, "e".repeat(64));
+        String emptySignal = "\"repository\":null,\"branch\":null,\"workingDirectory\":null,\"references\":[]";
+
+        mockMvc.perform(get(path(sessionId) + "/state").with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.exists").value(false))
+                .andExpect(jsonPath("$.context").value(org.hamcrest.Matchers.nullValue()));
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{" + emptySignal + ",\"expectedVersion\":0}"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{" + emptySignal + ",\"expectedVersion\":null}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(0));
+        mockMvc.perform(get(path(sessionId) + "/state").with(user(new No8doUserDetails(owner))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.exists").value(true))
+                .andExpect(jsonPath("$.context.version").value(0));
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{" + emptySignal + ",\"expectedVersion\":null}"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{" + emptySignal + ",\"expectedVersion\":0}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(0));
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{" + emptySignal + "}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{" + emptySignal + ",\"expectedVersion\":-1}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void staleExpectedVersionFailsBeforeRepositoryLookupEvenWhenSignalMatches() throws Exception {
+        User owner = userRepository.save(new User("stale-version-owner", "stale-version@example.test", "hash"));
+        Workspace workspace = workspaceRepository.save(new Workspace("Stale version workspace"));
+        workspaceMemberRepository.save(new WorkspaceMember(workspace, owner, WorkspaceRole.OWNER));
+        UUID sessionId = register(owner, workspace.getId(), "4".repeat(64));
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request(null, null, null, null))))
+                .andExpect(status().isOk());
+        clearInvocations(eventPublisher, repositoryResolver);
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request(null, null, null, null))))
+                .andExpect(status().isConflict());
+        verify(eventPublisher, times(0)).publish(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
+
+        mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
+                        request(null, "main", "src", "T-STALE", workspace.getId()))))
+                .andExpect(status().isConflict());
+        org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
     }
 
     @Test
@@ -294,7 +352,7 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        request("main", "src", "T-1", workspace.getId()))))
+                        request(null, "main", "src", "T-1", workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"))
                 .andExpect(jsonPath("$.resolution.project.id").value(project.getId().toString()))
                 .andExpect(jsonPath("$.resolution.project.confidence").value("HIGH"));
@@ -311,13 +369,13 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        request("feature", "src", "T-1", workspace.getId()))))
+                        request(1L, "feature", "src", "T-1", workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"));
         org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        request("feature", "src/test", "T-1", workspace.getId()))))
+                        request(2L, "feature", "src/test", "T-1", workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"));
         org.mockito.Mockito.verifyNoInteractions(repositoryResolver);
     }
@@ -340,7 +398,7 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        request("main", "src", "T-2", workspace.getId()))))
+                        request(null, "main", "src", "T-2", workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("AMBIGUOUS"))
                 .andExpect(jsonPath("$.resolution.project.id").doesNotExist())
                 .andExpect(jsonPath("$.resolution.project.confidence").doesNotExist());
@@ -362,7 +420,7 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        request("main", "src", "T-3", workspace.getId()))))
+                        request(null, "main", "src", "T-3", workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("UNRESOLVED"));
         org.mockito.Mockito.clearInvocations(repositoryResolver);
 
@@ -375,7 +433,7 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        requestForRepository("owner-b", "repo-new", "main", "src", "T-3", workspace.getId()))))
+                        requestForRepository(2L, "owner-b", "repo-new", "main", "src", "T-3", workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("RESOLVED"))
                 .andExpect(jsonPath("$.resolution.project.id").value(project.getId().toString()));
         org.mockito.Mockito.verify(repositoryResolver).resolve(any(), any());
@@ -389,7 +447,7 @@ class AgentOperationalContextControllerIntegrationTests {
 
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        new AgentOperationalContextUpdateRequest(null, "main", "src", java.util.List.of(), workspace.getId()))))
+                        request(contextRepository.findById(sessionId).orElseThrow().getVersion(), null, "src", null, workspace.getId()))))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.resolution.project.status").value("UNRESOLVED"));
         org.assertj.core.api.Assertions.assertThat(contextRepository.findById(sessionId).orElseThrow()
                 .getProjectResolutionRepositoryId()).isNull();
@@ -413,7 +471,7 @@ class AgentOperationalContextControllerIntegrationTests {
                 new OperationalRepositoryResolver.RepositoryIdentityResolution(true, true, "222"));
         mockMvc.perform(put(path(sessionId)).with(user(new No8doUserDetails(owner))).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(
-                        requestForRepository("owner-b", "repo-b", "main", "src", "T-4", workspace.getId()))))
+                        requestForRepository(1L, "owner-b", "repo-b", "main", "src", "T-4", workspace.getId()))))
                 .andExpect(status().isOk());
 
         AgentOperationalContextSignal staleSignal = new AgentOperationalContextValidator().canonicalize(
@@ -459,22 +517,38 @@ class AgentOperationalContextControllerIntegrationTests {
 
     private static AgentOperationalContextUpdateRequest request(String branch, String cwd, String referenceKey,
             UUID workspaceHint) {
+        return request((Long) null, branch, cwd, referenceKey, workspaceHint);
+    }
+
+    private static AgentOperationalContextUpdateRequest request(Long expectedVersion, String branch, String cwd,
+            String referenceKey, UUID workspaceHint) {
         AgentOperationalContextUpdateRequest.RepositorySignal repository = referenceKey == null ? null
                 : new AgentOperationalContextUpdateRequest.RepositorySignal(
                         "GIT", "GitHub", "GITHUB.com", "Owner", "Repo");
         java.util.List<AgentOperationalContextUpdateRequest.ReferenceSignal> references = referenceKey == null
                 ? java.util.List.of() : java.util.List.of(new AgentOperationalContextUpdateRequest.ReferenceSignal(
                         AgentContextReferenceKind.TICKET, "Tracker", referenceKey));
-        return new AgentOperationalContextUpdateRequest(repository, branch, cwd, references, workspaceHint);
+        com.fasterxml.jackson.databind.JsonNode version = expectedVersion == null
+                ? com.fasterxml.jackson.databind.node.NullNode.instance
+                : com.fasterxml.jackson.databind.node.LongNode.valueOf(expectedVersion);
+        return new AgentOperationalContextUpdateRequest(version, repository, branch, cwd, references, workspaceHint);
     }
 
     private static AgentOperationalContextUpdateRequest requestForRepository(String owner, String repositoryName,
             String branch, String cwd, String referenceKey, UUID workspaceHint) {
+        return requestForRepository(null, owner, repositoryName, branch, cwd, referenceKey, workspaceHint);
+    }
+
+    private static AgentOperationalContextUpdateRequest requestForRepository(Long expectedVersion, String owner,
+            String repositoryName, String branch, String cwd, String referenceKey, UUID workspaceHint) {
         AgentOperationalContextUpdateRequest.RepositorySignal repository = new AgentOperationalContextUpdateRequest.RepositorySignal(
                 "GIT", "GitHub", "GITHUB.com", owner, repositoryName);
         java.util.List<AgentOperationalContextUpdateRequest.ReferenceSignal> references = referenceKey == null
                 ? java.util.List.of() : java.util.List.of(new AgentOperationalContextUpdateRequest.ReferenceSignal(
                         AgentContextReferenceKind.TICKET, "Tracker", referenceKey));
-        return new AgentOperationalContextUpdateRequest(repository, branch, cwd, references, workspaceHint);
+        com.fasterxml.jackson.databind.JsonNode version = expectedVersion == null
+                ? com.fasterxml.jackson.databind.node.NullNode.instance
+                : com.fasterxml.jackson.databind.node.LongNode.valueOf(expectedVersion);
+        return new AgentOperationalContextUpdateRequest(version, repository, branch, cwd, references, workspaceHint);
     }
 }

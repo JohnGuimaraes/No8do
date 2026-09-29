@@ -52,6 +52,7 @@ class AgentProtocolControllerTests {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.protocolName").value(protocol.protocolName()))
             .andExpect(jsonPath("$.protocolVersion").value(protocol.protocolVersion()))
+            .andExpect(jsonPath("$.protocolVersion").value(2))
             .andExpect(jsonPath("$.systemName").value(protocol.systemName()))
             .andExpect(jsonPath("$.purpose").value(protocol.purpose()))
             .andExpect(jsonPath("$.replayGuidance.searchBeforeNonTrivialWork").value(true))
@@ -65,6 +66,12 @@ class AgentProtocolControllerTests {
             .andExpect(jsonPath("$.policies.policies[0].enforcement").value("ADVISORY"))
             .andExpect(jsonPath("$.policies.policies[2].id").value("material-usage-required-for-usage-record"))
             .andExpect(jsonPath("$.policies.policies[2].enforcement").value("ENFORCED"))
+            .andExpect(jsonPath("$.integrationExtensions.extensions[0].id").value("no8do-integration"))
+            .andExpect(jsonPath("$.integrationExtensions.extensions[0].version").value(1))
+            .andExpect(jsonPath("$.integrationExtensions.extensions[0].operationalContext.version").value(1))
+            .andExpect(jsonPath("$.integrationExtensions.extensions[0].operationalContext.optimisticConcurrency").value("EXPECTED_VERSION"))
+            .andExpect(jsonPath("$.integrationExtensions.extensions[0].operationalContext.getMethod").value("no8do/operational-context/get"))
+            .andExpect(jsonPath("$.integrationExtensions.extensions[0].operationalContext.updateMethod").value("no8do/operational-context/update"))
             .andExpect(jsonPath("$.policies.policies[5].id").value("workspace-isolation-required"))
             .andExpect(jsonPath("$.policies.policies[5].enforcement").value("ENFORCED"));
     }

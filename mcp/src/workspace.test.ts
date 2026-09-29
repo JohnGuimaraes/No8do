@@ -30,6 +30,13 @@ test("HTTP rejeita workspace fora do escopo", () => {
   assert.throws(() => resolveWorkspaceId(explicitWorkspaceId, environmentWorkspaceId, "http"), /fora do escopo/);
 });
 
+test("sessão Agent-bound usa o Workspace retornado pelo registro mesmo com legado configurado", () => {
+  assert.equal(resolveWorkspaceId(undefined, environmentWorkspaceId, "http", "session-a", explicitWorkspaceId), explicitWorkspaceId);
+  assert.equal(resolveWorkspaceId(explicitWorkspaceId, environmentWorkspaceId, "http", "session-a", explicitWorkspaceId), explicitWorkspaceId);
+  assert.throws(() => resolveWorkspaceId(environmentWorkspaceId, environmentWorkspaceId, "http", "session-a", explicitWorkspaceId), /fora do escopo/);
+  assert.throws(() => resolveWorkspaceId(undefined, environmentWorkspaceId, "http", "session-a", null), /no authorized Workspace/);
+});
+
 test("HTTP exige workspace configurado válido", () => {
   assert.throws(() => requireRemoteWorkspaceId(undefined), /NO8DO_WORKSPACE_ID é obrigatória/);
   assert.throws(() => requireRemoteWorkspaceId(""), /NO8DO_WORKSPACE_ID é obrigatória/);
