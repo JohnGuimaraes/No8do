@@ -47,7 +47,7 @@ class TestDatabaseIsolationTests {
                 .filter(java.util.Objects::nonNull)
                 .map(version -> version.getVersion())
                 .collect(Collectors.toSet());
-        assertThat(appliedVersions).contains("38", "55");
+        assertThat(appliedVersions).contains("38", "55", "58");
         assertThat(jdbcTemplate.queryForObject(
                 "select exists(select 1 from pg_extension where extname = 'vector')", Boolean.class)).isTrue();
     }

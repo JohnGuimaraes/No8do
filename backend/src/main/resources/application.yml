@@ -47,6 +47,10 @@ management:
       show-components: never
 
 no8do:
+  integration:
+    bootstrap:
+      enabled: ${NO8DO_INTEGRATION_BOOTSTRAP_ENABLED:false}
+      hmac-key: ${NO8DO_INTEGRATION_BOOTSTRAP_HMAC_KEY:}
   agent:
     presence:
       active-window: 2m

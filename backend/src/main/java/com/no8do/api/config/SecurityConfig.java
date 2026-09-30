@@ -24,6 +24,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -63,7 +64,11 @@ public class SecurityConfig {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository())
-                .ignoringRequestMatchers(request -> Boolean.TRUE.equals(request.getAttribute(PersonalApiTokenService.CSRF_BYPASS_ATTRIBUTE))))
+                .ignoringRequestMatchers(
+                    request -> Boolean.TRUE.equals(request.getAttribute(PersonalApiTokenService.CSRF_BYPASS_ATTRIBUTE)),
+                    new AntPathRequestMatcher("/api/integration-authorizations/bootstrap", "POST"),
+                    new AntPathRequestMatcher("/api/integration-authorizations/bootstrap/exchange", "POST"))
+            )
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
             .exceptionHandling(exceptions -> exceptions
@@ -82,6 +87,9 @@ public class SecurityConfig {
                     "/api/auth/google/callback",
                     "/api/oauth2/authorization/google"
                 ).permitAll()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/integration-authorizations/bootstrap",
+                    "/api/integration-authorizations/bootstrap/exchange").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/workspace-invites/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/workspace-invites/*/register").permitAll()
                 .requestMatchers("/api/account/integrations/github/app/callback").permitAll()
