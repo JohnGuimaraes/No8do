@@ -71,7 +71,7 @@ Quando código fizer parte do aprendizado, inclua apenas o trecho mínimo reutil
 - `update_replay`: evolução de conhecimento existente.
 - `register_replay_usage`: evidência de reutilização real.
 
-As tools podem receber `workspaceId` explícito; quando omitido, o MCP pode usar `NO8DO_WORKSPACE_ID`. O valor explícito tem prioridade. Nunca hardcode IDs, tokens, PATs, URLs secretas ou configurações sensíveis.
+No STDIO legacy sem sessão scoped, tools podem receber `workspaceId` explícito com prioridade sobre `NO8DO_WORKSPACE_ID`. No Remote MCP scoped, Workspace vem da sessão e um valor explícito só verifica consistência. IntegrationCredential ignora `NO8DO_WORKSPACE_ID` e, na A2-D V1, permite somente Replay read-only/retrieval; criação, atualização e registro de usage continuam indisponíveis nesse caminho. Nunca hardcode IDs, tokens, PATs, URLs secretas ou configurações sensíveis.
 
 ## Relatório do agente
 

@@ -31,7 +31,15 @@ public final class IntegrationCredentialAuthenticationFilter extends OncePerRequ
             new AntPathRequestMatcher("/api/agent-sessions/*/disconnect", HttpMethod.POST.name()),
             new AntPathRequestMatcher("/api/agent-sessions/*/context", HttpMethod.GET.name()),
             new AntPathRequestMatcher("/api/agent-sessions/*/operational-context/state", HttpMethod.GET.name()),
-            new AntPathRequestMatcher("/api/agent-sessions/*/operational-context", HttpMethod.PUT.name())));
+            new AntPathRequestMatcher("/api/agent-sessions/*/operational-context", HttpMethod.PUT.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/search", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/similar", HttpMethod.POST.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/*", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/*/quality", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/*/versions", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/*/versions/*", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/integration-runtime/replays/*/relations", HttpMethod.GET.name())));
 
     private final IntegrationAuthorizationVerificationService verificationService;
     private final IntegrationAuthorizationUsageTouchService usageTouchService;

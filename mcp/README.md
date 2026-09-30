@@ -46,7 +46,11 @@ PORT=3000
 
 `NO8DO_WORKSPACE_ID` é obrigatório para sessões remotas legadas PAT-only. Não é uma configuração de autoridade para sessões Agent-bound.
 
-Clientes remotos enviam o PAT do usuário como `Authorization: Bearer …`; o servidor encaminha a autenticação somente à API No8do. A API continua responsável por autenticação, membership e RBAC.
+Clientes remotos legacy enviam o PAT do usuário como `Authorization: Bearer …`; o servidor encaminha a autenticação somente à API No8do. A API continua responsável por autenticação, membership e RBAC.
+
+**IntegrationCredential (A2-D V1):** use somente `Authorization: Bearer no8do_int_…`, sem PAT, AgentCredential ou Workspace configurado. O backend deriva IntegrationAuthorization → Agent → Workspace e registra uma AgentSession própria da conexão com userId null. O MCP ignora `NO8DO_WORKSPACE_ID` neste modo e rejeita credenciais mistas/autoridade escolhida pelo cliente. Antes de cada request valida também a sessão, bloqueando revogação/desconexão e perda de elegibilidade. Replay permite apenas list/search/discovery/get/quality/versions/relation reads, sob runtime/capabilities/policies; create/update/usage/relation mutations não são tools deste modo. Nenhum controller humano é liberado.
+
+IntegrationCredential permanece somente em memória e no Bearer enviado à API configurada. Todas essas chamadas exigem HTTPS fora de loopback e não seguem redirects. A entrada pública deve usar TLS termination confiável, com o listener HTTP interno não exposto; o serviço não confia em X-Forwarded-Proto arbitrário. Nunca incluir credentials em logs, payloads, URLs ou respostas.
 
 No `initialize` inicial, o cliente pode enviar `X-No8do-Agent-Credential`. Esse header é encaminhado exclusivamente a `POST {NO8DO_API_URL}/api/agent-sessions`; não é guardado na sessão MCP nem incluído em body, URL, fingerprint ou resposta. Credential inválida faz o registro falhar, sem fallback para sessão legada. O envio exige HTTPS, exceto loopback local, e não segue redirects.
 

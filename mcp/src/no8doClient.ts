@@ -166,9 +166,11 @@ function messageForStatus(status: number): string {
 
 export class No8doClient {
   private readonly baseUrl: string;
+  readonly integration: boolean;
   constructor(apiUrl: string, private readonly token: string, private readonly fetchImpl: typeof fetch = fetch,
       private readonly agentSessionHeader?: AgentSessionHeader) {
     this.baseUrl = apiUrl.replace(/\/+$/, "").replace(/\/api$/, "");
+    this.integration = token.startsWith("no8do_int_");
   }
 
   getAgentProtocol(): Promise<AgentProtocol> {
@@ -186,6 +188,17 @@ export class No8doClient {
     const sessionId = this.agentSessionHeader?.get();
     if (!sessionId) throw new Error("Agent session has not been registered.");
     return this.request(`/api/agent-sessions/${encodeURIComponent(sessionId)}/context`);
+  }
+  async requireIntegrationSession(): Promise<AgentSessionContext> {
+    const context = await this.getAgentContext();
+    if (context.sessionId !== this.agentSessionHeader?.get()
+        || !context.workspaceId || context.workspaceId !== this.agentSessionHeader?.getWorkspaceId()) {
+      throw new No8doApiError(403);
+    }
+    if (context.disconnectedAt !== null || context.presenceStatus === "DISCONNECTED") {
+      throw new No8doApiError(409, "AGENT_SESSION_DISCONNECTED", undefined, "AGENT_SESSION_DISCONNECTED");
+    }
+    return context;
   }
   async getOperationalContext(): Promise<AgentOperationalContextRead> {
     const sessionId = this.agentSessionHeader?.get();
@@ -226,22 +239,22 @@ export class No8doClient {
     });
   }
   listReplays(workspaceId: string): Promise<Replay[]> {
-    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays`);
+    return this.request(this.replayPath(workspaceId));
   }
   searchReplays(workspaceId: string, query: string): Promise<Replay[]> {
-    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/search?q=${encodeURIComponent(query)}`);
+    return this.request(`${this.replayPath(workspaceId)}/search?q=${encodeURIComponent(query)}`);
   }
   findReusableKnowledge(workspaceId: string, input: FindReusableKnowledgeInput): Promise<SimilarReplay[]> {
-    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/similar`, { method: "POST", body: JSON.stringify({ query: input.query, problem: input.problem, stack: input.stack, tags: input.tags, type: input.type }) });
+    return this.request(`${this.replayPath(workspaceId)}/similar`, { method: "POST", body: JSON.stringify({ query: input.query, problem: input.problem, stack: input.stack, tags: input.tags, type: input.type }) });
   }
   getReplay(workspaceId: string, replayId: string): Promise<Replay> {
-    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}`);
+    return this.request(`${this.replayPath(workspaceId)}/${encodeURIComponent(replayId)}`);
   }
-  getReplayQuality(workspaceId: string, replayId: string): Promise<ReplayQuality> { return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/quality`); }
-  listReplayVersions(workspaceId: string, replayId: string): Promise<ReplayVersion[]> { return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/versions`); }
-  getReplayVersion(workspaceId: string, replayId: string, version: number): Promise<ReplayVersion> { return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/versions/${version}`); }
+  getReplayQuality(workspaceId: string, replayId: string): Promise<ReplayQuality> { return this.request(`${this.replayPath(workspaceId)}/${encodeURIComponent(replayId)}/quality`); }
+  listReplayVersions(workspaceId: string, replayId: string): Promise<ReplayVersion[]> { return this.request(`${this.replayPath(workspaceId)}/${encodeURIComponent(replayId)}/versions`); }
+  getReplayVersion(workspaceId: string, replayId: string, version: number): Promise<ReplayVersion> { return this.request(`${this.replayPath(workspaceId)}/${encodeURIComponent(replayId)}/versions/${version}`); }
   listReplayRelations(workspaceId: string, replayId: string): Promise<ReplayRelation[]> {
-    return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/relations`);
+    return this.request(`${this.replayPath(workspaceId)}/${encodeURIComponent(replayId)}/relations`);
   }
   createReplayRelation(workspaceId: string, replayId: string, targetReplayId: string, type: ReplayRelationType): Promise<ReplayRelation> {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/relations`, { method: "POST", body: JSON.stringify({ targetReplayId, type }) });
@@ -261,11 +274,13 @@ export class No8doClient {
     return this.request(`/api/workspaces/${encodeURIComponent(workspaceId)}/replays/${encodeURIComponent(replayId)}/usages`, { method: "POST", body: JSON.stringify({ ...body, source: "MCP" }) });
   }
   private async request<T>(path: string, init: RequestInit = {}, sensitiveRegistration = false): Promise<T> {
-    if (sensitiveRegistration) {
+    if (this.integration && sensitiveRegistration) throw new No8doApiError(400);
+    if (this.integration && path.startsWith("/api/workspaces/")) throw new No8doApiError(403);
+    if (sensitiveRegistration || this.integration) {
       const destination = new URL(`${this.baseUrl}${path}`);
       const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(destination.hostname);
       if (destination.protocol !== "https:" && !(destination.protocol === "http:" && loopback)) {
-        throw new Error("Agent credential registration requires HTTPS except for loopback development.");
+        throw new Error("Credential transport requires HTTPS except for loopback development.");
       }
     }
     const sessionId = this.agentSessionHeader?.get();
@@ -273,7 +288,14 @@ export class No8doClient {
     headers.set("Authorization", `Bearer ${this.token}`);
     headers.set("Content-Type", "application/json");
     if (sessionId) headers.set("X-No8do-Agent-Session-Id", sessionId);
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers,
+        ...(this.integration ? { redirect: "error" as const } : {}) });
+    } catch (error) {
+      if (this.integration) throw new No8doApiError(502);
+      throw error;
+    }
     if (!response.ok) {
       let body: { error?: unknown; metadata?: unknown } = {};
       try { body = await response.clone().json() as typeof body; } catch { /* retain the safe status message */ }
@@ -310,7 +332,18 @@ export class No8doClient {
       if (code === "AGENT_SESSION_REVOKED") this.agentSessionHeader?.markRevoked();
       throw new No8doApiError(response.status, message, metadata, code);
     }
-    return response.json() as Promise<T>;
+    try { return await response.json() as T; }
+    catch (error) {
+      if (this.integration) throw new No8doApiError(502);
+      throw error;
+    }
+  }
+  private replayPath(workspaceId: string): string {
+    if (!this.integration) return `/api/workspaces/${encodeURIComponent(workspaceId)}/replays`;
+    if (!this.agentSessionHeader?.get() || workspaceId !== this.agentSessionHeader.getWorkspaceId()) {
+      throw new No8doApiError(403);
+    }
+    return "/api/integration-runtime/replays";
   }
 }
 

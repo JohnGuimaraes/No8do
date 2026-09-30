@@ -107,7 +107,8 @@ test("erro de disconnect não expõe bearer nem PAT no log de cleanup", async ()
 
     const logged = JSON.stringify(logEntries);
     assert.doesNotMatch(logged, /PAT_STDIO_SECRET/);
-    assert.match(logged, /Bearer \[REDACTED\]/);
+    assert.match(logged, /No8do AgentSession disconnect failed/);
+    assert.doesNotMatch(logged, /Request failed|Bearer/);
     assert.doesNotMatch(logged, /transportSessionFingerprint|fingerprint/);
   } finally {
     console.error = originalError;
