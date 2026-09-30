@@ -58,18 +58,30 @@ public class ReplayService {
     @Transactional(readOnly = true)
     public List<ReplayResponse> list(UUID workspaceId, UUID currentUserId) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return readList(workspaceId);
+    }
+
+    List<ReplayResponse> readList(UUID workspaceId) {
         return replayRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspaceId).stream().map(ReplayResponse::from).toList();
     }
 
     @Transactional(readOnly = true)
     public ReplayResponse get(UUID workspaceId, UUID replayId, UUID currentUserId) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return readGet(workspaceId, replayId);
+    }
+
+    ReplayResponse readGet(UUID workspaceId, UUID replayId) {
         return ReplayResponse.from(find(workspaceId, replayId));
     }
 
     @Transactional(readOnly = true)
     public ReplayQualityResponse quality(UUID workspaceId, UUID replayId, UUID currentUserId) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return readQuality(workspaceId, replayId);
+    }
+
+    ReplayQualityResponse readQuality(UUID workspaceId, UUID replayId) {
         return replayQualityService.assess(find(workspaceId, replayId));
     }
 
@@ -152,6 +164,10 @@ public class ReplayService {
     @Transactional(readOnly = true)
     public List<ReplayResponse> search(UUID workspaceId, UUID currentUserId, String query) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return readSearch(workspaceId, query);
+    }
+
+    List<ReplayResponse> readSearch(UUID workspaceId, String query) {
         if (query == null || query.trim().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Replay search query is required");
         }
@@ -164,6 +180,10 @@ public class ReplayService {
     @Transactional(readOnly = true)
     public List<SimilarReplayResponse> findSimilar(UUID workspaceId, UUID currentUserId, FindSimilarReplaysRequest request) {
         workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId);
+        return readSimilar(workspaceId, request);
+    }
+
+    List<SimilarReplayResponse> readSimilar(UUID workspaceId, FindSimilarReplaysRequest request) {
         return replayRepository.findByWorkspaceIdOrderByUpdatedAtDesc(workspaceId).stream()
             .map(replay -> new ScoredReplay(replay, similarity(replay, request)))
             .filter(candidate -> candidate.score() > 0)
@@ -208,10 +228,14 @@ public class ReplayService {
     }
 
     @Transactional(readOnly = true)
-    public List<ReplayVersionResponse> listVersions(UUID workspaceId, UUID replayId, UUID currentUserId) { workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId); find(workspaceId, replayId); return replayVersionRepository.findByReplayIdOrderByVersionDesc(replayId).stream().map(ReplayVersionResponse::from).toList(); }
+    public List<ReplayVersionResponse> listVersions(UUID workspaceId, UUID replayId, UUID currentUserId) { workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId); return readVersions(workspaceId, replayId); }
+
+    List<ReplayVersionResponse> readVersions(UUID workspaceId, UUID replayId) { find(workspaceId, replayId); return replayVersionRepository.findByReplayIdOrderByVersionDesc(replayId).stream().map(ReplayVersionResponse::from).toList(); }
 
     @Transactional(readOnly = true)
-    public ReplayVersionResponse getVersion(UUID workspaceId, UUID replayId, int version, UUID currentUserId) { workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId); find(workspaceId, replayId); return ReplayVersionResponse.from(replayVersionRepository.findByReplayIdAndVersion(replayId, version).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Replay version not found"))); }
+    public ReplayVersionResponse getVersion(UUID workspaceId, UUID replayId, int version, UUID currentUserId) { workspaceAuthorizationService.requireWorkspaceMember(workspaceId, currentUserId); return readVersion(workspaceId, replayId, version); }
+
+    ReplayVersionResponse readVersion(UUID workspaceId, UUID replayId, int version) { find(workspaceId, replayId); return ReplayVersionResponse.from(replayVersionRepository.findByReplayIdAndVersion(replayId, version).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Replay version not found"))); }
 
     private Replay find(UUID workspaceId, UUID replayId) {
         return replayRepository.findByIdAndWorkspaceId(replayId, workspaceId)

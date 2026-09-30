@@ -19,7 +19,11 @@ public class ReplayRelationService {
     }
     @Transactional(readOnly = true)
     public List<ReplayRelationResponse> list(UUID workspaceId, UUID replayId, UUID userId) {
-        authorization.requireWorkspaceMember(workspaceId, userId); Replay replay = findReplay(workspaceId, replayId);
+        authorization.requireWorkspaceMember(workspaceId, userId);
+        return readList(workspaceId, replayId);
+    }
+    List<ReplayRelationResponse> readList(UUID workspaceId, UUID replayId) {
+        Replay replay = findReplay(workspaceId, replayId);
         return relationRepository.findByWorkspaceIdAndSourceReplayIdOrWorkspaceIdAndTargetReplayIdOrderByCreatedAtDesc(workspaceId, replayId, workspaceId, replayId).stream().map(relation -> ReplayRelationResponse.from(relation, replay)).toList();
     }
     @Transactional

@@ -9,7 +9,17 @@ import { compactReplay, No8doApiError, No8doClient, type AgentProtocol, type Age
 import { resolveWorkspaceId, type WorkspaceTransport } from "./workspace.js";
 import { fingerprintTransportSession } from "./transportSessionFingerprint.js";
 
-export type McpServerContext = { apiUrl: string; token: string; agentProtocol: AgentProtocol; defaultWorkspaceId?: string; transport?: WorkspaceTransport; agentSessionHeader?: AgentSessionHeader };
+export type McpServerContext = { apiUrl: string; token: string; agentProtocol: AgentProtocol; defaultWorkspaceId?: string; transport?: WorkspaceTransport; agentSessionHeader?: AgentSessionHeader; integration?: boolean };
+
+type ReadTool = { required: string[]; tool: ReturnType<McpServer["registerTool"]> };
+const integrationTools = new WeakMap<McpServer, ReadTool[]>();
+export function refreshIntegrationTools(server: McpServer, effective: { id: string }[]): void {
+  const allowed = new Set(effective.map(capability => capability.id));
+  for (const { required, tool } of integrationTools.get(server) ?? []) {
+    const enabled = required.every(capability => allowed.has(capability));
+    if (tool.enabled !== enabled) { if (enabled) tool.enable(); else tool.disable(); }
+  }
+}
 
 /** Adds one registration barrier to stdio initialize; stdio has no SDK-issued session ID. */
 export class StdioAgentSessionTransport implements Transport {
@@ -103,6 +113,12 @@ const text = (value: unknown) => ({ content: [{ type: "text" as const, text: JSO
 export function createMcpServer(context: McpServerContext) {
   const client = new No8doClient(context.apiUrl, context.token, fetch, context.agentSessionHeader);
   const server = new McpServer({ name: "no8do-replays", version: "0.1.0" }, { instructions: renderAgentProtocolBootstrap(context.agentProtocol) });
+  const readTools: ReadTool[] = [];
+  if (context.integration) integrationTools.set(server, readTools);
+  const rememberRead = (required: string[], tool: ReadTool["tool"]) => {
+    if (context.integration) { tool.disable(); readTools.push({ required, tool }); }
+    return tool;
+  };
   const resolve = (workspaceId: string | undefined) => resolveWorkspaceId(workspaceId, context.defaultWorkspaceId,
     context.transport, context.agentSessionHeader?.get(), context.agentSessionHeader?.getWorkspaceId());
   const integrationManifest = context.agentProtocol.integrationExtensions;
@@ -197,19 +213,19 @@ export function createMcpServer(context: McpServerContext) {
       structuredContent: agentContext as unknown as Record<string, unknown>
     };
   });
-  server.registerTool("list_replays", { description: "Liste o catálogo de Replays do workspace sem aplicar busca textual.", inputSchema: workspace }, async ({ workspaceId }) => text((await client.listReplays(resolve(workspaceId))).map(compactReplay)));
-  server.registerTool("search_replays", { description: "Pesquise conhecimento técnico reutilizável existente antes de resolver novamente ou criar um novo Replay.", inputSchema: { ...workspace, query: z.string().min(1) } }, async ({ workspaceId, query }) => text((await client.searchReplays(resolve(workspaceId), query)).map(compactReplay)));
-  server.registerTool("find_reusable_knowledge", { description: "Sugira Replays reutilizáveis por relevância determinística. Revise candidatos antes de atualizar ou criar conteúdo.", inputSchema: { ...workspace, query: z.string().optional(), problem: z.string().optional(), stack: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), type: type.optional() } }, async ({ workspaceId, ...input }) => text({ suggestions: await client.findReusableKnowledge(resolve(workspaceId), input as FindReusableKnowledgeInput) }));
-  server.registerTool("get_replay_quality", { description: "Obtenha o score derivado de qualidade e seus sinais.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.getReplayQuality(resolve(workspaceId), replayId)));
-  server.registerTool("get_replay", { description: "Obtenha o conteúdo completo de um Replay encontrado.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.getReplay(resolve(workspaceId), replayId)));
-  server.registerTool("list_replay_versions", { description: "Liste snapshots imutáveis de conteúdo.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.listReplayVersions(resolve(workspaceId), replayId)));
-  server.registerTool("get_replay_version", { description: "Obtenha um snapshot histórico.", inputSchema: { ...workspace, replayId: z.string().uuid(), version: z.number().int().min(1) } }, async ({ workspaceId, replayId, version }) => text(await client.getReplayVersion(resolve(workspaceId), replayId, version)));
-  server.registerTool("list_replay_relations", { description: "Liste as relações do Replay.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.listReplayRelations(resolve(workspaceId), replayId)));
-  server.registerTool("create_replay_relation", { description: "Crie uma relação entre Replays.", inputSchema: { ...workspace, replayId: z.string().uuid(), targetReplayId: z.string().uuid(), type: relationType } }, async ({ workspaceId, replayId, targetReplayId, type }) => text(await client.createReplayRelation(resolve(workspaceId), replayId, targetReplayId, type as ReplayRelationType)));
-  server.registerTool("delete_replay_relation", { description: "Remova uma relação existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), relationId: z.string().uuid() } }, async ({ workspaceId, replayId, relationId }) => { await client.deleteReplayRelation(resolve(workspaceId), replayId, relationId); return text({ deleted: true }); });
-  server.registerTool("create_replay", { description: "Antes de criar, prefira find_reusable_knowledge.", inputSchema: { ...workspace, ...mutation } }, async ({ workspaceId, ...body }: { workspaceId?: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.createReplay(resolve(workspaceId), body as ReplayMutation)));
-  server.registerTool("update_replay", { description: "Atualize conteúdo de um Replay existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), ...updateMutation }, }, async ({ workspaceId, replayId, ...body }: { workspaceId?: string; replayId: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.updateReplay(resolve(workspaceId), replayId, body as ReplayUpdate)));
-  server.registerTool("register_replay_usage", { description: "Chame somente após aplicar materialmente o Replay. Para AgentSession, declare materiallyUsed=true e descreva em context, de forma breve, como o Replay foi aplicado; não infira nem invente essa declaração.", inputSchema: { ...workspace, replayId: z.string().uuid(), result: usageResult, materiallyUsed: z.boolean().optional(), projectId: z.string().uuid().nullable().optional(), replayVersion: z.number().int().min(1).optional(), context: z.string().optional() } }, async ({ workspaceId, replayId, ...body }) => text(await client.registerReplayUsage(resolve(workspaceId), replayId, body as RegisterReplayUsageMutation)));
+  rememberRead(["REPLAY_CATALOG_LIST"], server.registerTool("list_replays", { description: "Liste o catálogo de Replays do workspace sem aplicar busca textual.", inputSchema: workspace }, async ({ workspaceId }) => text((await client.listReplays(resolve(workspaceId))).map(compactReplay))));
+  rememberRead(["REPLAY_SEARCH"], server.registerTool("search_replays", { description: "Pesquise conhecimento técnico reutilizável existente antes de resolver novamente ou criar um novo Replay.", inputSchema: { ...workspace, query: z.string().min(1) } }, async ({ workspaceId, query }) => text((await client.searchReplays(resolve(workspaceId), query)).map(compactReplay))));
+  rememberRead(["REPLAY_SEARCH","REUSABLE_KNOWLEDGE_DISCOVERY"], server.registerTool("find_reusable_knowledge", { description: "Sugira Replays reutilizáveis por relevância determinística. Revise candidatos antes de atualizar ou criar conteúdo.", inputSchema: { ...workspace, query: z.string().optional(), problem: z.string().optional(), stack: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), type: type.optional() } }, async ({ workspaceId, ...input }) => text({ suggestions: await client.findReusableKnowledge(resolve(workspaceId), input as FindReusableKnowledgeInput) })));
+  rememberRead(["REPLAY_QUALITY_READ"], server.registerTool("get_replay_quality", { description: "Obtenha o score derivado de qualidade e seus sinais.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.getReplayQuality(resolve(workspaceId), replayId))));
+  rememberRead(["REPLAY_READ"], server.registerTool("get_replay", { description: "Obtenha o conteúdo completo de um Replay encontrado.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.getReplay(resolve(workspaceId), replayId))));
+  rememberRead(["REPLAY_VERSION_READ"], server.registerTool("list_replay_versions", { description: "Liste snapshots imutáveis de conteúdo.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.listReplayVersions(resolve(workspaceId), replayId))));
+  rememberRead(["REPLAY_VERSION_READ"], server.registerTool("get_replay_version", { description: "Obtenha um snapshot histórico.", inputSchema: { ...workspace, replayId: z.string().uuid(), version: z.number().int().min(1) } }, async ({ workspaceId, replayId, version }) => text(await client.getReplayVersion(resolve(workspaceId), replayId, version))));
+  rememberRead(["REPLAY_RELATIONS"], server.registerTool("list_replay_relations", { description: "Liste as relações do Replay.", inputSchema: { ...workspace, replayId: z.string().uuid() } }, async ({ workspaceId, replayId }) => text(await client.listReplayRelations(resolve(workspaceId), replayId))));
+  if (!context.integration) server.registerTool("create_replay_relation", { description: "Crie uma relação entre Replays.", inputSchema: { ...workspace, replayId: z.string().uuid(), targetReplayId: z.string().uuid(), type: relationType } }, async ({ workspaceId, replayId, targetReplayId, type }) => text(await client.createReplayRelation(resolve(workspaceId), replayId, targetReplayId, type as ReplayRelationType)));
+  if (!context.integration) server.registerTool("delete_replay_relation", { description: "Remova uma relação existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), relationId: z.string().uuid() } }, async ({ workspaceId, replayId, relationId }) => { await client.deleteReplayRelation(resolve(workspaceId), replayId, relationId); return text({ deleted: true }); });
+  if (!context.integration) server.registerTool("create_replay", { description: "Antes de criar, prefira find_reusable_knowledge.", inputSchema: { ...workspace, ...mutation } }, async ({ workspaceId, ...body }: { workspaceId?: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.createReplay(resolve(workspaceId), body as ReplayMutation)));
+  if (!context.integration) server.registerTool("update_replay", { description: "Atualize conteúdo de um Replay existente.", inputSchema: { ...workspace, replayId: z.string().uuid(), ...updateMutation }, }, async ({ workspaceId, replayId, ...body }: { workspaceId?: string; replayId: string; validationEvidence?: ReplayValidationEvidence | null; [key: string]: unknown }) => text(await client.updateReplay(resolve(workspaceId), replayId, body as ReplayUpdate)));
+  if (!context.integration) server.registerTool("register_replay_usage", { description: "Chame somente após aplicar materialmente o Replay. Para AgentSession, declare materiallyUsed=true e descreva em context, de forma breve, como o Replay foi aplicado; não infira nem invente essa declaração.", inputSchema: { ...workspace, replayId: z.string().uuid(), result: usageResult, materiallyUsed: z.boolean().optional(), projectId: z.string().uuid().nullable().optional(), replayVersion: z.number().int().min(1).optional(), context: z.string().optional() } }, async ({ workspaceId, replayId, ...body }) => text(await client.registerReplayUsage(resolve(workspaceId), replayId, body as RegisterReplayUsageMutation)));
   return server;
 }
 

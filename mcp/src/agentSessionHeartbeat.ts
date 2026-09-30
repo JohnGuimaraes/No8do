@@ -11,13 +11,11 @@ const scheduleInterval: IntervalScheduler = (callback, intervalMs) => {
 };
 
 function defaultErrorLogger(error: unknown, operation: "heartbeat" | "disconnect"): void {
-  const name = error instanceof Error ? error.name : "UnknownError";
-  const message = error instanceof No8doApiError
-    ? `${error.message} (HTTP ${error.status})`
-    : error instanceof Error ? error.message : String(error);
-  const safeMessage = message.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-    .replace(/\bPAT_[A-Za-z0-9._-]+\b/g, "[REDACTED]");
-  console.error(`No8do AgentSession ${operation} failed`, { name, message: safeMessage });
+  // Never log arbitrary exception text from transports/providers carrying credentials.
+  console.error(`No8do AgentSession ${operation} failed`, {
+    status: error instanceof No8doApiError ? error.status : undefined,
+    code: error instanceof No8doApiError ? error.code : undefined
+  });
 }
 
 /** Owns one non-blocking periodic heartbeat and its transport-scoped cleanup. */
