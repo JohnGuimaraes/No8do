@@ -1,5 +1,6 @@
 package com.no8do.api.agent;
 
+import com.no8do.api.integration.IntegrationAuthorization;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -24,7 +25,7 @@ public class AgentSession {
     @Id
     private UUID id;
 
-    @Column(name = "user_id", nullable = false, updatable = false)
+    @Column(name = "user_id", updatable = false)
     private UUID userId;
 
     @Column(name = "workspace_id", updatable = false)
@@ -37,6 +38,10 @@ public class AgentSession {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "agent_credential_id", updatable = false)
     private AgentCredential agentCredential;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "integration_authorization_id", updatable = false)
+    private IntegrationAuthorization integrationAuthorization;
 
     @Column(name = "client_name", nullable = false, length = 255, updatable = false)
     private String clientName;
@@ -103,6 +108,11 @@ public class AgentSession {
 
     void setRuntimeMode(AgentRuntimeMode runtimeMode) {
         this.runtimeMode = java.util.Objects.requireNonNull(runtimeMode, "runtimeMode");
+    }
+
+    UUID auditUserId() {
+        return userId != null ? userId
+                : integrationAuthorization == null ? null : integrationAuthorization.getAuthorizedByUserId();
     }
 
     boolean revoke(Instant revokedAt, UUID revokedByUserId) {

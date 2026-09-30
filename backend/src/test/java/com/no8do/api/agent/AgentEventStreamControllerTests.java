@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.no8do.api.auth.No8doUserDetails;
 import com.no8do.api.auth.PersonalApiTokenService;
+import com.no8do.api.integration.IntegrationAuthorizationVerificationService;
+import com.no8do.api.integration.IntegrationAuthorizationUsageTouchService;
 import com.no8do.api.user.User;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @WebMvcTest(AgentEventStreamController.class)
 @Import(AgentEventStreamControllerTests.SecurityConfiguration.class)
 class AgentEventStreamControllerTests {
+    @MockBean private AgentSessionAuthorizationService agentSessionAuthorizationService;
+    @MockBean private IntegrationAuthorizationVerificationService integrationAuthorizationVerificationService;
+    @MockBean private IntegrationAuthorizationUsageTouchService integrationAuthorizationUsageTouchService;
     @org.springframework.beans.factory.annotation.Autowired private MockMvc mockMvc;
     @MockBean private AgentEventStreamHub streamHub;
     @MockBean private AgentSessionContextResolver contextResolver;
@@ -66,6 +71,11 @@ class AgentEventStreamControllerTests {
                             new org.springframework.security.web.authentication.HttpStatusEntryPoint(
                                     org.springframework.http.HttpStatus.UNAUTHORIZED)))
                     .build();
+        }
+
+        @Bean
+        java.time.Clock clock() {
+            return java.time.Clock.systemUTC();
         }
     }
 }

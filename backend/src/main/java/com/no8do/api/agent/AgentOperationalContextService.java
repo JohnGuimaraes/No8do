@@ -1,5 +1,6 @@
 package com.no8do.api.agent;
 
+import com.no8do.api.integration.IntegrationPrincipal;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,13 +27,15 @@ public class AgentOperationalContextService {
     private final AgentOperationalContextWriteService writeService;
     private final OperationalRepositoryResolver repositoryResolver;
     private final OperationalProjectRepositoryAssociationLookup projectAssociationLookup;
+    private final AgentSessionAuthorizationService authorizationService;
 
     public AgentOperationalContextService(AgentSessionRepository sessionRepository,
             AgentOperationalContextRepository contextRepository, AgentOperationalContextValidator validator,
             AgentPresenceProperties presenceProperties, Clock clock,
             AgentOperationalContextSnapshotReader snapshotReader, AgentOperationalContextWriteService writeService,
             OperationalRepositoryResolver repositoryResolver,
-            OperationalProjectRepositoryAssociationLookup projectAssociationLookup) {
+            OperationalProjectRepositoryAssociationLookup projectAssociationLookup,
+            AgentSessionAuthorizationService authorizationService) {
         this.sessionRepository = sessionRepository;
         this.contextRepository = contextRepository;
         this.validator = validator;
@@ -42,6 +45,7 @@ public class AgentOperationalContextService {
         this.writeService = writeService;
         this.repositoryResolver = repositoryResolver;
         this.projectAssociationLookup = projectAssociationLookup;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional(readOnly = true)
@@ -62,9 +66,32 @@ public class AgentOperationalContextService {
                 : AgentOperationalContextStateResponse.present(AgentOperationalContextResponse.from(context));
     }
 
+    @Transactional(readOnly = true)
+    public AgentOperationalContextStateResponse getState(UUID sessionId, IntegrationPrincipal principal) {
+        authorizationService.requireForContextRead(sessionId, principal);
+        AgentOperationalContext context = contextRepository.findWithReferencesBySessionId(sessionId).orElse(null);
+        return context == null ? AgentOperationalContextStateResponse.absent()
+                : AgentOperationalContextStateResponse.present(AgentOperationalContextResponse.from(context));
+    }
+
     public AgentOperationalContextResponse replace(UUID sessionId, UUID authenticatedUserId,
             AgentOperationalContextUpdateRequest request) {
-        OperationalContextSnapshot snapshot = snapshotReader.read(sessionId, authenticatedUserId);
+        return replaceInternal(sessionId, authenticatedUserId, null, request);
+    }
+
+    public AgentOperationalContextResponse replace(UUID sessionId, IntegrationPrincipal principal,
+            AgentOperationalContextUpdateRequest request) {
+        return replaceInternal(sessionId, null, principal, request);
+    }
+
+    private AgentOperationalContextResponse replaceInternal(UUID sessionId, UUID authenticatedUserId,
+            IntegrationPrincipal principal, AgentOperationalContextUpdateRequest request) {
+        OperationalContextSnapshot snapshot;
+        if (principal == null) snapshot = snapshotReader.read(sessionId, authenticatedUserId);
+        else {
+            authorizationService.require(sessionId, principal);
+            snapshot = snapshotReader.readInternal(sessionId);
+        }
         requireWritable(snapshot);
         requireExpectedVersion(request.expectedVersionValue(), snapshot.contextVersion());
         UUID effectiveWorkspaceId = snapshot.workspaceId();
@@ -90,6 +117,11 @@ public class AgentOperationalContextService {
         ProjectResolution resolution = resolveProject(effectiveWorkspaceId, providerRepositoryId,
                 providerRepositoryId != null && signal.repository() != null
                         && "github".equals(signal.repository().provider()) && "github.com".equals(signal.repository().host()));
+        if (principal != null) {
+            return writeService.persist(sessionId, principal, snapshot, signal, hash,
+                    resolution.status(), resolution.projectId(), resolution.confidence(), providerRepositoryId,
+                    resolution.evidence());
+        }
         return writeService.persist(sessionId, authenticatedUserId, snapshot, signal, hash,
                 resolution.status(), resolution.projectId(), resolution.confidence(), providerRepositoryId,
                 resolution.evidence());

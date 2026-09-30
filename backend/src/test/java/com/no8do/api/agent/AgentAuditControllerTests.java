@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.no8do.api.auth.No8doUserDetails;
 import com.no8do.api.auth.PersonalApiTokenService;
+import com.no8do.api.integration.IntegrationAuthorizationVerificationService;
+import com.no8do.api.integration.IntegrationAuthorizationUsageTouchService;
 import com.no8do.api.user.User;
 import java.time.Instant;
 import java.util.List;
@@ -16,8 +18,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -28,6 +30,13 @@ import org.springframework.test.web.servlet.MockMvc;
 @WebMvcTest(AgentAuditController.class)
 @Import(AgentAuditControllerTests.SecurityConfiguration.class)
 class AgentAuditControllerTests {
+
+    @MockBean
+    private AgentSessionAuthorizationService agentSessionAuthorizationService;
+    @MockBean
+    private IntegrationAuthorizationVerificationService integrationAuthorizationVerificationService;
+    @MockBean
+    private IntegrationAuthorizationUsageTouchService integrationAuthorizationUsageTouchService;
     @Autowired private MockMvc mockMvc;
     @MockBean private AgentAuditTrailService auditTrailService;
     @MockBean private AgentSessionContextResolver contextResolver;
@@ -74,6 +83,11 @@ class AgentAuditControllerTests {
                     .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
                             new org.springframework.security.web.authentication.HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                     .build();
+        }
+
+        @Bean
+        java.time.Clock clock() {
+            return java.time.Clock.systemUTC();
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.no8do.api.agent;
 
+import com.no8do.api.integration.IntegrationPrincipal;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,16 +21,19 @@ public class AgentOperationalContextWriteService {
     private final AgentPresenceResolver presenceResolver = new AgentPresenceResolver();
     private final AgentPresenceProperties presenceProperties;
     private final Clock clock;
+    private final AgentSessionAuthorizationService authorizationService;
 
     public AgentOperationalContextWriteService(AgentSessionRepository sessions,
             AgentOperationalContextRepository contexts, AgentEventFactory eventFactory,
-            AgentEventPublisher eventPublisher, AgentPresenceProperties presenceProperties, Clock clock) {
+            AgentEventPublisher eventPublisher, AgentPresenceProperties presenceProperties, Clock clock,
+            AgentSessionAuthorizationService authorizationService) {
         this.sessions = sessions;
         this.contexts = contexts;
         this.eventFactory = eventFactory;
         this.eventPublisher = eventPublisher;
         this.presenceProperties = presenceProperties;
         this.clock = clock;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -37,9 +41,27 @@ public class AgentOperationalContextWriteService {
             OperationalContextSnapshot expected, AgentOperationalContextSignal signal, String hash,
             OperationalContextResolutionStatus resolutionStatus, UUID projectId,
             OperationalContextConfidence confidence, String providerRepositoryId, String evidence) {
+        return persistInternal(sessionId, userId, null, expected, signal, hash, resolutionStatus,
+                projectId, confidence, providerRepositoryId, evidence);
+    }
+
+    @Transactional
+    public AgentOperationalContextResponse persist(UUID sessionId, IntegrationPrincipal principal,
+            OperationalContextSnapshot expected, AgentOperationalContextSignal signal, String hash,
+            OperationalContextResolutionStatus resolutionStatus, UUID projectId,
+            OperationalContextConfidence confidence, String providerRepositoryId, String evidence) {
+        return persistInternal(sessionId, null, principal, expected, signal, hash, resolutionStatus,
+                projectId, confidence, providerRepositoryId, evidence);
+    }
+
+    private AgentOperationalContextResponse persistInternal(UUID sessionId, UUID userId,
+            IntegrationPrincipal principal, OperationalContextSnapshot expected, AgentOperationalContextSignal signal,
+            String hash, OperationalContextResolutionStatus resolutionStatus, UUID projectId,
+            OperationalContextConfidence confidence, String providerRepositoryId, String evidence) {
         AgentSession session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent session not found"));
-        if (!session.getUserId().equals(userId)) {
+        if (principal != null) authorizationService.require(sessionId, principal);
+        else if (userId != null && !userId.equals(session.getUserId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Agent session access denied");
         }
         requireWritable(session);

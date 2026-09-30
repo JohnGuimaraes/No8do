@@ -65,6 +65,19 @@ public class AgentAuditTrailService {
         }
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordIntegrationSessionBound(UUID sessionId, UUID provenanceUserId, UUID workspaceId,
+            UUID agentId, UUID integrationAuthorizationId, Instant occurredAt) {
+        AgentEventMetadata.IntegrationSessionBound metadata = new AgentEventMetadata.IntegrationSessionBound(
+                integrationAuthorizationId, agentId, workspaceId, sessionId);
+        int inserted = repository.insertIfEventAbsent(UUID.randomUUID(), UUID.randomUUID(),
+                AgentAuditEventType.AGENT_SESSION_BOUND.name(), sessionId, provenanceUserId, workspaceId,
+                occurredAt, metadataCodec.encode(metadata));
+        if (inserted != 1) {
+            throw new IllegalStateException("Audit obrigatório de vínculo de Integration não foi inserido.");
+        }
+    }
+
     @Transactional(readOnly = true)
     public AgentAuditPageResponse list(UUID currentUserId, UUID sessionId, UUID workspaceId,
             AgentAuditEventType eventType, Instant from, Instant to, int page, int size) {

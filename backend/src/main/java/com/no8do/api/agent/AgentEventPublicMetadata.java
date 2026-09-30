@@ -24,6 +24,7 @@ public sealed interface AgentEventPublicMetadata permits AgentEventPublicMetadat
             case AgentEventMetadata.SessionRevoked value ->
                     new SessionRevoked(value.targetSessionId(), value.workspaceId(), value.occurredAt());
             case AgentEventMetadata.SessionBound ignored -> new Empty();
+            case AgentEventMetadata.IntegrationSessionBound ignored -> new Empty();
             case AgentEventMetadata.OperationalContextChanged value -> new OperationalContextChanged(
                     value.version(), value.changedFields(), value.projectResolutionStatus(),
                     value.workItemResolutionStatus());

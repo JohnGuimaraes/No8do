@@ -8,6 +8,7 @@ public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         AgentEventMetadata.RuntimeModeChanged, AgentEventMetadata.CapabilityDenied,
         AgentEventMetadata.PolicyDenied, AgentEventMetadata.ReplayUsageRecorded,
         AgentEventMetadata.SessionRevoked, AgentEventMetadata.SessionBound,
+        AgentEventMetadata.IntegrationSessionBound,
         AgentEventMetadata.OperationalContextChanged {
 
     record Empty() implements AgentEventMetadata {}
@@ -60,6 +61,15 @@ public sealed interface AgentEventMetadata permits AgentEventMetadata.Empty,
         public SessionBound {
             if (agentId == null || agentCredentialId == null) {
                 throw new IllegalArgumentException("Agent e credential vinculados são obrigatórios.");
+            }
+        }
+    }
+
+    record IntegrationSessionBound(UUID integrationAuthorizationId, UUID agentId, UUID workspaceId,
+            UUID sessionId) implements AgentEventMetadata {
+        public IntegrationSessionBound {
+            if (integrationAuthorizationId == null || agentId == null || workspaceId == null || sessionId == null) {
+                throw new IllegalArgumentException("IDs do vínculo de Integration são obrigatórios.");
             }
         }
     }

@@ -47,7 +47,7 @@ public class AgentSessionRevocationService {
         boolean newlyRevoked = session.revoke(clock.instant().truncatedTo(ChronoUnit.MICROS), actorUserId);
         if (newlyRevoked) {
             repository.save(session);
-            auditTrailService.recordRevocation(session.getId(), session.getUserId(), actorUserId,
+            auditTrailService.recordRevocation(session.getId(), session.auditUserId(), actorUserId,
                     session.getWorkspaceId(), session.getRevokedAt());
             eventPublisher.publish(eventFactory.sessionRevoked(session));
             metrics.sessionRevokedAfterCommit();
