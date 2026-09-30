@@ -108,3 +108,7 @@ Uso recomendado:
 O navegador não deve ser usado como ferramenta padrão de validação. Ao final de uma tarefa que utilizou navegador, relatar brevemente que foi usado, por que era necessário e qual verificação mínima foi realizada.
 
 Esta regra reduz consumo de tokens e torna o fluxo de desenvolvimento mais eficiente, sem impedir testes visuais quando realmente necessários.
+
+## Revisão adaptativa
+
+Dimensione a revisão independente pelo risco: mudanças triviais não exigem subagentes; mudanças pequenas podem usar um reviewer; alterações relevantes de segurança, autenticação, banco ou protocolo podem exigir três, e PRs críticas podem exigir nova revisão somente do delta. Consulte `.agents/skills/no8do-independent-review/SKILL.md`. Reviewers são somente leitura; o root valida findings. Revisão independente não é substituída por testes ou CodeQL verdes.
