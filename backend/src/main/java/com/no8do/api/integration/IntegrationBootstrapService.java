@@ -178,7 +178,9 @@ public class IntegrationBootstrapService {
         return new IntegrationBootstrapDecisionResponse(IntegrationBootstrapState.DENIED, request.getId(), null, null);
     }
 
-    @Transactional
+    // A premature poll must commit its backoff before the controller returns HTTP 429.
+    // This exception occurs only before any write or immediately after slowDown in exchange.
+    @Transactional(noRollbackFor = IntegrationBootstrapRateLimitException.class)
     public IntegrationBootstrapResult exchange(IntegrationBootstrapExchangeRequest input, String remoteAddress) {
         requireEnabled();
         applyLimit("exchange-ip", safeAddress(remoteAddress), 240);

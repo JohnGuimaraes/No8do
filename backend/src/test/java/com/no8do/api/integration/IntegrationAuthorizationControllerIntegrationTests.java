@@ -29,6 +29,8 @@ import com.no8do.api.workspace.WorkspaceMember;
 import com.no8do.api.workspace.WorkspaceMemberRepository;
 import com.no8do.api.workspace.WorkspaceRepository;
 import com.no8do.api.workspace.WorkspaceRole;
+import com.no8do.api.workspace.WorkspaceService;
+import com.no8do.api.workspace.DeleteWorkspaceRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -62,6 +64,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest
@@ -84,13 +88,105 @@ class IntegrationAuthorizationControllerIntegrationTests {
     @Autowired private AgentAuditEntryRepository agentAuditEntryRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private WorkspaceRepository workspaceRepository;
+    @Autowired private WorkspaceService workspaceService;
     @Autowired private WorkspaceMemberRepository workspaceMemberRepository;
     @Autowired private PersonalApiTokenService patService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private AdjustableClock testClock;
     @Autowired private FilterChainProxy securityFilterChain;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @BeforeEach void resetClock() { testClock.set(Instant.now()); }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void prematurePollBackoffCommitsAcrossIndependentRequestsAndCapsAtSixty() throws Exception {
+        testClock.set(testClock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        Start request = start(UUID.randomUUID(), "CODEX", null);
+        TransactionTemplate read = new TransactionTemplate(transactionManager);
+        read.setReadOnly(true);
+        Integer initialInterval = read.execute(tx -> jdbcTemplate.queryForObject(
+                "select poll_interval_seconds from integration_bootstrap_requests where id = ?",
+                Integer.class, request.requestId()));
+        assertThat(initialInterval).isEqualTo(5);
+        for (int poll = 1; poll <= 12; poll++) {
+            int expectedInterval = Math.min(60, 5 + poll * 5);
+            exchange(request).andExpect(status().isTooManyRequests())
+                    .andExpect(header().string(HttpHeaders.RETRY_AFTER, Integer.toString(expectedInterval)));
+            int expectedCount = poll;
+            read.executeWithoutResult(tx -> {
+                Map<String, Object> persisted = jdbcTemplate.queryForMap(
+                        "select poll_interval_seconds, poll_count, last_poll_at from integration_bootstrap_requests where id = ?",
+                        request.requestId());
+                assertThat(persisted.get("poll_interval_seconds")).isEqualTo(expectedInterval);
+                assertThat(persisted.get("poll_count")).isEqualTo(expectedCount);
+                assertThat(((java.sql.Timestamp) persisted.get("last_poll_at")).toInstant())
+                        .isEqualTo(testClock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+            });
+        }
+        advance(Duration.ofSeconds(60));
+        assertThat(json(exchange(request).andExpect(status().isOk()).andReturn()).get("state").asText())
+                .isEqualTo("PENDING");
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void nonRateLimitExchangeFailureStillRollsBackPollWrites() throws Exception {
+        Fixture owner = fixture("bootstrap-poll-rollback", WorkspaceRole.OWNER);
+        Start request = start(UUID.randomUUID(), "IDE", null);
+        approveExisting(owner, request, owner.agent());
+        agentRegistryService.changeLifecycle(owner.workspace().getId(), owner.agent().getId(),
+                owner.actor().getId(), com.no8do.api.agent.AgentLifecycleStatus.DISABLED);
+        advance(Duration.ofSeconds(6));
+        exchange(request).andExpect(status().isConflict());
+        new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            Map<String, Object> persisted = jdbcTemplate.queryForMap(
+                    "select state, last_poll_at, poll_count from integration_bootstrap_requests where id = ?",
+                    request.requestId());
+            assertThat(persisted.get("state")).isEqualTo("APPROVED");
+            assertThat(persisted.get("last_poll_at")).isNull();
+            assertThat(persisted.get("poll_count")).isEqualTo(0);
+        });
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void approvedBootstrapSurvivesAgentDeletionWithHistoricalReferenceCleared() throws Exception {
+        Fixture owner = fixture("bootstrap-delete-approved", WorkspaceRole.OWNER);
+        Start request = start(UUID.randomUUID(), "CODEX", null);
+        approveExisting(owner, request, owner.agent());
+        jdbcTemplate.update("delete from agents where id = ?", owner.agent().getId());
+        assertThat(jdbcTemplate.queryForObject("select state from integration_bootstrap_requests where id = ?",
+                String.class, request.requestId())).isEqualTo("APPROVED");
+        assertThat(jdbcTemplate.queryForObject("select approved_agent_id from integration_bootstrap_requests where id = ?",
+                UUID.class, request.requestId())).isNull();
+        assertThat(jdbcTemplate.queryForObject("select approved_workspace_id from integration_bootstrap_requests where id = ?",
+                UUID.class, request.requestId())).isEqualTo(owner.workspace().getId());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void consumedBootstrapSurvivesWorkspaceDeletionAndItsAgentCascade() throws Exception {
+        Fixture owner = fixture("bootstrap-delete-consumed", WorkspaceRole.OWNER);
+        Start request = start(UUID.randomUUID(), "IDE", null);
+        approveExisting(owner, request, owner.agent());
+        advance(Duration.ofSeconds(6));
+        assertThat(json(exchange(request).andExpect(status().isOk()).andReturn()).get("state").asText())
+                .isEqualTo("CONSUMED");
+        workspaceService.delete(owner.workspace().getId(), owner.actor().getId(),
+                new DeleteWorkspaceRequest(owner.workspace().getName()));
+        Map<String, Object> persisted = jdbcTemplate.queryForMap(
+                "select state, approved_agent_id, approved_workspace_id, authorized_by_user_id, approved_at, consumed_at "
+                + "from integration_bootstrap_requests where id = ?", request.requestId());
+        assertThat(persisted.get("state")).isEqualTo("CONSUMED");
+        assertThat(persisted.get("approved_agent_id")).isNull();
+        assertThat(persisted.get("approved_workspace_id")).isNull();
+        assertThat(persisted.get("authorized_by_user_id")).isEqualTo(owner.actor().getId());
+        assertThat(persisted.get("approved_at")).isNotNull();
+        assertThat(persisted.get("consumed_at")).isNotNull();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from agents where id = ?",
+                Integer.class, owner.agent().getId())).isZero();
+    }
 
     private Start start(UUID installationId, String host, String label) throws Exception {
         byte[] verifierBytes = new byte[32];
