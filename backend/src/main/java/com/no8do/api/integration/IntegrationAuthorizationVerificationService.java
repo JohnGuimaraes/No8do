@@ -13,7 +13,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Internal verification core for A2; this phase deliberately does not install a Security filter. */
+/** Verifies integration credentials without mutating their usage metadata. */
 @Service
 public class IntegrationAuthorizationVerificationService {
     private final IntegrationAuthorizationRepository authorizationRepository;
@@ -32,7 +32,7 @@ public class IntegrationAuthorizationVerificationService {
         this.clock = clock;
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Optional<VerifiedIntegrationAuthorization> verify(String presentedCredential) {
         IntegrationCredentialCodec.ParsedIntegrationCredential parsed = credentialCodec.parse(presentedCredential)
                 .orElse(null);
@@ -40,7 +40,7 @@ public class IntegrationAuthorizationVerificationService {
             credentialCodec.matches(null, new byte[32]);
             return Optional.empty();
         }
-        IntegrationAuthorization authorization = authorizationRepository.findBySelectorForUpdate(parsed.selector())
+        IntegrationAuthorization authorization = authorizationRepository.findBySelector(parsed.selector())
                 .orElse(null);
         if (authorization == null) {
             credentialCodec.matches(null, parsed.secret());
@@ -50,11 +50,7 @@ public class IntegrationAuthorizationVerificationService {
         if (!secretMatches || authorization.getStatus() != IntegrationAuthorizationStatus.ACTIVE) return Optional.empty();
 
         Instant now = clock.instant();
-        if (!now.isBefore(authorization.getExpiresAt())) {
-            authorization.expire();
-            authorizationRepository.saveAndFlush(authorization);
-            return Optional.empty();
-        }
+        if (!now.isBefore(authorization.getExpiresAt())) return Optional.empty();
 
         Agent agent = authorization.getAgent();
         if (agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE) return Optional.empty();
@@ -66,8 +62,6 @@ public class IntegrationAuthorizationVerificationService {
             return Optional.empty();
         }
 
-        authorization.markUsed(now);
-        authorizationRepository.saveAndFlush(authorization);
         return Optional.of(new VerifiedIntegrationAuthorization(authorization.getId(), grantor.getId(),
                 agent.getId(), agent.getWorkspace().getId()));
     }

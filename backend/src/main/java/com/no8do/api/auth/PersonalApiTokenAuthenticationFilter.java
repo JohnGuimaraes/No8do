@@ -21,7 +21,9 @@ public class PersonalApiTokenAuthenticationFilter extends OncePerRequestFilter {
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header == null || !header.startsWith("Bearer ")) { chain.doFilter(request, response); return; }
-        User user = tokenService.authenticate(header.substring("Bearer ".length()));
+        String presentedToken = header.substring("Bearer ".length());
+        if (presentedToken.startsWith("no8do_int_")) { chain.doFilter(request, response); return; }
+        User user = tokenService.authenticate(presentedToken);
         if (user == null) { response.setStatus(HttpStatus.UNAUTHORIZED.value()); return; }
         No8doUserDetails principal = new No8doUserDetails(user);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal, null, List.of()));

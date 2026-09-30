@@ -1,6 +1,8 @@
 package com.no8do.api.agent;
 
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.integration.IntegrationAuthenticationToken;
+import com.no8do.api.integration.IntegrationPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -19,11 +21,13 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
 
     private final AgentSessionContextResolver contextResolver;
     private final AgentSessionPresenceService presenceService;
+    private final AgentSessionAuthorizationService authorizationService;
 
     public AgentSessionContextInterceptor(AgentSessionContextResolver contextResolver,
-            AgentSessionPresenceService presenceService) {
+            AgentSessionPresenceService presenceService, AgentSessionAuthorizationService authorizationService) {
         this.contextResolver = contextResolver;
         this.presenceService = presenceService;
+        this.authorizationService = authorizationService;
     }
 
     @Override
@@ -36,8 +40,7 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
         if (rawSessionId.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()
-                || !(authentication.getPrincipal() instanceof No8doUserDetails principal)) {
+        if (authentication == null || !authentication.isAuthenticated()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required for agent session context");
         }
 
@@ -46,6 +49,25 @@ public final class AgentSessionContextInterceptor implements HandlerInterceptor 
             sessionId = UUID.fromString(rawSessionId);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid agent session id");
+        }
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal integrationPrincipal) {
+            AgentSession integrationSession = isGetContext(handler)
+                    ? authorizationService.requireForContextRead(sessionId, integrationPrincipal)
+                    : authorizationService.require(sessionId, integrationPrincipal);
+            AgentSessionContext integrationContext = contextResolver.resolveIntegration(sessionId,
+                    integrationPrincipal, false, isGetContext(handler));
+            if (integrationSession.getDisconnectedAt() != null && isGetContext(handler)) {
+                request.setAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE, integrationContext);
+                return true;
+            }
+            presenceService.touchActivity(sessionId, integrationPrincipal);
+            request.setAttribute(AgentSessionContextResolver.REQUEST_ATTRIBUTE,
+                    contextResolver.resolveIntegration(sessionId, integrationPrincipal, false, false));
+            return true;
+        }
+        if (!(authentication.getPrincipal() instanceof No8doUserDetails principal)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required for agent session context");
         }
         AgentSessionContext context = contextResolver.resolve(sessionId, principal.user().getId());
         if (context.disconnectedAt() != null) {

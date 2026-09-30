@@ -13,6 +13,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.no8do.api.agent.Agent;
 import com.no8do.api.agent.AgentRegistryService;
 import com.no8do.api.agent.AgentRepository;
+import com.no8do.api.agent.AgentSession;
+import com.no8do.api.agent.AgentSessionRegistrationRequest;
+import com.no8do.api.agent.AgentSessionRepository;
+import com.no8do.api.agent.AgentTransport;
+import com.no8do.api.agent.AgentAuditEntryRepository;
+import com.no8do.api.agent.AgentAuditEntry;
 import com.no8do.api.auth.CreatePersonalApiTokenRequest;
 import com.no8do.api.auth.No8doUserDetails;
 import com.no8do.api.auth.PersonalApiTokenService;
@@ -49,6 +55,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -66,17 +74,21 @@ class IntegrationAuthorizationControllerIntegrationTests {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private IntegrationBootstrapService bootstrapService;
     @Autowired private IntegrationAuthorizationVerificationService verificationService;
+    @Autowired private IntegrationCredentialCodec credentialCodec;
     @Autowired private IntegrationAuthorizationRepository authorizationRepository;
     @Autowired private IntegrationBootstrapRequestRepository bootstrapRepository;
     @Autowired private IntegrationAuthorizationAuditRepository auditRepository;
     @Autowired private AgentRegistryService agentRegistryService;
     @Autowired private AgentRepository agentRepository;
+    @Autowired private AgentSessionRepository agentSessionRepository;
+    @Autowired private AgentAuditEntryRepository agentAuditEntryRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private WorkspaceRepository workspaceRepository;
     @Autowired private WorkspaceMemberRepository workspaceMemberRepository;
     @Autowired private PersonalApiTokenService patService;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private AdjustableClock testClock;
+    @Autowired private FilterChainProxy securityFilterChain;
 
     @BeforeEach void resetClock() { testClock.set(Instant.now()); }
 
@@ -140,6 +152,23 @@ class IntegrationAuthorizationControllerIntegrationTests {
         sessionPost(ROOT + "/bootstrap/approve", fixture.actor(), Map.of("userCode", request.userCode(),
                 "workspaceId", fixture.workspace().getId(), "existingAgentId", agent.getId()))
                 .andExpect(status().isOk());
+    }
+
+    private String issue(Fixture fixture, Agent agent) {
+        IntegrationCredentialCodec.IssuedIntegrationCredential issued = credentialCodec.issue();
+        Instant now = testClock.instant();
+        IntegrationAuthorization authorization = new IntegrationAuthorization(UUID.randomUUID(), issued.selector(),
+                issued.tokenHash(), agent, fixture.actor().getId(), UUID.randomUUID(), IntegrationHostType.CODEX,
+                "runtime-test", "1.0.0", now, now.plus(Duration.ofDays(180)));
+        authorizationRepository.saveAndFlush(authorization);
+        return issued.serialized();
+    }
+
+    private static int indexOf(List<jakarta.servlet.Filter> filters, Class<?> filterType) {
+        for (int index = 0; index < filters.size(); index++) {
+            if (filterType.isInstance(filters.get(index))) return index;
+        }
+        return Integer.MAX_VALUE;
     }
 
     private void advance(Duration duration) { testClock.advance(duration); }
@@ -318,6 +347,8 @@ class IntegrationAuthorizationControllerIntegrationTests {
         membership.setRole(WorkspaceRole.MEMBER);
         workspaceMemberRepository.saveAndFlush(membership);
         assertThat(verificationService.verify(token)).isEmpty();
+        mockMvc.perform(get("/api/agent-protocol").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
         membership.setRole(WorkspaceRole.OWNER);
         workspaceMemberRepository.saveAndFlush(membership);
         owner.actor().setEnabled(false);
@@ -328,9 +359,143 @@ class IntegrationAuthorizationControllerIntegrationTests {
 
         advance(Duration.ofDays(181));
         assertThat(verificationService.verify(token)).isEmpty();
+        mockMvc.perform(get("/api/agent-protocol").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
         IntegrationAuthorization authorization = authorizationRepository.findById(verified.authorizationId()).orElseThrow();
-        assertThat(authorization.getStatus()).isEqualTo(IntegrationAuthorizationStatus.EXPIRED);
+        assertThat(authorization.getStatus()).isEqualTo(IntegrationAuthorizationStatus.ACTIVE);
         assertThat(authorization.getTokenHash()).doesNotContain(token);
+    }
+
+    @Test
+    void integrationCredentialIsDistinctAndRestrictedToRuntimeAllowlist() throws Exception {
+        var filters = securityFilterChain.getFilters("/api/agent-protocol");
+        int contextIndex = indexOf(filters, org.springframework.security.web.context.SecurityContextHolderFilter.class);
+        int integrationIndex = indexOf(filters, IntegrationCredentialAuthenticationFilter.class);
+        int patIndex = indexOf(filters, com.no8do.api.auth.PersonalApiTokenAuthenticationFilter.class);
+        int csrfIndex = indexOf(filters, CsrfFilter.class);
+        assertThat(contextIndex).isLessThan(integrationIndex);
+        assertThat(integrationIndex).isLessThan(patIndex);
+        assertThat(patIndex).isLessThan(csrfIndex);
+
+        Fixture owner = fixture("runtime-filter", WorkspaceRole.OWNER);
+        String integration = issue(owner, owner.agent());
+        String selector = integration.substring("no8do_int_".length()).split("\\.")[0];
+        IntegrationAuthorization authorization = authorizationRepository.findBySelector(selector).orElseThrow();
+        assertThat(authorization.getLastUsedAt()).isNull();
+
+        assertThat(verificationService.verify(integration)).isPresent();
+        assertThat(authorizationRepository.findById(authorization.getId()).orElseThrow().getLastUsedAt()).isNull();
+
+        Instant firstUse = testClock.instant();
+        assertThat(authorizationRepository.touchLastUsedAtIfDue(authorization.getId(), firstUse,
+                firstUse.minus(Duration.ofMinutes(15)))).isEqualTo(1);
+        assertThat(authorizationRepository.touchLastUsedAtIfDue(authorization.getId(), firstUse.plusSeconds(1),
+                firstUse.plusSeconds(1).minus(Duration.ofMinutes(15)))).isZero();
+        testClock.advance(Duration.ofMinutes(14));
+        Instant beforeWindow = testClock.instant();
+        assertThat(authorizationRepository.touchLastUsedAtIfDue(authorization.getId(), beforeWindow,
+                beforeWindow.minus(Duration.ofMinutes(15)))).isZero();
+        testClock.advance(Duration.ofMinutes(1));
+        Instant afterWindow = testClock.instant();
+        assertThat(authorizationRepository.touchLastUsedAtIfDue(authorization.getId(), afterWindow,
+                afterWindow.minus(Duration.ofMinutes(15)))).isEqualTo(1);
+
+        mockMvc.perform(get("/api/agent-protocol").header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isOk());
+        mockMvc.perform(get(ROOT).param("workspaceId", owner.workspace().getId().toString())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isForbidden());
+        String personalToken = patService.create(owner.actor().getId(),
+                new CreatePersonalApiTokenRequest("runtime-filter-test")).value();
+        mockMvc.perform(get("/api/agent-protocol")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + personalToken))
+                .andExpect(status().isOk());
+
+        String malformed = "no8do_int_malformed-secret-value";
+        MvcResult invalid = mockMvc.perform(get("/api/agent-protocol")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + malformed))
+                .andExpect(status().isUnauthorized()).andReturn();
+        assertThat(invalid.getResponse().getContentAsString()).doesNotContain(malformed);
+
+        String fingerprint = UUID.randomUUID().toString().replace("-", "").repeat(2);
+        AgentSessionRegistrationRequest request = new AgentSessionRegistrationRequest("Codex", "1",
+                owner.workspace().getId(), AgentTransport.MCP, fingerprint);
+        MvcResult registered = mockMvc.perform(post("/api/agent-sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration)
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isCreated()).andReturn();
+        UUID sessionId = UUID.fromString(json(registered).get("sessionId").asText());
+        AgentSession session = agentSessionRepository.findById(sessionId).orElseThrow();
+        assertThat(session.getUserId()).isNull();
+        assertThat(session.getWorkspaceId()).isEqualTo(owner.workspace().getId());
+        assertThat(session.getAgent().getId()).isEqualTo(owner.agent().getId());
+        assertThat(session.getAgentCredential()).isNull();
+        assertThat(session.getIntegrationAuthorization().getId()).isEqualTo(authorization.getId());
+
+        String sessionPath = "/api/agent-sessions/" + sessionId;
+        mockMvc.perform(post(sessionPath + "/heartbeat")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isOk());
+        mockMvc.perform(get(sessionPath + "/context")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration)
+                        .header("X-No8do-Agent-Session-Id", sessionId.toString()))
+                .andExpect(status().isOk());
+        mockMvc.perform(get(sessionPath + "/operational-context/state")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isOk());
+        String operationalContext = "{\"expectedVersion\":null,\"repository\":null,"
+                + "\"branch\":\"feature/a2\",\"workingDirectory\":null,\"references\":[],"
+                + "\"workspaceHint\":\"" + owner.workspace().getId() + "\"}";
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        sessionPath + "/operational-context")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration)
+                        .contentType(MediaType.APPLICATION_JSON).content(operationalContext))
+                .andExpect(status().isOk());
+
+        AgentAuditEntry sessionBindingAudit = agentAuditEntryRepository.findAll().stream()
+                .filter(entry -> entry.getSessionId().equals(sessionId)
+                        && entry.getEventType() == com.no8do.api.agent.AgentAuditEventType.AGENT_SESSION_BOUND)
+                .findFirst().orElseThrow();
+        assertThat(sessionBindingAudit.getUserId()).isEqualTo(owner.actor().getId());
+        assertThat(sessionBindingAudit.getMetadata().path("bindingType").asText())
+                .isEqualTo("INTEGRATION_AUTHORIZATION");
+        assertThat(sessionBindingAudit.getMetadata().path("integrationAuthorizationId").asText())
+                .isEqualTo(authorization.getId().toString());
+        assertThat(sessionBindingAudit.getMetadata().toString()).doesNotContain(integration,
+                authorization.getTokenHash(), authorization.getTokenSelector(), fingerprint);
+
+        mockMvc.perform(post(sessionPath + "/revoke")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(sessionPath + "/operational-context")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post(sessionPath + "/disconnect")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isOk());
+        mockMvc.perform(post(sessionPath + "/heartbeat")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(post("/api/agent-sessions").header(HttpHeaders.AUTHORIZATION, "Bearer " + integration)
+                        .header("X-No8do-Agent-Credential", "no8do_ac1.dummy")
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isBadRequest());
+
+        String secondAuthorization = issue(owner, owner.agent());
+        MvcResult collision = mockMvc.perform(post("/api/agent-sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + secondAuthorization)
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(request)))
+                .andExpect(status().isConflict()).andReturn();
+        assertThat(collision.getResponse().getContentAsString()).doesNotContain(sessionId.toString());
+
+        AgentSessionRegistrationRequest wrongWorkspace = new AgentSessionRegistrationRequest("Codex", "1",
+                UUID.randomUUID(), AgentTransport.MCP, UUID.randomUUID().toString().replace("-", "").repeat(2));
+        mockMvc.perform(post("/api/agent-sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + integration)
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(wrongWorkspace)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -359,6 +524,8 @@ class IntegrationAuthorizationControllerIntegrationTests {
         mockMvc.perform(post(path).with(user(new No8doUserDetails(owner.actor()))).with(csrf()))
                 .andExpect(status().isOk());
         assertThat(verificationService.verify(token)).isEmpty();
+        mockMvc.perform(get("/api/agent-protocol").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
         assertThat(auditRepository.findByAuthorizationIdOrderByOccurredAtAscIdAsc(authorization.getId()))
                 .extracting(IntegrationAuthorizationAuditEntry::getEventType)
                 .containsExactlyInAnyOrder(IntegrationAuthorizationAuditEventType.INTEGRATION_AUTHORIZATION_ISSUED,
@@ -462,9 +629,11 @@ class IntegrationAuthorizationControllerIntegrationTests {
     }
 
     @Test
-    void migrationV58CreatesOnlyBootstrapTablesAndNoAgentSessionBinding() {
+    void migrationV59AddsNullableIntegrationBindingWithoutBackfill() {
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '58' and success", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '59' and success", Integer.class)).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("select count(*) from information_schema.tables "
                 + "where table_schema = current_schema() and table_name in "
                 + "('integration_authorizations', 'integration_bootstrap_requests', 'integration_authorization_audit_entries')",
@@ -477,7 +646,19 @@ class IntegrationAuthorizationControllerIntegrationTests {
                 .isEqualTo(8);
         assertThat(jdbcTemplate.queryForObject("select count(*) from information_schema.columns "
                 + "where table_schema = current_schema() and table_name = 'agent_sessions' "
-                + "and column_name = 'integration_authorization_id'", Integer.class)).isZero();
+                + "and column_name = 'integration_authorization_id'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from information_schema.columns "
+                + "where table_schema = current_schema() and table_name = 'agent_sessions' "
+                + "and column_name = 'user_id' and is_nullable = 'YES'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from pg_indexes where schemaname = current_schema() "
+                + "and indexname = 'idx_agent_sessions_integration_authorization_id'", Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from pg_constraint "
+                + "where conname in ('ck_agent_sessions_single_agent_binding', "
+                + "'ck_agent_sessions_integration_binding_without_user')", Integer.class)).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("select confdeltype from pg_constraint "
+                + "where conname = 'fk_agent_sessions_integration_authorization'", String.class)).isEqualTo("n");
+        assertThat(jdbcTemplate.queryForObject("select count(*) from agent_sessions "
+                + "where integration_authorization_id is not null", Integer.class)).isZero();
     }
 
     private IntegrationBootstrapResult concurrentExchange(IntegrationBootstrapExchangeRequest request,

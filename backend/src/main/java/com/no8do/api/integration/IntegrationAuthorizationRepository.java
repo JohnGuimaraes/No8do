@@ -7,10 +7,18 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface IntegrationAuthorizationRepository extends JpaRepository<IntegrationAuthorization, UUID> {
+    @Modifying
+    @Query(value = "update integration_authorizations set last_used_at = :now "
+            + "where id = :id and status = 'ACTIVE' and expires_at > :now "
+            + "and (last_used_at is null or last_used_at <= :cutoff)", nativeQuery = true)
+    int touchLastUsedAtIfDue(@Param("id") UUID id, @Param("now") java.time.Instant now,
+            @Param("cutoff") java.time.Instant cutoff);
+
     @EntityGraph(attributePaths = "agent")
     @Query("select authorization from IntegrationAuthorization authorization where authorization.tokenSelector = :selector")
     Optional<IntegrationAuthorization> findBySelector(@Param("selector") String selector);

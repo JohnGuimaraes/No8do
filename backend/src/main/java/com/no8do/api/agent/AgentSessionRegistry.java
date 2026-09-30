@@ -1,6 +1,7 @@
 package com.no8do.api.agent;
 
 import com.no8do.api.workspace.WorkspaceAuthorizationService;
+import com.no8do.api.integration.IntegrationPrincipal;
 import java.time.Clock;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -68,7 +69,7 @@ public class AgentSessionRegistry {
         java.time.Instant registeredAt = clock.instant();
         int inserted = repository.insertIfAbsent(UUID.randomUUID(), authenticatedUserId, workspaceId,
                 clientIdentity.clientName(), clientIdentity.clientVersion(), request.transport().name(), protocol.protocolName(),
-                protocol.protocolVersion(), registeredAt, request.transportSessionFingerprint(), agentId, credentialId);
+                protocol.protocolVersion(), registeredAt, request.transportSessionFingerprint(), agentId, credentialId, null);
         AgentSession session = repository.findByTransportAndTransportSessionFingerprintAndRevokedAtIsNull(
                 request.transport(), request.transportSessionFingerprint()).orElseThrow();
         if (!session.getUserId().equals(authenticatedUserId)
@@ -85,6 +86,41 @@ public class AgentSessionRegistry {
                 auditTrailService.recordSessionBound(session.getId(), authenticatedUserId, workspaceId,
                         agentId, credentialId, registeredAt);
             }
+            metrics.sessionRegisteredAfterCommit();
+            eventPublisher.publish(eventFactory.connected(session));
+        }
+        return AgentSessionResponse.from(session);
+    }
+
+    @Transactional
+    public AgentSessionResponse register(IntegrationPrincipal principal, AgentSessionRegistrationRequest request) {
+        if (request.workspaceId() != null && !request.workspaceId().equals(principal.workspaceId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Workspace access denied");
+        }
+        AgentClientIdentity clientIdentity = request.clientIdentity();
+        No8doAgentProtocol protocol = protocolProvider.current();
+        java.time.Instant registeredAt = clock.instant();
+        int inserted = repository.insertIfAbsent(UUID.randomUUID(), null, principal.workspaceId(),
+                clientIdentity.clientName(), clientIdentity.clientVersion(), request.transport().name(),
+                protocol.protocolName(), protocol.protocolVersion(), registeredAt,
+                request.transportSessionFingerprint(), principal.agentId(), null,
+                principal.integrationAuthorizationId());
+        AgentSession session = repository.findByTransportAndTransportSessionFingerprintAndRevokedAtIsNull(
+                request.transport(), request.transportSessionFingerprint()).orElseThrow();
+        if (session.getUserId() != null || !java.util.Objects.equals(session.getWorkspaceId(), principal.workspaceId())
+                || !java.util.Objects.equals(session.getAgent() == null ? null : session.getAgent().getId(), principal.agentId())
+                || session.getAgentCredential() != null
+                || !java.util.Objects.equals(session.getIntegrationAuthorization() == null ? null
+                        : session.getIntegrationAuthorization().getId(), principal.integrationAuthorizationId())
+                || !session.getClientName().equals(clientIdentity.clientName())
+                || !session.getClientVersion().equals(clientIdentity.clientVersion())
+                || session.getTransport() != request.transport()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Transport session identity conflicts with registration");
+        }
+        if (inserted == 1) {
+            auditTrailService.recordIntegrationSessionBound(session.getId(), principal.grantorUserId(),
+                    principal.workspaceId(), principal.agentId(), principal.integrationAuthorizationId(), registeredAt);
             metrics.sessionRegisteredAfterCommit();
             eventPublisher.publish(eventFactory.connected(session));
         }

@@ -1,6 +1,6 @@
 # Integration authorization bootstrap
 
-This document describes the A1 administrative authorization bootstrap. It intentionally does not describe or enable A2 runtime authentication.
+This document describes the A1 administrative authorization bootstrap and the bounded A2-AB runtime authentication now built on top of it. It does not claim that the Remote MCP client has migrated to Integration credentials.
 
 ## Scope and lifecycle
 
@@ -10,7 +10,15 @@ The local client starts an OAuth-style device flow with an S256 PKCE challenge. 
 
 The secret `no8do_int_<selector>.<secret>` is issued once, only after successful approval and exchange. Persistence contains a public selector and SHA-256 secret hash, never the serialized credential. The credential expires after 180 days. Revocation is manager-only and idempotent. Audit records contain event type, actor/resource identifiers, time, and a safe outcome only; no code, verifier, credential, hash, or secret is recorded.
 
-Verification currently exists as an internal service for future A2 integration. It checks token hash, expiration, Agent ACTIVE lifecycle, enabled grantor account, and current OWNER/ADMIN membership. This phase does not install an authentication filter, principal, session binding, MCP integration, Replay integration, or runtime credential consumer. Existing PAT authentication remains unchanged and is not replaced by this credential.
+Each request using the credential is verified without a pessimistic lock or a per-request database write. Verification checks the token hash, ACTIVE status, expiration, Agent ACTIVE lifecycle, enabled grantor account, and current OWNER/ADMIN membership. A separate best-effort `REQUIRES_NEW` usage touch updates `lastUsedAt` at most once per authorization per 15-minute window; a touch failure does not reject an otherwise verified request.
+
+Runtime authentication uses a dedicated `IntegrationPrincipal` containing only `integrationAuthorizationId`, `agentId`, `workspaceId`, and `grantorUserId`. The authentication has null credentials and no authorities. The grantor ID is provenance and an eligibility reference, not the runtime user identity. The Integration filter recognizes only `Authorization: Bearer no8do_int_...`, runs before PAT authentication, and fails closed without PAT or human-session fallback. PAT behavior is unchanged.
+
+The A2-AB allowlist is limited to `GET /api/agent-protocol`, session registration, heartbeat, disconnect, session context read, Operational Context state read, and Operational Context update. Replay and administrative routes remain denied to this principal. CSRF bypass applies only after successful Integration authentication and only to this exact allowlist; global/browser CSRF behavior is unchanged.
+
+Flyway V59 adds nullable `agent_sessions.integration_authorization_id`, makes `user_id` nullable, preserves its existing FK, and adds an `ON DELETE SET NULL` FK, an index, and mutually-exclusive binding constraints. Integration registration derives Agent, Workspace, and authorization solely from the verified principal and stores `user_id = NULL` and `agent_credential_id = NULL`. The active `(transport, fingerprint)` remains an idempotency key only; reuse requires every binding to match. Binding metadata distinguishes `AGENT_CREDENTIAL` from `INTEGRATION_AUTHORIZATION` and excludes secrets, hashes, selectors, and fingerprints. The grantor may be recorded as provenance, never as runtime authentication.
+
+Human sessions, PATs, AgentCredential registrations, existing AgentSessions, capability grants, policies, runtime modes, Replays, and their legacy authorization paths remain unchanged. This phase does not migrate Remote MCP or STDIO to Integration credentials. Full authorization-revoke/archive propagation is still pending A2-C; Remote MCP migration and Replay runtime support remain pending A2-D.
 
 ## Configuration and operations
 
@@ -22,4 +30,4 @@ The authorization audit table deliberately has no destructive foreign keys. Auth
 
 ## Future provider adapter
 
-This model is provider-neutral and currently records client host type, installation identity, version, and optional display label. Future adapters may use this authorization as an installation identity, but must not expose credential material or infer Workspace/Agent from client-supplied repository, branch, working directory, issue, or ticket data. A2 must define and validate the runtime authentication boundary before this service is connected to MCP or AgentSession.
+This model is provider-neutral and records client host type, installation identity, version, and optional display label. Future adapters may use this authorization as an installation identity, but must not expose credential material or infer Workspace/Agent from client-supplied repository, branch, working directory, issue, or ticket data. Any future MCP migration must use the bounded runtime boundary and AgentSession binding above; it must not treat this phase as completion of A2-C or A2-D.

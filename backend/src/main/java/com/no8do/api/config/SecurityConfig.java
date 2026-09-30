@@ -4,6 +4,8 @@ import com.no8do.api.auth.GoogleOAuth2FailureHandler;
 import com.no8do.api.auth.GoogleOAuth2SuccessHandler;
 import com.no8do.api.auth.PersonalApiTokenAuthenticationFilter;
 import com.no8do.api.auth.PersonalApiTokenService;
+import com.no8do.api.integration.IntegrationAuthenticationToken;
+import com.no8do.api.integration.IntegrationCredentialAuthenticationFilter;
 import com.no8do.api.auth.TransientOAuth2AuthorizedClientRepository;
 import jakarta.servlet.DispatcherType;
 import java.util.List;
@@ -24,6 +26,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.security.web.util.matcher.AndRequestMatcher;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -40,6 +44,7 @@ public class SecurityConfig {
     private final GoogleOAuth2FailureHandler googleOAuth2FailureHandler;
     private final TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository;
     private final PersonalApiTokenAuthenticationFilter personalApiTokenAuthenticationFilter;
+    private final IntegrationCredentialAuthenticationFilter integrationCredentialAuthenticationFilter;
 
     public SecurityConfig(
             @Value("${no8do.cors.allowed-origin:}") String corsAllowedOrigin,
@@ -48,7 +53,8 @@ public class SecurityConfig {
             GoogleOAuth2SuccessHandler googleOAuth2SuccessHandler,
             GoogleOAuth2FailureHandler googleOAuth2FailureHandler,
             TransientOAuth2AuthorizedClientRepository transientOAuth2AuthorizedClientRepository,
-            PersonalApiTokenAuthenticationFilter personalApiTokenAuthenticationFilter
+            PersonalApiTokenAuthenticationFilter personalApiTokenAuthenticationFilter,
+            IntegrationCredentialAuthenticationFilter integrationCredentialAuthenticationFilter
     ) {
         this.corsAllowedOrigin = corsAllowedOrigin;
         this.secureCookies = secureCookies;
@@ -57,6 +63,7 @@ public class SecurityConfig {
         this.googleOAuth2FailureHandler = googleOAuth2FailureHandler;
         this.transientOAuth2AuthorizedClientRepository = transientOAuth2AuthorizedClientRepository;
         this.personalApiTokenAuthenticationFilter = personalApiTokenAuthenticationFilter;
+        this.integrationCredentialAuthenticationFilter = integrationCredentialAuthenticationFilter;
     }
 
     @Bean
@@ -66,6 +73,10 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository())
                 .ignoringRequestMatchers(
                     request -> Boolean.TRUE.equals(request.getAttribute(PersonalApiTokenService.CSRF_BYPASS_ATTRIBUTE)),
+                    new AndRequestMatcher(IntegrationCredentialAuthenticationFilter.allowlistMatcher(), request ->
+                        Boolean.TRUE.equals(request.getAttribute(IntegrationCredentialAuthenticationFilter.CSRF_BYPASS_ATTRIBUTE))
+                            && org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication()
+                                instanceof IntegrationAuthenticationToken),
                     new AntPathRequestMatcher("/api/integration-authorizations/bootstrap", "POST"),
                     new AntPathRequestMatcher("/api/integration-authorizations/bootstrap/exchange", "POST"))
             )
@@ -97,7 +108,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().denyAll()
             );
-        http.addFilterBefore(personalApiTokenAuthenticationFilter, CsrfFilter.class);
+        http.addFilterAfter(integrationCredentialAuthenticationFilter, SecurityContextHolderFilter.class);
+        http.addFilterAfter(personalApiTokenAuthenticationFilter, IntegrationCredentialAuthenticationFilter.class);
 
         if (clientRegistrationRepository.getIfAvailable() != null) {
             http.oauth2Login(oauth2 -> oauth2

@@ -42,8 +42,15 @@ public class AgentAuditMetadataCodec {
             if (revoked.workspaceId() != null) encoded.put("workspaceId", revoked.workspaceId().toString());
             encoded.put("occurredAt", revoked.occurredAt().toString());
         } else if (metadata instanceof AgentEventMetadata.SessionBound bound) {
+            encoded.put("bindingType", "AGENT_CREDENTIAL");
             encoded.put("agentId", bound.agentId().toString());
             encoded.put("agentCredentialId", bound.agentCredentialId().toString());
+        } else if (metadata instanceof AgentEventMetadata.IntegrationSessionBound bound) {
+            encoded.put("bindingType", "INTEGRATION_AUTHORIZATION");
+            encoded.put("integrationAuthorizationId", bound.integrationAuthorizationId().toString());
+            encoded.put("agentId", bound.agentId().toString());
+            encoded.put("workspaceId", bound.workspaceId().toString());
+            encoded.put("sessionId", bound.sessionId().toString());
         } else {
             throw new IllegalArgumentException("Tipo de metadata de AgentEvent não suportado.");
         }
@@ -78,9 +85,15 @@ public class AgentAuditMetadataCodec {
                         UUID.fromString(requiredText(metadata, "actorUserId")),
                         optionalUuid(metadata, "workspaceId"),
                         Instant.parse(requiredText(metadata, "occurredAt")));
-                case AGENT_SESSION_BOUND -> new AgentEventMetadata.SessionBound(
-                        UUID.fromString(requiredText(metadata, "agentId")),
-                        UUID.fromString(requiredText(metadata, "agentCredentialId")));
+                case AGENT_SESSION_BOUND -> "INTEGRATION_AUTHORIZATION".equals(optionalText(metadata, "bindingType"))
+                        ? new AgentEventMetadata.IntegrationSessionBound(
+                                UUID.fromString(requiredText(metadata, "integrationAuthorizationId")),
+                                UUID.fromString(requiredText(metadata, "agentId")),
+                                UUID.fromString(requiredText(metadata, "workspaceId")),
+                                UUID.fromString(requiredText(metadata, "sessionId")))
+                        : new AgentEventMetadata.SessionBound(
+                                UUID.fromString(requiredText(metadata, "agentId")),
+                                UUID.fromString(requiredText(metadata, "agentCredentialId")));
             };
         } catch (Exception exception) {
             throw new IllegalStateException("Metadata persistida de AgentEvent é inválida.", exception);
@@ -101,6 +114,11 @@ public class AgentAuditMetadataCodec {
             throw new IllegalArgumentException("Campo inteiro de metadata inválido: " + field);
         }
         return value.intValue();
+    }
+
+    private static String optionalText(JsonNode metadata, String field) {
+        JsonNode value = metadata.get(field);
+        return value == null || !value.isTextual() ? null : value.asText();
     }
 
     private static UUID optionalUuid(JsonNode metadata, String field) {

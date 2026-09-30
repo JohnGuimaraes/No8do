@@ -86,10 +86,10 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID
     @Query(value = """
         insert into agent_sessions (id, user_id, workspace_id, client_name, client_version, transport,
             protocol_name, protocol_version, registered_at, last_seen_at, last_activity_at, transport_session_fingerprint,
-            agent_id, agent_credential_id)
+            agent_id, agent_credential_id, integration_authorization_id)
         values (:id, :userId, :workspaceId, :clientName, :clientVersion, :transport,
             :protocolName, :protocolVersion, :registeredAt, :registeredAt, null, :fingerprint,
-            :agentId, :agentCredentialId)
+            :agentId, :agentCredentialId, :integrationAuthorizationId)
         on conflict (transport, transport_session_fingerprint) where revoked_at is null do nothing
         """, nativeQuery = true)
     int insertIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId,
@@ -97,5 +97,27 @@ public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID
             @Param("clientVersion") String clientVersion, @Param("transport") String transport,
             @Param("protocolName") String protocolName, @Param("protocolVersion") int protocolVersion,
             @Param("registeredAt") Instant registeredAt, @Param("fingerprint") String fingerprint,
-            @Param("agentId") UUID agentId, @Param("agentCredentialId") UUID agentCredentialId);
+            @Param("agentId") UUID agentId, @Param("agentCredentialId") UUID agentCredentialId,
+            @Param("integrationAuthorizationId") UUID integrationAuthorizationId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt where id = :sessionId "
+            + "and integration_authorization_id = :authorizationId and disconnected_at is null and revoked_at is null",
+            nativeQuery = true)
+    int updateLastSeenAtForIntegration(@Param("sessionId") UUID sessionId,
+            @Param("authorizationId") UUID authorizationId, @Param("lastSeenAt") Instant lastSeenAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update agent_sessions set last_seen_at = :lastSeenAt, last_activity_at = :lastSeenAt "
+            + "where id = :sessionId and integration_authorization_id = :authorizationId "
+            + "and disconnected_at is null and revoked_at is null", nativeQuery = true)
+    int updateActivityTimestampsForIntegration(@Param("sessionId") UUID sessionId,
+            @Param("authorizationId") UUID authorizationId, @Param("lastSeenAt") Instant lastSeenAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "update agent_sessions set disconnected_at = :disconnectedAt where id = :sessionId "
+            + "and integration_authorization_id = :authorizationId and disconnected_at is null and revoked_at is null",
+            nativeQuery = true)
+    int updateDisconnectedAtForIntegration(@Param("sessionId") UUID sessionId,
+            @Param("authorizationId") UUID authorizationId, @Param("disconnectedAt") Instant disconnectedAt);
 }

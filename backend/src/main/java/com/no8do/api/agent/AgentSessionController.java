@@ -1,10 +1,13 @@
 package com.no8do.api.agent;
 
 import com.no8do.api.auth.No8doUserDetails;
+import com.no8do.api.integration.IntegrationAuthenticationToken;
+import com.no8do.api.integration.IntegrationPrincipal;
 import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -68,10 +71,21 @@ public class AgentSessionController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AgentSessionResponse register(@AuthenticationPrincipal No8doUserDetails principal,
+    public AgentSessionResponse register(Authentication authentication,
             @Valid @RequestBody AgentSessionRegistrationRequest request,
             @RequestHeader(name = AGENT_CREDENTIAL_HEADER, required = false) String agentCredential) {
-        return registry.register(principal.user().getId(), request, agentCredential);
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal integrationPrincipal) {
+            if (agentCredential != null) {
+                throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Agent credential header is not accepted with Integration authorization");
+            }
+            return registry.register(integrationPrincipal, request);
+        }
+        if (authentication.getPrincipal() instanceof No8doUserDetails principal) {
+            return registry.register(principal.user().getId(), request, agentCredential);
+        }
+        throw new org.springframework.web.server.ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
     }
 
     @PostMapping("/{sessionId}/revoke")
@@ -82,22 +96,35 @@ public class AgentSessionController {
 
     @PostMapping("/{sessionId}/heartbeat")
     public AgentSessionHeartbeatResponse heartbeat(@PathVariable java.util.UUID sessionId,
-            @AuthenticationPrincipal No8doUserDetails principal) {
-        return new AgentSessionHeartbeatResponse(sessionId,
-                presenceService.heartbeat(sessionId, principal.user().getId()));
+            Authentication authentication) {
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal principal) {
+            return new AgentSessionHeartbeatResponse(sessionId, presenceService.heartbeat(sessionId, principal));
+        }
+        return new AgentSessionHeartbeatResponse(sessionId, presenceService.heartbeat(sessionId, userId(authentication)));
     }
 
     @PostMapping("/{sessionId}/disconnect")
     public AgentSessionContextResponse disconnect(@PathVariable java.util.UUID sessionId,
-            @AuthenticationPrincipal No8doUserDetails principal) {
-        presenceService.disconnect(sessionId, principal.user().getId());
-        return contextService.getContextAfterDisconnect(sessionId, principal.user().getId());
+            Authentication authentication) {
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal principal) {
+            presenceService.disconnect(sessionId, principal);
+            return contextService.getContextAfterDisconnect(sessionId, principal);
+        }
+        UUID userId = userId(authentication);
+        presenceService.disconnect(sessionId, userId);
+        return contextService.getContextAfterDisconnect(sessionId, userId);
     }
 
     @GetMapping("/{sessionId}/context")
     public AgentSessionContextResponse getContext(@PathVariable java.util.UUID sessionId,
-            @AuthenticationPrincipal No8doUserDetails principal) {
-        return contextService.getContext(sessionId, principal.user().getId());
+            Authentication authentication) {
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal principal) {
+            return contextService.getContext(sessionId, principal);
+        }
+        return contextService.getContext(sessionId, userId(authentication));
     }
 
     @PatchMapping("/{sessionId}/runtime-mode")
@@ -109,9 +136,13 @@ public class AgentSessionController {
 
     @org.springframework.web.bind.annotation.PutMapping("/{sessionId}/operational-context")
     public AgentOperationalContextResponse replaceOperationalContext(@PathVariable UUID sessionId,
-            @AuthenticationPrincipal No8doUserDetails principal,
+            Authentication authentication,
             @Valid @RequestBody AgentOperationalContextUpdateRequest request) {
-        return operationalContextService.replace(sessionId, principal.user().getId(), request);
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal principal) {
+            return operationalContextService.replace(sessionId, principal, request);
+        }
+        return operationalContextService.replace(sessionId, userId(authentication), request);
     }
 
     @GetMapping("/{sessionId}/operational-context")
@@ -122,7 +153,18 @@ public class AgentSessionController {
 
     @GetMapping("/{sessionId}/operational-context/state")
     public AgentOperationalContextStateResponse getOperationalContextState(@PathVariable UUID sessionId,
-            @AuthenticationPrincipal No8doUserDetails principal) {
-        return operationalContextService.getState(sessionId, principal.user().getId());
+            Authentication authentication) {
+        if (authentication instanceof IntegrationAuthenticationToken
+                && authentication.getPrincipal() instanceof IntegrationPrincipal principal) {
+            return operationalContextService.getState(sessionId, principal);
+        }
+        return operationalContextService.getState(sessionId, userId(authentication));
+    }
+
+    private static UUID userId(Authentication authentication) {
+        if (authentication != null && authentication.getPrincipal() instanceof No8doUserDetails principal) {
+            return principal.user().getId();
+        }
+        throw new org.springframework.web.server.ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required");
     }
 }
