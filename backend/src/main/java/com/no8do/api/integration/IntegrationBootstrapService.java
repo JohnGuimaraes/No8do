@@ -43,6 +43,7 @@ public class IntegrationBootstrapService {
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final WorkspaceAuthorizationService workspaceAuthorizationService;
     private final AgentRegistryService agentRegistryService;
+    private final IntegrationAuthorizationLifecycleService authorizationLifecycleService;
     private final Clock clock;
     private final String frontendUrl;
 
@@ -53,6 +54,7 @@ public class IntegrationBootstrapService {
             AgentRepository agentRepository, UserRepository userRepository,
             WorkspaceMemberRepository workspaceMemberRepository,
             WorkspaceAuthorizationService workspaceAuthorizationService, AgentRegistryService agentRegistryService,
+            IntegrationAuthorizationLifecycleService authorizationLifecycleService,
             Clock clock, @Value("${no8do.frontend-url}") String frontendUrl) {
         this.bootstrapRepository = bootstrapRepository;
         this.authorizationRepository = authorizationRepository;
@@ -65,6 +67,7 @@ public class IntegrationBootstrapService {
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.agentRegistryService = agentRegistryService;
+        this.authorizationLifecycleService = authorizationLifecycleService;
         this.clock = clock;
         this.frontendUrl = frontendUrl;
     }
@@ -137,8 +140,6 @@ public class IntegrationBootstrapService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose exactly one existing or new Agent");
         }
         workspaceAuthorizationService.requireWorkspaceManager(input.workspaceId(), actorUserId);
-        rejectExistingInstallationAuthorization(request.getInstallationId(), now);
-
         Agent agent;
         if (input.existingAgentId() != null) {
             agent = agentRepository.findByIdAndWorkspaceIdForUpdate(input.existingAgentId(), input.workspaceId())
@@ -148,6 +149,8 @@ public class IntegrationBootstrapService {
             agent = agentRegistryService.createAgent(input.workspaceId(), actorUserId,
                     input.newAgent().name(), null, null);
         }
+        // Match exchange/revoke/archive lock order: chosen Agent before installation authorization.
+        rejectExistingInstallationAuthorization(request.getInstallationId(), now);
         request.approve(actorUserId, input.workspaceId(), agent.getId(), now);
         bootstrapRepository.saveAndFlush(request);
         auditService.record(IntegrationAuthorizationAuditEventType.BOOTSTRAP_APPROVED, actorUserId,
@@ -267,19 +270,15 @@ public class IntegrationBootstrapService {
     public IntegrationAuthorizationMetadataResponse revoke(UUID authorizationId, UUID actorUserId) {
         requireEnabled();
         requireEnabledUser(actorUserId);
-        IntegrationAuthorization authorization = authorizationRepository.findByIdForUpdate(authorizationId)
+        var candidate = authorizationRepository.findAgentScopeById(authorizationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Integration authorization not found"));
-        workspaceAuthorizationService.requireWorkspaceManager(authorization.getAgent().getWorkspace().getId(), actorUserId);
+        UUID workspaceId = candidate.getWorkspaceId();
+        workspaceAuthorizationService.requireWorkspaceManager(workspaceId, actorUserId);
+        agentRepository.findByIdAndWorkspaceIdForUpdate(candidate.getAgentId(), workspaceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Agent not found"));
+        IntegrationAuthorization authorization = authorizationRepository.findByIdForUpdate(authorizationId).orElseThrow();
         Instant now = clock.instant();
-        if (authorization.getStatus() == IntegrationAuthorizationStatus.ACTIVE && !now.isBefore(authorization.getExpiresAt())) {
-            authorization.expire();
-            authorizationRepository.saveAndFlush(authorization);
-        } else if (authorization.revoke(now, "MANAGER")) {
-            authorizationRepository.saveAndFlush(authorization);
-            auditService.record(IntegrationAuthorizationAuditEventType.INTEGRATION_AUTHORIZATION_REVOKED,
-                    actorUserId, authorization.getAgent().getWorkspace().getId(), authorization.getAgent().getId(),
-                    null, authorization.getId(), now, "REVOKED");
-        }
+        authorizationLifecycleService.revoke(authorization, actorUserId, now, "MANAGER");
         return IntegrationAuthorizationMetadataResponse.from(authorization, now);
     }
 

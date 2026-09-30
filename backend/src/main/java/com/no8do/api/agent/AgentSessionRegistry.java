@@ -20,13 +20,16 @@ public class AgentSessionRegistry {
     private final AgentGatewayMetrics metrics;
     private final AgentCredentialVerificationService credentialVerificationService;
     private final AgentAuditTrailService auditTrailService;
+    private final AgentRepository agentRepository;
+    private final com.no8do.api.integration.IntegrationAuthorizationRepository integrationAuthorizations;
 
     public AgentSessionRegistry(AgentSessionRepository repository,
             WorkspaceAuthorizationService workspaceAuthorizationService,
             No8doAgentProtocolProvider protocolProvider, Clock clock, AgentEventFactory eventFactory,
             AgentEventPublisher eventPublisher, AgentGatewayMetrics metrics,
             AgentCredentialVerificationService credentialVerificationService,
-            AgentAuditTrailService auditTrailService) {
+            AgentAuditTrailService auditTrailService, AgentRepository agentRepository,
+            com.no8do.api.integration.IntegrationAuthorizationRepository integrationAuthorizations) {
         this.repository = repository;
         this.workspaceAuthorizationService = workspaceAuthorizationService;
         this.protocolProvider = protocolProvider;
@@ -36,6 +39,8 @@ public class AgentSessionRegistry {
         this.metrics = metrics;
         this.credentialVerificationService = credentialVerificationService;
         this.auditTrailService = auditTrailService;
+        this.agentRepository = agentRepository;
+        this.integrationAuthorizations = integrationAuthorizations;
     }
 
     @Transactional
@@ -94,6 +99,18 @@ public class AgentSessionRegistry {
 
     @Transactional
     public AgentSessionResponse register(IntegrationPrincipal principal, AgentSessionRegistrationRequest request) {
+        // Serialize registration with revoke/archive; a principal may have been authenticated before them.
+        Agent agent = agentRepository.findByIdAndWorkspaceIdForUpdate(principal.agentId(), principal.workspaceId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid integration authorization"));
+        var authorization = integrationAuthorizations.findByIdForUpdate(principal.integrationAuthorizationId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid integration authorization"));
+        if (agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE
+                || authorization.getStatus() != com.no8do.api.integration.IntegrationAuthorizationStatus.ACTIVE
+                || !clock.instant().isBefore(authorization.getExpiresAt())
+                || !authorization.getAgent().getId().equals(agent.getId())
+                || !authorization.getAuthorizedByUserId().equals(principal.grantorUserId())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid integration authorization");
+        }
         if (request.workspaceId() != null && !request.workspaceId().equals(principal.workspaceId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Workspace access denied");
         }

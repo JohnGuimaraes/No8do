@@ -26,12 +26,14 @@ public class AgentRegistryService {
     private final AgentRegistryAuditService auditService;
     private final AgentCapabilityGrantService capabilityGrantService;
     private final AgentCredentialLifecycleService credentialLifecycleService;
+    private final com.no8do.api.integration.IntegrationAuthorizationLifecycleService integrationLifecycleService;
     private final Clock clock;
 
     public AgentRegistryService(AgentRepository agentRepository, WorkspaceRepository workspaceRepository,
             UserRepository userRepository, WorkspaceAuthorizationService workspaceAuthorizationService,
             AgentRegistryAuditService auditService, AgentCapabilityGrantService capabilityGrantService,
-            AgentCredentialLifecycleService credentialLifecycleService, Clock clock) {
+            AgentCredentialLifecycleService credentialLifecycleService,
+            com.no8do.api.integration.IntegrationAuthorizationLifecycleService integrationLifecycleService, Clock clock) {
         this.agentRepository = agentRepository;
         this.workspaceRepository = workspaceRepository;
         this.userRepository = userRepository;
@@ -39,6 +41,7 @@ public class AgentRegistryService {
         this.auditService = auditService;
         this.capabilityGrantService = capabilityGrantService;
         this.credentialLifecycleService = credentialLifecycleService;
+        this.integrationLifecycleService = integrationLifecycleService;
         this.clock = clock;
     }
 
@@ -112,6 +115,7 @@ public class AgentRegistryService {
         Instant occurredAt = clock.instant();
         if (nextStatus == AgentLifecycleStatus.ARCHIVED) {
             credentialLifecycleService.revokeActiveForArchivedAgent(actorUserId, saved, occurredAt);
+            integrationLifecycleService.revokeActiveForArchivedAgent(actorUserId, saved, occurredAt);
         }
         auditService.recordLifecycleChanged(actorUserId, saved, previousStatus, occurredAt);
         return saved;
