@@ -12,6 +12,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface IntegrationAuthorizationRepository extends JpaRepository<IntegrationAuthorization, UUID> {
+    interface AgentScope { UUID getAgentId(); UUID getWorkspaceId(); }
+
+    @Query("select authorization.agent.id as agentId, authorization.agent.workspace.id as workspaceId "
+            + "from IntegrationAuthorization authorization where authorization.id = :id")
+    Optional<AgentScope> findAgentScopeById(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select authorization from IntegrationAuthorization authorization where authorization.agent.id = :agentId "
+            + "and authorization.status = com.no8do.api.integration.IntegrationAuthorizationStatus.ACTIVE order by authorization.id")
+    List<IntegrationAuthorization> findActiveForAgentForUpdate(@Param("agentId") UUID agentId);
+
     @Modifying
     @Query(value = "update integration_authorizations set last_used_at = :now "
             + "where id = :id and status = 'ACTIVE' and expires_at > :now "

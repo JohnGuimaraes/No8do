@@ -89,7 +89,8 @@ public class IntegrationAuthorization {
     }
 
     boolean revoke(Instant at, String reason) {
-        if (status != IntegrationAuthorizationStatus.ACTIVE) return false;
+        // Expiry denies runtime access; a later explicit revoke still terminates historical sessions.
+        if (status == IntegrationAuthorizationStatus.REVOKED) return false;
         status = IntegrationAuthorizationStatus.REVOKED;
         revokedAt = at;
         revokeReason = reason;

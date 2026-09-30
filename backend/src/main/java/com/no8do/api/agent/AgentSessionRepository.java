@@ -13,6 +13,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AgentSessionRepository extends JpaRepository<AgentSession, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select session from AgentSession session where session.integrationAuthorization.id = :authorizationId "
+            + "and session.workspaceId = :workspaceId and session.revokedAt is null order by session.id")
+    java.util.List<AgentSession> findUnrevokedIntegrationSessionsForUpdate(
+            @Param("authorizationId") UUID authorizationId, @Param("workspaceId") UUID workspaceId);
+
     @Query("select session from AgentSession session where session.agent.id = :agentId")
     Page<AgentSession> findAgentSessions(@Param("agentId") UUID agentId, Pageable pageable);
 
