@@ -30,7 +30,7 @@ function fixture(origin, overrides = {}) {
   return { core, logs, keys, deleted: () => deleted };
 }
 async function remote(t, options = {}) {
-  const requests = [], sessions = new Map(), toolEntered = deferred(), initEntered = deferred(), sseEntered = deferred(), deleteEntered = deferred();
+  const requests = [], sessions = new Map(), owners = new Map(), toolEntered = deferred(), initEntered = deferred(), sseEntered = deferred(), deleteEntered = deferred();
   let sseResponse; const agents = [];
   let initializes = 0, deletes = 0, tools = 0;
   const http = createServer(async (req, res) => {
@@ -38,6 +38,7 @@ async function remote(t, options = {}) {
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
     requests.push({ method: req.method, url: req.url, headers: req.headers, body });
     if (options.httpStatusByMethod?.[body?.method]) { res.writeHead(options.httpStatusByMethod[body.method]); res.end(JSON.stringify({ error: options.httpError ?? secret })); return; }
+    if ((options.replayStatusForBearer?.(req.headers.authorization) ?? options.replayHttpStatus) && body?.method === "tools/call" && /replay|knowledge/.test(body.params.name)) { res.writeHead(options.replayStatusForBearer?.(req.headers.authorization) ?? options.replayHttpStatus); res.end(JSON.stringify({ error: options.httpError ?? secret })); return; }
     if (options.status) { res.writeHead(options.status); res.end(secret); return; }
     if (options.redirect) { res.writeHead(307, { location: options.redirect }); res.end(); return; }
     if (req.method === "GET") {
@@ -61,7 +62,10 @@ async function remote(t, options = {}) {
           options.sessionEntered?.resolve();
           if (options.sessionGate) await options.sessionGate.promise;
           assert.deepEqual(request.params.arguments, {});
-          return { content: [], structuredContent: options.sessionResponse ?? agentSession(agentId) };
+          return { content: [], structuredContent: options.sessionResponse ?? agentSession(agentId, options.workspaceForBearer?.(req.headers.authorization) ?? options.workspaceId) };
+        }
+        if (options.replayHandler && /replay|knowledge/.test(request.params.name)) {
+          return await options.replayHandler(request.params, { agentId, bearer: req.headers.authorization });
         }
         assert.equal(request.params.name, "get_agent_protocol");
         assert.deepEqual(request.params.arguments, {});
@@ -90,11 +94,12 @@ async function remote(t, options = {}) {
       });
       transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => "fake-session-" + initializes, enableJsonResponse: true,
-        onsessioninitialized: sid => sessions.set(sid, transport),
+        onsessioninitialized: sid => { sessions.set(sid, transport); owners.set(sid, req.headers.authorization); },
         onsessionclosed: sid => { sessions.delete(sid); }
       });
       await server.connect(transport);
     }
+    if (sessionId && transport && owners.get(sessionId) !== req.headers.authorization) { res.writeHead(403); res.end(); return; }
     if (!transport) { res.writeHead(404); res.end(); return; }
     if (req.method === "DELETE") { deletes++; deleteEntered.resolve(); if (options.deleteGate) await options.deleteGate.promise; }
     await transport.handleRequest(req, res, body);
@@ -115,7 +120,7 @@ function safe(f, error) {
 
 const timestamp = "2026-10-01T00:00:00Z";
 const emptySignal = () => ({ repository: null, branch: null, workingDirectory: null, references: [] });
-const agentSession = sid => ({ sessionId: sid, workspaceId: "11111111-1111-4111-8111-111111111111",
+const agentSession = (sid, workspaceId = "11111111-1111-4111-8111-111111111111") => ({ sessionId: sid, workspaceId,
   clientName: "no8do-integration-core", clientVersion: "0.1.0", transport: "MCP",
   protocolName: "no8do-agent-protocol", protocolVersion: 2, runtimeMode: "FULL",
   effectiveCapabilities: [{ id: "REPLAY_READ", description: "read", readOnly: true }],

@@ -126,13 +126,13 @@ for (const phase of ["initialize", "negotiation"]) test("close during " + phase 
   assert.equal(f.core.getRuntimeState().state, "DISCONNECTED");
   assert.equal(f.core.getNegotiatedProtocol(), null);
 });
-test("public boundary has no generic MCP, replay, operational context or session surface", () => {
+test("public boundary exposes only explicit authorization, runtime, context and read-only replay APIs", () => {
   const f = fixture("https://mcp.no8do.example");
   assert.deepEqual(Object.keys(f.core).sort(), [
     "startAuthorization", "cancelAuthorization", "getAuthorizationState", "waitForAuthorization",
     "getInstallationId", "hasStoredAuthorization", "forgetLocalAuthorization",
     "connectRuntime", "getRuntimeState", "getNegotiatedProtocol", "closeRuntime",
-    "getAgentSessionContext", "getOperationalContext", "replaceOperationalContext"
+    "getAgentSessionContext", "getOperationalContext", "replaceOperationalContext", "listReplays", "searchReplays", "findReusableKnowledge", "getReplay", "getReplayQuality", "listReplayVersions", "getReplayVersion", "listReplayRelations"
   ].sort());
 });
 

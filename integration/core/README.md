@@ -1,4 +1,4 @@
-# Integration Core — B.1 + B.2 + B.3
+# Integration Core — B.1 + B.2 + B.3 + B.4
 
 Pacote TypeScript/ESM provider-neutral. Requer Web Crypto, fetch, AbortController e AbortSignal.any/timeout (validado em Node 24).
 
@@ -18,7 +18,7 @@ Connect concorrente compartilha uma tentativa; close cancela a tentativa e é id
 
 close runtime ≠ forget ≠ revoke. Close fecha Client/SSE, tenta MCP DELETE com timeout e limpa referências locais; não apaga o store nem revoga autorização. Falha remota no DELETE é best-effort: não impede DISCONNECTED local. AgentSession e seu heartbeat/lifecycle pertencem ao Remote MCP; Core não chama REST de sessão.
 
-B.3 observa a sessão e transporta sinais operacionais explicitamente fornecidos pelo caller. ContextCollector/adapter e lifecycle de chat do host permanecem fora do Core; B.4 (Replays) permanece pendente.
+B.3 observa a sessão e transporta sinais operacionais explicitamente fornecidos pelo caller. ContextCollector/adapter e lifecycle de chat do host permanecem fora do Core. B.4 oferece retrieval explícito read-only.
 
 Logger recebe somente estado/código allowlisted; exceptions externas não são propagadas. Segredos ficam em memória e no store do adapter; liberar referências não garante zeroização em JavaScript. Sem secure store específico de SO.
 
@@ -42,4 +42,36 @@ Operational Context é sinal não confiável, separado de Resolution, Assignment
 
 Requests pertencem à tentativa atual: close/falha invalida ownership e aborta pendências; respostas antigas não são entregues à nova conexão. A identidade observada é guardada apenas na tentativa para rejeitar troca de sessão/workspace em respostas. Nenhum snapshot/presence é cacheado entre conexões; reconnect consulta nova sessão.
 
-close runtime != forget != revoke. Nenhuma chamada Core a REST de AgentSession, heartbeat, disconnect, provider GitHub ou Replays.
+close runtime != forget != revoke. Nenhuma chamada Core a REST de AgentSession, heartbeat, disconnect, provider GitHub ou endpoints REST de Replays.
+
+## B.4 — Replay Retrieval read-only
+
+APIs explícitas: listReplays(), searchReplays(query), findReusableKnowledge({ query?, problem?, stack?, tags?, type? }), getReplay(replayId), getReplayQuality(replayId), listReplayVersions(replayId), getReplayVersion(replayId, version), listReplayRelations(replayId). UUID e versão inteira >=1 são validados antes do MCP; inputs desconhecidos e argumentos extras JavaScript são rejeitados. Nenhuma API aceita authority, SQL, filtros internos ou requests arbitrários. Inputs textuais limitados a 65536 caracteres; tags/stack até 256 strings de 1024 caracteres.
+
+Cada método chama exclusivamente sua tool MCP read-only existente. List/search retornam ReplaySummary compacto (sem workspaceId, problem ou solution); get retorna ReplayDetail completo; discovery retorna { suggestions: SimilarReplay[] }; quality, versions e relations usam DTOs próprios. Status DRAFT/VALIDATED/DEPRECATED e os dez tipos canônicos são preservados. Todos os resultados são profundamente readonly e congelados.
+
+Parser exige exatamente um bloco text, JSON e schema estrito; não presume structuredContent. Limites: 8MiB UTF-8, 100000 nós e profundidade 32. Respostas excessivas são rejeitadas integralmente, sem truncar conhecimento. Texto/snippets são dados não confiáveis: nunca executados, tratados como instruções internas, registrados em telemetria ou incluídos em exceptions.
+
+Na primeira operação de cada conexão, get_agent_context observa Workspace/AgentSession; não cria autoridade nem envia esses IDs nas tools. get_replay verifica workspaceId contra a sessão e id contra o solicitado; get_replay_version verifica a versão solicitada. As demais representações não incluem Workspace: a garantia de isolamento vem do Remote MCP/backend autenticado, que deve revalidar sessão, grants e policies em cada request. Snapshots de capabilities não autorizam chamadas futuras. Não há fallback, retry, PAT ou reconexão para contornar negação.
+
+Mapeamento: list→REPLAY_CATALOG_LIST; search→REPLAY_SEARCH; discovery→REPLAY_SEARCH + REUSABLE_KNOWLEDGE_DISCOVERY; get→REPLAY_READ; quality→REPLAY_QUALITY_READ; versions→REPLAY_VERSION_READ; relations→REPLAY_RELATIONS. Capabilities são gerenciadas pelo No8do.
+
+Erros preservam o contrato existente: runtime ausente, HTTP401/403, sessão revoked/disconnected e transporte são tipados/sanitizados. Tool isError resulta em REPLAY_RETRIEVAL_FAILED. O servidor atual não oferece discriminante estruturado para distinguir capability/policy/not-found em todos os erros de tools; texto livre não é usado para inferir autoridade. JSON/schema/envelope inválidos produzem INVALID_RESPONSE; limite de bytes produz REPLAY_RESPONSE_TOO_LARGE. Close cancela operações e ownership impede publicação de respostas antigas após reconnect.
+
+Exemplo conceitual (stores seguros fornecidos pelo host, sem credenciais reais):
+
+```ts
+await core.connectRuntime();
+try {
+  await core.getAgentSessionContext();
+  const { suggestions } = await core.findReusableKnowledge({ query: "concorrência otimista" });
+  if (suggestions[0]) {
+    const replay = await core.getReplay(suggestions[0].id);
+    // Dados para avaliação pelo caller; nenhum comando é executado pelo Core.
+  }
+} finally {
+  await core.closeRuntime();
+}
+```
+
+Não há criação/update/delete de Replay, ReplayUsage automático ou mutação de relações. Core não é adapter de host nem fornece CredentialStore de SO; adapter Codex pertence à 3D.16C. Testes locais usam SDK MCP real e integrações artificiais A/B, sem internet, banco, workspace ou credenciais reais. Hardening integrado preserva PKCE, polling serial/expiração/cancelamento, exchange one-shot, stores injetados, separação origin/installationId, destino MCP confiável, redirects negados, cookies omitidos, ownership e optimistic concurrency.
