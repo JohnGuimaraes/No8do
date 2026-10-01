@@ -1,3 +1,6 @@
+import { McpError, ErrorCode as McpErrorCode } from "@modelcontextprotocol/sdk/types.js";
+import { operationalReadSchema, operationalResponseSchema, parseSession, parseOperational, parseOperationalRead, validateUpdate,
+  type AgentSessionContext, type OperationalContext, type OperationalContextRead, type OperationalContextUpdate } from "./context.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CoreError } from "../errors/CoreError.js";
@@ -9,7 +12,7 @@ export interface RuntimeConnectionState {
   readonly state: RuntimeConnectionStatus; readonly errorCode?: import("../errors/CoreError.js").ErrorCode;
 }
 type Attempt = { abort: AbortController; client?: Client; transport?: StreamableHTTPClientTransport;
-  dispose?: Promise<void>; failure?: CoreError };
+  dispose?: Promise<void>; failure?: CoreError; agentSessionId?: string; workspaceId?: string };
 function statusError(status: number): CoreError {
   return new CoreError(status === 401 ? "RUNTIME_AUTHENTICATION_FAILED" :
     status === 403 ? "RUNTIME_AUTHORIZATION_FAILED" : status === 409 ? "RUNTIME_CONFLICT" : "TRANSPORT_ERROR");
@@ -70,11 +73,36 @@ export class RemoteMcpClient {
         try {
           const response = await fetch(endpoint, { ...init, headers, redirect: "error", credentials: "omit",
             signal: AbortSignal.any(signals) });
-          clearTimeout(headerTimer);
+
           if (response.redirected) { await response.body?.cancel(); throw new CoreError("TRANSPORT_ERROR"); }
           if ([401, 403, 409].includes(response.status)) {
-            await response.body?.cancel(); throw statusError(response.status);
+            let error = statusError(response.status);
+            if (response.status === 409) {
+              // Read only a bounded discriminator; never publish provider body or message.
+              const reader = response.body?.getReader();
+              const chunks: Uint8Array[] = [];
+              let length = 0;
+              try {
+                while (reader && length <= 1024) {
+                  const next = await reader.read();
+                  if (next.done) break;
+                  length += next.value.length;
+                  if (length <= 1024) chunks.push(next.value);
+                }
+                if (length <= 1024) {
+                  const bytes = new Uint8Array(length); let offset = 0;
+                  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+                  const body: unknown = JSON.parse(new TextDecoder().decode(bytes));
+                  const code = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+                  if (code === "AGENT_SESSION_REVOKED" || code === "AGENT_SESSION_DISCONNECTED")
+                    error = new CoreError(code);
+                }
+              } catch { /* Ignore untrusted/malformed bodies. */ }
+              finally { await reader?.cancel().catch(() => {}); }
+            } else { await response.body?.cancel(); }
+            throw error;
           }
+          clearTimeout(headerTimer);
           return response;
         } catch (error) {
           const safe = error instanceof CoreError ? error : new CoreError("TRANSPORT_ERROR");
@@ -119,6 +147,93 @@ export class RemoteMcpClient {
       throw safe;
     } finally { clearTimeout(deadline); }
   }
+  #invalidate(a: Attempt, error: CoreError): void {
+    if (this.#attempt !== a || a.abort.signal.aborted) return;
+    a.failure = error; a.abort.abort(); this.#protocol = null;
+    this.#cleanup = this.#dispose(a).finally(() => {
+      if (this.#attempt === a) this.#attempt = undefined;
+      this.#cleanup = undefined;
+    });
+    this.#set("FAILED", error);
+  }
+  #require(): Attempt {
+    const a = this.#attempt;
+    if (this.#state.state !== "CONNECTED" || !a?.client || a.abort.signal.aborted)
+      throw new CoreError("RUNTIME_NOT_CONNECTED");
+    return a;
+  }
+  #assertOwner(a: Attempt): void {
+    if (this.#attempt !== a || a.abort.signal.aborted || this.#state.state !== "CONNECTED")
+      throw new CoreError("RUNTIME_CANCELLED");
+  }
+  #observe(a: Attempt, sessionId: string, workspaceId?: string): void {
+    if ((a.agentSessionId && a.agentSessionId !== sessionId) ||
+        (workspaceId && a.workspaceId && a.workspaceId !== workspaceId)) throw new CoreError("INVALID_RESPONSE");
+    a.agentSessionId = sessionId;
+    if (workspaceId) a.workspaceId = workspaceId;
+  }
+  async #contextRequest<T>(a: Attempt, work: () => Promise<T>): Promise<T> {
+    try {
+      this.#assertOwner(a);
+      const result = await this.#untilAbort(a, work());
+      this.#assertOwner(a);
+      return result;
+    } catch (error) {
+      if (this.#attempt !== a || a.abort.signal.aborted) throw a.failure ?? new CoreError("RUNTIME_CANCELLED");
+      if (error instanceof CoreError) throw error;
+      // Only exact server-owned discriminants are accepted. SDK text/data never escape.
+      if (error instanceof McpError && error.code === McpErrorCode.InvalidRequest) {
+        const prefix = "MCP error " + error.code + ": ";
+        const matches = (code: string) => error.message === prefix + code || error.message === prefix + prefix + code;
+        for (const code of ["AGENT_SESSION_DISCONNECTED", "AGENT_SESSION_REVOKED", "OPERATIONAL_CONTEXT_CONFLICT"] as const)
+          if (matches(code)) {
+            const safe = new CoreError(code);
+            if (code !== "OPERATIONAL_CONTEXT_CONFLICT") this.#invalidate(a, safe);
+            throw safe;
+          }
+        if (matches("AGENT_SESSION_REQUIRED"))
+          throw new CoreError("AGENT_SESSION_UNAVAILABLE");
+      }
+      throw new CoreError("INVALID_RESPONSE");
+    }
+  }
+  getAgentSessionContext = async (...args: []): Promise<AgentSessionContext> => {
+    const a = this.#require();
+    if (args.length) throw new CoreError("INVALID_INPUT");
+    const result = await this.#contextRequest(a, () => a.client!.callTool(
+      { name: "get_agent_context", arguments: {} }, undefined, { signal: a.abort.signal, timeout: 15_000 }));
+    this.#assertOwner(a);
+    if (result.isError) throw new CoreError("AGENT_SESSION_UNAVAILABLE");
+    const value = parseSession(result.structuredContent);
+    this.#observe(a, value.sessionId, value.workspaceId);
+    if (value.presenceStatus === "DISCONNECTED" || value.disconnectedAt !== null) {
+      const error = new CoreError("AGENT_SESSION_DISCONNECTED");
+      this.#invalidate(a, error); throw error;
+    }
+    return value;
+  };
+  getOperationalContext = async (...args: []): Promise<OperationalContextRead> => {
+    const a = this.#require();
+    if (args.length) throw new CoreError("INVALID_INPUT");
+    const result = await this.#contextRequest(a, () => a.client!.request(
+      { method: "no8do/operational-context/get", params: {} }, operationalReadSchema,
+      { signal: a.abort.signal, timeout: 15_000 }));
+    this.#assertOwner(a);
+    const value = parseOperationalRead(result);
+    if (value.exists) this.#observe(a, value.context.sessionId);
+    return value;
+  };
+  replaceOperationalContext = async (input: OperationalContextUpdate): Promise<OperationalContext> => {
+    const a = this.#require();
+    const payload = validateUpdate(input);
+    const result = await this.#contextRequest(a, () => a.client!.request(
+      { method: "no8do/operational-context/update", params: payload }, operationalResponseSchema,
+      { signal: a.abort.signal, timeout: 15_000 }));
+    this.#assertOwner(a);
+    const value = parseOperational(result);
+    this.#observe(a, value.sessionId);
+    return value;
+  };
   #untilAbort<T>(a: Attempt, work: Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
       const cancelled = () => reject(a.failure ?? new CoreError("RUNTIME_CANCELLED"));
