@@ -4,7 +4,7 @@ export interface HttpResponse { status: number; body: unknown; retryAfter?: stri
 export interface HttpTransport { send(request: HttpRequest): Promise<HttpResponse>; }
 export interface Clock { now(): number; }
 export interface Scheduler { schedule(callback: () => void, delayMs: number): () => void; }
-export interface SafeLogEntry { operation: "bootstrap" | "exchange" | "authorization"; state?: string; status?: number; code?: string; }
+export interface SafeLogEntry { operation: "bootstrap" | "exchange" | "authorization" | "runtime"; state?: string; status?: number; code?: string; }
 export interface SafeLogger { log(entry: SafeLogEntry): void; }
 export interface CredentialKey { readonly trustedOrigin: string; readonly installationId: string; }
 /** Adapter owns secure atomic persistence. Cancellation is not deletion. */

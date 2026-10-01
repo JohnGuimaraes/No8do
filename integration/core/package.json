@@ -1,1 +1,21 @@
-{"name":"@no8do/integration-core","version":"0.1.0","private":true,"type":"module","exports":{".":"./dist/index.js"},"types":"./dist/index.d.ts","scripts":{"typecheck":"tsc --noEmit","build":"tsc","test":"npm run build && node --test tests/*.test.mjs"},"devDependencies":{"typescript":"5.8.3"}}
+{
+  "name": "@no8do/integration-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.0"
+  }
+}

@@ -1,34 +1,25 @@
-# Integration Core — B.1
+# Integration Core — B.1 + B.2
 
-Pacote provider-neutral TypeScript/ESM. Requer runtime com Web Crypto, fetch e AbortController (validado em Node 24). Sem dependências de runtime.
+Pacote TypeScript/ESM provider-neutral. Requer Web Crypto, fetch, AbortController e AbortSignal.any/timeout (validado em Node 24).
 
-Esta fase oferece somente PKCE S256, bootstrap, autorização e persistência abstrata. Não conecta MCP nem registra AgentSession. Runtime/protocol são B.2; presença/contexto B.3; retrieval B.4.
+B.1 oferece PKCE S256, bootstrap/exchange REST e persistência abstrata. B.2 conecta ao Remote MCP real com Client e StreamableHTTPClientTransport do SDK MCP. Authorization CONNECTED é histórico do fluxo; Runtime DISCONNECTED continua válido.
 
-## Uso e ports
+Forneça origin da API, verificationOrigin e, para runtime, mcpOrigin explicitamente confiáveis. mcpOrigin é opcional para preservar B.1; connectRuntime sem configuração falha com MCP_ORIGIN_REQUIRED. HTTPS obrigatório fora de localhost/127.0.0.1/::1; sem userinfo, path, query ou fragment. A barra final é normalizada e /mcp construído internamente. Bootstrap nunca escolhe o destino MCP.
 
-Forneça origin da API e verificationOrigin do frontend explicitamente confiáveis, CredentialStore e InstallationIdentityStore a createIntegrationCore. HTTP, relógio, scheduler, logger e crypto podem ser injetados.
+CredentialStore usa origin da API normalizada + installationId persistido. Runtime carrega a IntegrationCredential internamente, valida seu formato e a envia apenas como Authorization Bearer ao MCP confiável. Ausência gera AUTHORIZATION_REQUIRED sem request. Não há PAT, cookie, AgentCredential, OAuth fallback ou reautorização automática. Fetch privado impõe redirect:error e credentials:omit em POST, GET/SSE e DELETE. Não altera global fetch.
 
-API: startAuthorization, cancelAuthorization, getAuthorizationState, waitForAuthorization, getInstallationId, hasStoredAuthorization e forgetLocalAuthorization. Não retorna credencial, deviceCode ou verifier. O adapter recebe apenas prompt seguro.
+API B.1: startAuthorization, cancelAuthorization, getAuthorizationState, waitForAuthorization, getInstallationId, hasStoredAuthorization, forgetLocalAuthorization. Stores abstratos devem prover persistência segura/atômica; saveIfAbsent retorna o UUIDv4 vencedor. Cancelar autorização não equivale a rollback de um save não cooperativo; exclusividade é preservada até seu término.
 
-InstallationIdentityStore.saveIfAbsent deve ser atômico entre processos e retornar o UUIDv4 vencedor. Escopo do store: uma instalação, não chat/projeto/Agent. CredentialStore usa origin normalizada + installationId; deve fornecer persistência segura/atômica e respeitar abort quando possível. Nenhum store concreto ou fallback plaintext é incluído.
+API B.2: connectRuntime, getRuntimeState, getNegotiatedProtocol, closeRuntime. Não retorna Client, transport, headers, session ID, segredo ou raw response; não oferece callTool genérico.
 
-## Fluxo
+Runtime: DISCONNECTED → CONNECTING → NEGOTIATING → CONNECTED; falhas geram FAILED; fechamento passa por CLOSING → DISCONNECTED. Initialize usa no8do-integration-core v0.1.0, capabilities vazias e nenhuma autoridade escolhida pelo cliente. Após initialize, somente get_agent_protocol é chamado: aceita Agent Protocol v2, no8do-integration v1 e subcontrato Operational Context v1. Metadata é allowlisted e congelada; incompatibilidade ou resposta malformada fecha o transporte sem CONNECTED. O custom capabilities não é necessário: a extensão vem no protocolo canônico.
 
-IDLE → STARTING → AWAITING_USER ⇄ EXCHANGING → CONNECTED.
-Terminais alternativos: DENIED, EXPIRED, FAILED e CANCELLED.
-CONNECTED somente após save concluído; não implica sessão/runtime conectado.
+Connect concorrente compartilha uma tentativa; close cancela a tentativa e é idempotente. Tentativas antigas não podem publicar resultados tardios. Sem retry/reconnect automático (inclusive SSE maxRetries:0). Startup tem limite de 30s e HTTP aguarda headers no máximo 15s; um SSE estabelecido permanece ativo. 401/403/409 geram RUNTIME_AUTHENTICATION_FAILED / RUNTIME_AUTHORIZATION_FAILED / RUNTIME_CONFLICT sem bodies ou causes externos.
 
-Primeiro poll aguarda interval. Polling serial, interval nunca reduzido no mesmo fluxo, slow_down aumenta até 60s, Retry-After pode estender a espera até o deadline. Até três retries de falhas transitórias consecutivas; deadline máximo do contrato 600s. Requests têm timeout 15s, startup 30s. Clock/Scheduler injetados devem ser consistentes.
+close runtime ≠ forget ≠ revoke. Close fecha Client/SSE, tenta MCP DELETE com timeout e limpa referências locais; não apaga o store nem revoga autorização. Falha remota no DELETE é best-effort: não impede DISCONNECTED local. AgentSession e seu heartbeat/lifecycle pertencem ao Remote MCP; Core não chama REST de sessão.
 
-Cancelamento aborta requests/timers e ignora resultados tardios. Não executa deny/delete/revoke. Se cancelar durante save, uma implementação não cooperativa pode já ter persistido a credencial: cancelamento não é rollback nem forget. No mesmo Core, novo start/forget fica bloqueado até o save pendente terminar; forget também reserva exclusividade antes de qualquer await. Não iniciar outro processo sobre o mesmo store sem coordenação do adapter.
+B.3 (presence, AgentSession explícita, Operational Context, ContextCollector) e B.4 (Replays) permanecem pendentes. Metadata dos métodos contextuais não implica que o Core os execute.
 
-Exchange emite credencial uma vez. Save falho resulta em CREDENTIAL_PERSISTENCE_FAILED, sem CONNECTED/fallback. CONSUMED sem credencial resulta em EXCHANGE_ALREADY_CONSUMED. Recuperação exige revogação humana adequada e nova autorização; repetir exchange não recupera segredo.
+Logger recebe somente estado/código allowlisted; exceptions externas não são propagadas. Segredos ficam em memória e no store do adapter; liberar referências não garante zeroização em JavaScript. Sem secure store específico de SO.
 
-disconnect ≠ forget ≠ revoke. Forget só chama delete local e não muda autorização no servidor; estado CONNECTED é resultado histórico do fluxo, consulte hasStoredAuthorization para presença local. Disconnect/revoke estão fora de B.1.
-
-## Segurança e testes
-
-HTTPS exceto loopback, sem userinfo/path/query no origin, redirects rejeitados, cookies omitidos, sem PAT. Transporte injetado é uma porta confiável e deve honrar essas restrições e aborts. Logger recebe somente eventos construídos por allowlist, nunca payloads/causes externos. Segredos vivem em memória e no store do adapter; liberação de referências não garante zeroização da memória JS.
-
-npm install; npm run typecheck; npm test; npm run build.
-Testes usam relógio/scheduler e stores fake, sem backend, banco ou armazenamento de SO.
+Validação: npm run typecheck; npm test; npm run build. Testes de B.1 e fixture MCP local via SDK, com segredo artificial, sem internet/backend de produção/banco real.
