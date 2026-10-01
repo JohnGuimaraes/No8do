@@ -1,87 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createIntegrationCore } from "../dist/index.js";
-const secret = "no8do_int_FAKE_TEST_ONLY.not-a-real-secret";
+import { remote, fixture, deferred, protocol, safe, secret } from "./fixtures/remote.mjs";
 const id = "e5c24a61-2c65-40d1-8634-18f7897b2a18";
-const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
-const protocol = () => ({ protocolName: "no8do-agent-protocol", protocolVersion: 2, systemName: "No8do",
-  purpose: "test", replayGuidance: { summary: "test", searchBeforeNonTrivialWork: true,
-    preferExistingKnowledge: true, searchBeforeCreate: true, recordUsageOnlyWhenMateriallyUsed: true,
-    validatedRequiresEvidence: true, avoidTrivialKnowledge: true, avoidDuplicateKnowledge: true,
-    neverStoreSecrets: true, neverStoreCredentials: true, avoidDiscardedAttempts: true },
-  capabilities: { capabilities: [{ id: "REPLAY_READ", description: "test", readOnly: true }] },
-  policies: { policies: [{ id: "test-policy", description: "test", enforcement: "ADVISORY" }] },
-  integrationExtensions: { extensions: [{ id: "no8do-integration", version: 1, operationalContext: {
-    version: 1, getMethod: "no8do/operational-context/get", updateMethod: "no8do/operational-context/update",
-    optimisticConcurrency: "EXPECTED_VERSION" } }] } });
-function fixture(origin, overrides = {}) {
-  const logs = [], keys = []; let deleted = 0;
-  const core = createIntegrationCore({
-    origin: "https://api.no8do.example", verificationOrigin: "https://app.no8do.example", mcpOrigin: origin,
-    installationStore: { async load() { return id; }, async saveIfAbsent() { return id; } },
-    credentialStore: { async load(key) { keys.push(key); return secret; },
-      async save() { throw Error("unused"); }, async delete() { deleted++; } },
-    logger: { log(entry) { logs.push(entry); } }, ...overrides
-  });
-  return { core, logs, keys, deleted: () => deleted };
-}
-async function remote(t, options = {}) {
-  const requests = [], sessions = new Map(), toolEntered = deferred(), initEntered = deferred(), sseEntered = deferred(), deleteEntered = deferred();
-  let sseResponse;
-  let initializes = 0, deletes = 0, tools = 0;
-  const http = createServer(async (req, res) => {
-    const chunks = []; for await (const chunk of req) chunks.push(chunk);
-    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
-    requests.push({ method: req.method, url: req.url, headers: req.headers, body });
-    if (options.status) { res.writeHead(options.status); res.end(secret); return; }
-    if (options.redirect) { res.writeHead(307, { location: options.redirect }); res.end(); return; }
-    if (req.method === "GET") {
-      if (options.sse) { sseResponse = res; res.writeHead(200, { "content-type": "text/event-stream" }); res.write(": keepalive\\n\\n".replaceAll("\\n", "\n")); sseEntered.resolve(); return; }
-      res.writeHead(405); res.end(); return;
-    }
-    const sessionId = req.headers["mcp-session-id"];
-    let transport = sessions.get(sessionId);
-    if (body?.method === "initialize") {
-      initializes++; initEntered.resolve();
-      if (options.initGate) await options.initGate.promise;
-      if (res.destroyed) return;
-      const server = new Server({ name: "local-test", version: "1" }, { capabilities: { tools: {} } });
-      server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [{ name: "get_agent_protocol", inputSchema: { type: "object" } }] }));
-      server.setRequestHandler(CallToolRequestSchema, async request => {
-        assert.equal(request.params.name, "get_agent_protocol");
-        assert.deepEqual(request.params.arguments, {});
-        tools++; toolEntered.resolve();
-        if (options.toolGate) await options.toolGate.promise;
-        return { content: [], structuredContent: options.protocol ?? protocol() };
-      });
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => "fake-session-" + initializes, enableJsonResponse: true,
-        onsessioninitialized: sid => sessions.set(sid, transport),
-        onsessionclosed: sid => { sessions.delete(sid); }
-      });
-      await server.connect(transport);
-    }
-    if (!transport) { res.writeHead(404); res.end(); return; }
-    if (req.method === "DELETE") { deletes++; deleteEntered.resolve(); if (options.deleteGate) await options.deleteGate.promise; }
-    await transport.handleRequest(req, res, body);
-  });
-  await new Promise(resolve => http.listen(0, "127.0.0.1", resolve));
-  t.after(async () => {
-    for (const transport of sessions.values()) await transport.close();
-    http.closeAllConnections();
-    await new Promise(resolve => http.close(resolve));
-  });
-  return { origin: "http://127.0.0.1:" + http.address().port, requests, toolEntered, initEntered, sseEntered, deleteEntered, failSse: () => sseResponse.destroy(),
-    counts: () => ({ initializes, deletes, tools }) };
-}
-function safe(f, error) {
-  assert.ok(!JSON.stringify([f.core.getRuntimeState(), f.core.getNegotiatedProtocol(), f.logs, error]).includes(secret));
-  assert.ok(!String(error).includes(secret));
-}
 test("real SDK initialize, bearer on every method, neutral identity, separate state and immutable metadata", async t => {
   const r = await remote(t), f = fixture(r.origin + "/");
   t.after(() => f.core.closeRuntime());
@@ -210,7 +131,8 @@ test("public boundary has no generic MCP, replay, operational context or session
   assert.deepEqual(Object.keys(f.core).sort(), [
     "startAuthorization", "cancelAuthorization", "getAuthorizationState", "waitForAuthorization",
     "getInstallationId", "hasStoredAuthorization", "forgetLocalAuthorization",
-    "connectRuntime", "getRuntimeState", "getNegotiatedProtocol", "closeRuntime"
+    "connectRuntime", "getRuntimeState", "getNegotiatedProtocol", "closeRuntime",
+    "getAgentSessionContext", "getOperationalContext", "replaceOperationalContext"
   ].sort());
 });
 

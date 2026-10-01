@@ -1,3 +1,4 @@
+export type { AgentSessionContext, OperationalContextSignal, OperationalContextUpdate, OperationalContext, OperationalContextRead } from "./runtime/context.js";
 import { RemoteMcpClient } from "./runtime/RemoteMcpClient.js";
 export type { RuntimeConnectionState, RuntimeConnectionStatus } from "./runtime/RemoteMcpClient.js";
 export type { NegotiatedProtocol } from "./runtime/protocol.js";
@@ -31,6 +32,9 @@ export function createIntegrationCore(options: CoreOptions) {
   const runtime = new RemoteMcpClient(options.mcpOrigin === undefined ? undefined : trustedOrigin(options.mcpOrigin), options.credentialStore, key, logger);
   let forgetting = false;
   return {
+    getAgentSessionContext: runtime.getAgentSessionContext,
+    getOperationalContext: runtime.getOperationalContext,
+    replaceOperationalContext: runtime.replaceOperationalContext,
     connectRuntime: runtime.connect,
     getRuntimeState: runtime.getState,
     getNegotiatedProtocol: runtime.getProtocol,
