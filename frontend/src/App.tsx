@@ -3,6 +3,8 @@ import { CaretDown, Circle, GearSix, Question, SignOut, SlidersHorizontal, UserC
 import no8doIcon from "@/assets/logo/no8do-icone.png";
 import { PreferencesPage, ProfilePage } from "@/account/AccountPages";
 import { LoginPage } from "@/auth/LoginPage";
+import { ConnectionPage } from "@/integrations/connection/ConnectionPage";
+import { clearConnectionReturn, hasConnectionReturn, rememberConnectionReturn, loginIntentDestination } from "@/integrations/connection/connectionApi";
 import { PasswordForgotPage, PasswordResetPage } from "@/auth/PasswordResetPages";
 import { RegisterPage } from "@/auth/RegisterPage";
 import { useAuth } from "@/auth/AuthContext";
@@ -22,6 +24,7 @@ type AppRoute =
   | { view: "workspace"; workspaceId?: string; section: WorkspaceSection; replayId?: string }
   | { view: "project-details"; workspaceId: string; projectId: string; section: WorkspaceSection }
   | { view: "login" }
+  | { view: "integration-connect" }
   | { view: "register" }
   | { view: "forgot-password" }
   | { view: "profile" }
@@ -32,6 +35,7 @@ type AppRoute =
   | { view: "workspace-settings"; workspaceId: string };
 function readRoute(): AppRoute {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === "/connect/no8do") return { view: "integration-connect" };
   if (pathname === "/login") return { view: "login" };
   if (pathname === "/register") return { view: "register" };
   if (pathname === "/forgot-password") return { view: "forgot-password" };
@@ -135,7 +139,7 @@ function useBackendHealth() {
 }
 
 function App() {
-  const { status, user, logout, deleteAccount } = useAuth();
+  const { status, user, logout, deleteAccount, loadCurrentUser } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
@@ -189,16 +193,24 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (status === "unauthenticated" && !isAuthenticationRoute(route) && route.view !== "invite") {
+    if (status === "unauthenticated" && !isAuthenticationRoute(route) && route.view !== "invite" && route.view !== "integration-connect") {
       const search = new URLSearchParams(window.location.search);
       const googleError = search.get("authError");
       replaceNavigation(googleError ? `/login?authError=${encodeURIComponent(googleError)}` : "/login");
     }
     const inviteToken = new URLSearchParams(window.location.search).get("invite");
     if (status === "authenticated" && route.view === "login" && inviteToken) {
-      replaceNavigation(`/invite?token=${encodeURIComponent(inviteToken)}`);
+      clearConnectionReturn();
+      replaceNavigation(loginIntentDestination(inviteToken, false)!);
       return;
     }
+    if (status === "authenticated" && hasConnectionReturn()
+      && (isAuthenticationRoute(route) || (route.view === "workspace" && !route.workspaceId))) {
+      clearConnectionReturn();
+      replaceNavigation(loginIntentDestination(null, true)!);
+      return;
+    }
+    if (status === "authenticated" && route.view === "integration-connect") clearConnectionReturn();
     if (status === "authenticated" && isAuthenticationRoute(route)) {
       replaceNavigation("/");
     }
@@ -307,11 +319,14 @@ function App() {
       return <PasswordForgotPage onShowLogin={() => navigate("/login")} />;
     }
     return <LoginPage
-      onShowRegister={() => navigate("/register")}
-      onShowForgotPassword={() => navigate("/forgot-password")}
+      onShowRegister={() => { if (route.view === "integration-connect") rememberConnectionReturn(); navigate("/register"); }}
+      onShowForgotPassword={() => { if (route.view === "integration-connect") rememberConnectionReturn(); navigate("/forgot-password"); }}
       googleError={getGoogleAuthenticationError()}
+      connectionContext={route.view === "integration-connect" || hasConnectionReturn()}
     />;
   }
+
+  if (route.view === "integration-connect") return <ConnectionPage onSessionExpired={loadCurrentUser} />;
 
   if (route.view === "invite") {
     return <WorkspaceInvitePage token={route.token} onAccepted={(workspaceId) => replaceNavigation(workspacePath(workspaceId, "overview"))} onShowLogin={() => navigate(`/login?invite=${encodeURIComponent(route.token)}`)} />;

@@ -5,14 +5,16 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/auth/AuthContext";
 import { WorkspaceNodeGraphic } from "@/components/visual/WorkspaceNodeGraphic";
 import { ApiRequestError, getApiUrl } from "@/lib/api";
+import { rememberConnectionReturn } from "@/integrations/connection/connectionApi";
 
 type LoginPageProps = {
   onShowRegister: () => void;
   onShowForgotPassword: () => void;
   googleError?: string | null;
+  connectionContext?: boolean;
 };
 
-export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = null }: LoginPageProps) {
+export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = null, connectionContext = false }: LoginPageProps) {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +32,7 @@ export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = 
     } catch (err) {
       setError(err instanceof ApiRequestError && err.status === 401
         ? "E-mail ou senha inválidos."
+        : connectionContext ? "Não foi possível entrar agora. Tente novamente."
         : err instanceof Error ? err.message : "Nao foi possivel entrar.");
     } finally {
       setSubmitting(false);
@@ -37,13 +40,18 @@ export function LoginPage({ onShowRegister, onShowForgotPassword, googleError = 
   }
 
   function handleGoogleLogin() {
+    if (connectionContext && !rememberConnectionReturn()) {
+      setError("Não foi possível preservar o retorno à conexão. Entre com e-mail e senha nesta tela.");
+      return;
+    }
     setConnectingGoogle(true);
     window.location.assign(getApiUrl("/api/auth/google"));
   }
 
   return (
-    <AuthShell eyebrow="No8do" title="Entre no seu workspace">
-      <form className="flex w-full flex-col gap-4" onSubmit={handleSubmit}>
+    <AuthShell eyebrow="No8do" title={connectionContext ? "Entre para conectar" : "Entre no seu workspace"}>
+      {connectionContext ? <p className="text-sm text-muted-foreground">Entre na sua conta para revisar a integração. Nenhuma conexão será aprovada automaticamente.</p> : null}
+      <form className="flex w-full flex-col gap-4" onSubmit={handleSubmit} noValidate={connectionContext}>
         <Field
           label="E-mail"
           name="email"
