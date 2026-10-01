@@ -1,3 +1,4 @@
+export type { ReplaySummary, ReplayDetail, SimilarReplay, ReplayQuality, ReplayVersion, ReplayRelation, ReusableKnowledge, FindReusableKnowledgeInput, ReplayType } from "./runtime/replays.js";
 export type { AgentSessionContext, OperationalContextSignal, OperationalContextUpdate, OperationalContext, OperationalContextRead } from "./runtime/context.js";
 import { RemoteMcpClient } from "./runtime/RemoteMcpClient.js";
 export type { RuntimeConnectionState, RuntimeConnectionStatus } from "./runtime/RemoteMcpClient.js";
@@ -32,6 +33,14 @@ export function createIntegrationCore(options: CoreOptions) {
   const runtime = new RemoteMcpClient(options.mcpOrigin === undefined ? undefined : trustedOrigin(options.mcpOrigin), options.credentialStore, key, logger);
   let forgetting = false;
   return {
+    listReplays: runtime.listReplays,
+    searchReplays: runtime.searchReplays,
+    findReusableKnowledge: runtime.findReusableKnowledge,
+    getReplay: runtime.getReplay,
+    getReplayQuality: runtime.getReplayQuality,
+    listReplayVersions: runtime.listReplayVersions,
+    getReplayVersion: runtime.getReplayVersion,
+    listReplayRelations: runtime.listReplayRelations,
     getAgentSessionContext: runtime.getAgentSessionContext,
     getOperationalContext: runtime.getOperationalContext,
     replaceOperationalContext: runtime.replaceOperationalContext,

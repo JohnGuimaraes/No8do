@@ -1,3 +1,4 @@
+import { summariesSchema, detailSchema, suggestionsSchema, qualitySchema, versionsSchema, versionSchema, relationsSchema, parseReplay, validateReplayInput, replayIdInput, replayVersionInput, searchInput, discoveryInput, type FindReusableKnowledgeInput } from "./replays.js";
 import { McpError, ErrorCode as McpErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { operationalReadSchema, operationalResponseSchema, parseSession, parseOperational, parseOperationalRead, validateUpdate,
   type AgentSessionContext, type OperationalContext, type OperationalContextRead, type OperationalContextUpdate } from "./context.js";
@@ -233,6 +234,55 @@ export class RemoteMcpClient {
     const value = parseOperational(result);
     this.#observe(a, value.sessionId);
     return value;
+  };
+  async #replay<T>(name: string, args: Record<string, unknown>, schema: import("zod").z.ZodType<T>) {
+    const a = this.#require();
+    // Observe authority on this attempt only. Never treat its grants as future authorization.
+    if (!a.workspaceId) await this.getAgentSessionContext();
+    this.#assertOwner(a);
+    const result = await this.#contextRequest(a, () => a.client!.callTool(
+      { name, arguments: args }, undefined, { signal: a.abort.signal, timeout: 15_000 }));
+    this.#assertOwner(a);
+    const value = parseReplay(result, schema);
+    if (name === "get_replay") {
+      const detail = value as { workspaceId: string; id: string };
+      if (detail.workspaceId !== a.workspaceId || detail.id !== args.replayId) throw new CoreError("INVALID_RESPONSE");
+    }
+    if (name === "get_replay_version" && (value as { version: number }).version !== args.version)
+      throw new CoreError("INVALID_RESPONSE");
+    return value;
+  }
+  listReplays = async (...args: []) => {
+    this.#require(); if (args.length) throw new CoreError("INVALID_INPUT");
+    return this.#replay("list_replays", {}, summariesSchema);
+  };
+  searchReplays = async (...args: [query: string]) => {
+    this.#require(); const [query] = validateReplayInput(searchInput, args);
+    return this.#replay("search_replays", { query }, summariesSchema);
+  };
+  findReusableKnowledge = async (...args: [input: FindReusableKnowledgeInput]) => {
+    this.#require(); const [input] = validateReplayInput(discoveryInput, args);
+    return this.#replay("find_reusable_knowledge", input, suggestionsSchema);
+  };
+  getReplay = async (...args: [replayId: string]) => {
+    this.#require(); const [replayId] = validateReplayInput(replayIdInput, args);
+    return this.#replay("get_replay", { replayId }, detailSchema);
+  };
+  getReplayQuality = async (...args: [replayId: string]) => {
+    this.#require(); const [replayId] = validateReplayInput(replayIdInput, args);
+    return this.#replay("get_replay_quality", { replayId }, qualitySchema);
+  };
+  listReplayVersions = async (...args: [replayId: string]) => {
+    this.#require(); const [replayId] = validateReplayInput(replayIdInput, args);
+    return this.#replay("list_replay_versions", { replayId }, versionsSchema);
+  };
+  getReplayVersion = async (...args: [replayId: string, version: number]) => {
+    this.#require(); const [replayId, version] = validateReplayInput(replayVersionInput, args);
+    return this.#replay("get_replay_version", { replayId, version }, versionSchema);
+  };
+  listReplayRelations = async (...args: [replayId: string]) => {
+    this.#require(); const [replayId] = validateReplayInput(replayIdInput, args);
+    return this.#replay("list_replay_relations", { replayId }, relationsSchema);
   };
   #untilAbort<T>(a: Attempt, work: Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
